@@ -87,6 +87,9 @@ interface JellyfinRepository {
         offline: Boolean = false,
     ): List<FindroidEpisode>
 
+    /** Every episode of a show across all seasons, in no particular order. */
+    suspend fun getAllEpisodes(seriesId: UUID): List<FindroidEpisode>
+
     suspend fun getMediaSources(itemId: UUID, includePath: Boolean = false): List<FindroidSource>
 
     suspend fun getStreamUrl(itemId: UUID, mediaSourceId: String): String

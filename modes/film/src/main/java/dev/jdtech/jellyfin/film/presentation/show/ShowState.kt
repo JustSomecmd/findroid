@@ -12,5 +12,9 @@ data class ShowState(
     val actors: List<FindroidItemPerson> = emptyList(),
     val director: FindroidItemPerson? = null,
     val writers: List<FindroidItemPerson> = emptyList(),
+    /** When true, the page lists [episodes] instead of Next up and the seasons row. */
+    val showAllEpisodes: Boolean = false,
+    val episodes: List<FindroidEpisode> = emptyList(),
+    val newestFirst: Boolean = true,
     val error: Exception? = null,
 )

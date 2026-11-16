@@ -116,6 +116,9 @@
     <string name="download_error_server_unreachable">Could not reach the server to continue the download</string>
     <string name="download_error_gave_up">Download stopped after repeated connection problems</string>
     <string name="title_playlists">Playlists</string>
+    <string name="sort_newest_first">Newest first</string>
+    <string name="sort_oldest_first">Oldest first</string>
+    <string name="show_more">Show more</string>
     <string name="no_playlists">You have no video playlists</string>
     <string name="playlist_empty">This playlist has no movies or episodes</string>
 </resources>

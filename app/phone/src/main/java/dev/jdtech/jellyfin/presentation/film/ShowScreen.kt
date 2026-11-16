@@ -22,10 +22,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +54,7 @@ import dev.jdtech.jellyfin.film.presentation.show.ShowViewModel
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.presentation.film.components.ActorsRow
 import dev.jdtech.jellyfin.presentation.film.components.Direction
+import dev.jdtech.jellyfin.presentation.film.components.EpisodeCard
 import dev.jdtech.jellyfin.presentation.film.components.InfoText
 import dev.jdtech.jellyfin.presentation.film.components.ItemButtonsBar
 import dev.jdtech.jellyfin.presentation.film.components.ItemCard
@@ -116,6 +122,9 @@ private fun ShowScreenLayout(state: ShowState, onAction: (ShowAction) -> Unit) {
     val paddingBottom = safePadding.bottom + MaterialTheme.spacings.default
 
     val scrollState = rememberScrollState()
+
+    // The page is not a lazy list, so long episode lists are shown in steps
+    var visibleEpisodeCount by rememberSaveable { mutableIntStateOf(EPISODE_PAGE_SIZE) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         state.show?.let { show ->
@@ -252,7 +261,55 @@ private fun ShowScreenLayout(state: ShowState, onAction: (ShowAction) -> Unit) {
                     }
                 }
 
-                if (state.seasons.isNotEmpty()) {
+                if (state.showAllEpisodes && state.episodes.isNotEmpty()) {
+                    Column(modifier = Modifier.padding(start = paddingStart, end = paddingEnd)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(CoreR.string.episodes_label),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            TextButton(onClick = { onAction(ShowAction.ToggleEpisodeOrder) }) {
+                                Icon(
+                                    painter = painterResource(CoreR.drawable.ic_arrow_down_up),
+                                    contentDescription = null,
+                                )
+                                Spacer(Modifier.width(MaterialTheme.spacings.small))
+                                Text(
+                                    text =
+                                        stringResource(
+                                            if (state.newestFirst) CoreR.string.sort_newest_first
+                                            else CoreR.string.sort_oldest_first
+                                        )
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(MaterialTheme.spacings.small))
+                        state.episodes.take(visibleEpisodeCount).forEach { episode ->
+                            EpisodeCard(
+                                episode = episode,
+                                onClick = { onAction(ShowAction.NavigateToItem(episode)) },
+                                showSeasonNumber = true,
+                                showReleaseDate = true,
+                            )
+                            Spacer(Modifier.height(MaterialTheme.spacings.small))
+                        }
+                        if (state.episodes.size > visibleEpisodeCount) {
+                            OutlinedButton(
+                                onClick = { visibleEpisodeCount += EPISODE_PAGE_SIZE },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(text = stringResource(CoreR.string.show_more))
+                            }
+                        }
+                        Spacer(Modifier.height(MaterialTheme.spacings.medium))
+                    }
+                }
+
+                if (!state.showAllEpisodes && state.seasons.isNotEmpty()) {
                     Column(modifier = Modifier.padding(start = paddingStart, end = paddingEnd)) {
                         Text(
                             text = stringResource(CoreR.string.seasons),
@@ -303,3 +360,5 @@ private fun ShowScreenLayout(state: ShowState, onAction: (ShowAction) -> Unit) {
 private fun EpisodeScreenLayoutPreview() {
     FindroidTheme { ShowScreenLayout(state = ShowState(show = dummyShow), onAction = {}) }
 }
+
+private const val EPISODE_PAGE_SIZE = 30

@@ -305,6 +305,15 @@ class JellyfinRepositoryImpl(
             }
         }
 
+    override suspend fun getAllEpisodes(seriesId: UUID): List<FindroidEpisode> =
+        withContext(Dispatchers.IO) {
+            jellyfinApi.showApi
+                .getEpisodes(seriesId, jellyfinApi.userId!!)
+                .content
+                .items
+                .mapNotNull { it.toFindroidEpisode(this@JellyfinRepositoryImpl, database) }
+        }
+
     override suspend fun getMediaSources(itemId: UUID, includePath: Boolean): List<FindroidSource> =
         withContext(Dispatchers.IO) {
             val sources = mutableListOf<FindroidSource>()

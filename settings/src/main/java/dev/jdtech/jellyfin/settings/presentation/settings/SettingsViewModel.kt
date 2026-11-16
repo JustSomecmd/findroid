@@ -223,7 +223,15 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                         R.string.extra_info_summary,
                                                     backendPreference =
                                                         appPreferences.displayExtraInfo,
-                                                )
+                                                ),
+                                                PreferenceSwitch(
+                                                    nameStringResource = R.string.show_all_episodes,
+                                                    descriptionStringRes =
+                                                        R.string.show_all_episodes_summary,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.showAllEpisodes,
+                                                ),
                                             )
                                     ),
                                 ),

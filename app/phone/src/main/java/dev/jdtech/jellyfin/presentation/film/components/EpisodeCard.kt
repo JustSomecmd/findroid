@@ -30,9 +30,17 @@ import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.utils.format
 
 @Composable
-fun EpisodeCard(episode: FindroidEpisode, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun EpisodeCard(
+    episode: FindroidEpisode,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    // Used when episodes from several seasons are listed together
+    showSeasonNumber: Boolean = false,
+    showReleaseDate: Boolean = false,
+) {
     val backgroundColor = MaterialTheme.colorScheme.background
 
     Row(
@@ -62,15 +70,34 @@ fun EpisodeCard(episode: FindroidEpisode, onClick: () -> Unit, modifier: Modifie
             Column {
                 Text(
                     text =
-                        stringResource(
-                            id = dev.jdtech.jellyfin.core.R.string.episode_name,
-                            episode.indexNumber,
-                            episode.name,
-                        ),
+                        if (showSeasonNumber) {
+                            stringResource(
+                                id = dev.jdtech.jellyfin.core.R.string.episode_name_extended,
+                                episode.parentIndexNumber,
+                                episode.indexNumber,
+                                episode.name,
+                            )
+                        } else {
+                            stringResource(
+                                id = dev.jdtech.jellyfin.core.R.string.episode_name,
+                                episode.indexNumber,
+                                episode.name,
+                            )
+                        },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                if (showReleaseDate) {
+                    episode.premiereDate?.let { premiereDate ->
+                        Text(
+                            text = premiereDate.format(),
+                            modifier = Modifier.alpha(0.7f),
+                            maxLines = 1,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
                 Text(
                     text = episode.overview,
                     modifier = Modifier.alpha(0.7f),
