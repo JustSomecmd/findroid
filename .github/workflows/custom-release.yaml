@@ -59,6 +59,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           ./gradlew :app:phone:assembleLibreRelease \
+            -PcustomBuildNumber=${{ github.run_number }} \
             -Pandroid.injected.signing.store.file="$RUNNER_TEMP/release.jks" \
             -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
@@ -68,11 +69,21 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
 
+      # The release is named after the app's version, so update checkers like Obtainium can
+      # compare it with the installed version
+      - name: Read version
+        run: |
+          apk=$(ls app/phone/build/outputs/apk/libre/release/findroid-v*-libre-arm64-v8a.apk)
+          name=$(basename "$apk")
+          version=${name#findroid-v}
+          version=${version%-libre-arm64-v8a.apk}
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: custom-${{ github.run_number }}
-          name: Findroid+ build ${{ github.run_number }}
+          tag_name: ${{ env.VERSION }}
+          name: Findroid+ ${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
           make_latest: true
           fail_on_unmatched_files: true

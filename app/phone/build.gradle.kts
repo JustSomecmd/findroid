@@ -85,9 +85,18 @@ android {
     }
 }
 
+// Personal builds from GitHub Actions pass their run number, so every build gets a higher version
+// code and its own version name (for example 1.2.0-custom.5). Android and Obtainium then treat
+// each new build as an update of the installed one.
+val customBuildNumber = providers.gradleProperty("customBuildNumber").orNull?.toIntOrNull()
+
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
         variant.outputs.forEach { output ->
+            if (customBuildNumber != null) {
+                output.versionCode.set(Versions.APP_CODE * 10000 + customBuildNumber)
+                output.versionName.set("${Versions.APP_NAME}-custom.$customBuildNumber")
+            }
             val abi =
                 output.filters
                     .firstOrNull { it.filterType == FilterConfiguration.FilterType.ABI }
