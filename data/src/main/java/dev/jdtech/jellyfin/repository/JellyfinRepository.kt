@@ -4,7 +4,6 @@ import androidx.paging.PagingData
 import dev.jdtech.jellyfin.models.FindroidCollection
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
-import dev.jdtech.jellyfin.models.FindroidItemPerson
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidPerson
 import dev.jdtech.jellyfin.models.FindroidPlaylist
@@ -75,8 +74,6 @@ interface JellyfinRepository {
         types: List<BaseItemKind>,
         limit: Int? = null,
     ): List<FindroidItem>
-
-    suspend fun searchPeople(query: String, limit: Int? = null): List<FindroidItemPerson>
 
     suspend fun getSuggestions(): List<FindroidItem>
 

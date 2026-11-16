@@ -80,9 +80,9 @@ class SearchViewModel @Inject constructor(private val repository: JellyfinReposi
 
             _state.emit(_state.value.copy(loading = true))
 
-            val (sections, people) =
-                coroutineScope {
-                    val sectionResults = sectionTypes.map { type ->
+            val sections = coroutineScope {
+                sectionTypes
+                    .map { type ->
                         async {
                             val items = searchSafely {
                                 repository.searchItems(trimmed, type.types, type.limit)
@@ -90,22 +90,15 @@ class SearchViewModel @Inject constructor(private val repository: JellyfinReposi
                             CollectionSection(type.id, type.name, items)
                         }
                     }
-                    val peopleResult = async {
-                        searchSafely { repository.searchPeople(trimmed, PEOPLE_LIMIT) }
-                    }
-                    Pair(
-                        sectionResults.map { it.await() }.filter { it.items.isNotEmpty() },
-                        peopleResult.await(),
-                    )
-                }
+                    .map { it.await() }
+                    .filter { it.items.isNotEmpty() }
+            }
 
-            _state.emit(
-                SearchState(sections = sections, people = people, query = trimmed, loading = false)
-            )
+            _state.emit(SearchState(sections = sections, query = trimmed, loading = false))
         }
     }
 
-    /** One failing search type (for example people while offline) doesn't hide the others. */
+    /** One failing search type doesn't hide the others. */
     private suspend fun <T> searchSafely(block: suspend () -> List<T>): List<T> =
         try {
             block()
@@ -131,6 +124,5 @@ class SearchViewModel @Inject constructor(private val repository: JellyfinReposi
         private const val SECTION_EPISODES = 2
         private const val SECTION_COLLECTIONS = 3
         private const val SECTION_PLAYLISTS = 4
-        private const val PEOPLE_LIMIT = 20
     }
 }

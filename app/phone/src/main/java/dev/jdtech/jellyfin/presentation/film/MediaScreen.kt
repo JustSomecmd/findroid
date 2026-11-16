@@ -42,13 +42,11 @@ import dev.jdtech.jellyfin.presentation.film.components.ItemCard
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.utils.rememberSafePadding
-import java.util.UUID
 
 @Composable
 fun MediaScreen(
     onItemClick: (FindroidItem) -> Unit,
     onFavoritesClick: () -> Unit,
-    onPersonClick: (UUID) -> Unit,
     searchExpanded: Boolean,
     onSearchExpand: (Boolean) -> Unit,
     viewModel: MediaViewModel = hiltViewModel(),
@@ -75,7 +73,6 @@ fun MediaScreen(
         onSearchAction = { action ->
             when (action) {
                 is SearchAction.OnItemClick -> onItemClick(action.item)
-                is SearchAction.OnPersonClick -> onPersonClick(action.personId)
                 else -> Unit
             }
             searchViewModel.onAction(action)

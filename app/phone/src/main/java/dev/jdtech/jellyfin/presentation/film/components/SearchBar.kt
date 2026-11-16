@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -194,20 +193,6 @@ fun FilmSearchBar(
                         onClick = { onAction(SearchAction.OnItemClick(item)) },
                         modifier = Modifier.animateItem(),
                     )
-                }
-            }
-            if (state.people.isNotEmpty()) {
-                item(key = "people", span = { GridItemSpan(maxLineSpan) }) {
-                    Column {
-                        ActorsRow(
-                            actors = state.people,
-                            onActorClick = { personId ->
-                                onAction(SearchAction.OnPersonClick(personId))
-                            },
-                            contentPadding = PaddingValues(0.dp),
-                            title = stringResource(CoreR.string.people_label),
-                        )
-                    }
                 }
             }
             if (!state.loading && state.query.isNotEmpty() && !state.hasResults) {

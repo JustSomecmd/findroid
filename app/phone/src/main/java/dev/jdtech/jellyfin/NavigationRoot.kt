@@ -460,10 +460,6 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         MediaScreen(
             onItemClick = resumedAction { item -> navigateToItem(navigator, item) },
             onFavoritesClick = dropUnlessResumed { navigator.navigate(FavoritesRoute) },
-            onPersonClick =
-                resumedAction { personId ->
-                    navigator.navigate(PersonRoute(personId = personId.toString()))
-                },
             searchExpanded = searchExpanded.value,
             onSearchExpand = { searchExpanded.value = it },
         )

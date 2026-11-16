@@ -23,11 +23,10 @@ fun ActorsRow(
     actors: List<FindroidItemPerson>,
     onActorClick: (personId: UUID) -> Unit,
     contentPadding: PaddingValues,
-    title: String = stringResource(CoreR.string.cast_amp_crew),
 ) {
     Column(modifier = Modifier.padding(contentPadding)) {
         Text(
-            text = title,
+            text = stringResource(CoreR.string.cast_amp_crew),
             style = MaterialTheme.typography.titleMedium,
         )
         Spacer(Modifier.height(MaterialTheme.spacings.small))

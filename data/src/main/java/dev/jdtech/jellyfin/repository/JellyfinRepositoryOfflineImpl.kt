@@ -7,7 +7,6 @@ import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.models.FindroidCollection
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
-import dev.jdtech.jellyfin.models.FindroidItemPerson
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidPerson
 import dev.jdtech.jellyfin.models.FindroidPlaylist
@@ -166,10 +165,6 @@ class JellyfinRepositoryOfflineImpl(
             }
             if (limit != null) items.take(limit) else items
         }
-
-    // People are only known to the server
-    override suspend fun searchPeople(query: String, limit: Int?): List<FindroidItemPerson> =
-        emptyList()
 
     override suspend fun getSuggestions(): List<FindroidItem> {
         return emptyList()

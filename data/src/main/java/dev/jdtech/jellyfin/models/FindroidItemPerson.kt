@@ -3,7 +3,6 @@ package dev.jdtech.jellyfin.models
 import android.net.Uri
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import java.util.UUID
-import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemPerson
 import org.jellyfin.sdk.model.api.ImageType
 import org.jellyfin.sdk.model.api.PersonKind
@@ -40,32 +39,5 @@ fun BaseItemPerson.toFindroidPerson(repository: JellyfinRepository): FindroidIte
         type = type,
         role = role.orEmpty(),
         image = toFindroidImage(repository),
-    )
-}
-
-/** Converts a person found through search, which has no role in a specific item. */
-fun BaseItemDto.toFindroidItemPerson(repository: JellyfinRepository): FindroidItemPerson {
-    val baseUrl = Uri.parse(repository.getBaseUrl())
-    val primaryImageTag = imageTags?.get(ImageType.PRIMARY)
-    return FindroidItemPerson(
-        id = id,
-        name = name.orEmpty(),
-        type = PersonKind.UNKNOWN,
-        role = "",
-        image =
-            FindroidItemPersonImage(
-                uri =
-                    primaryImageTag?.let { tag ->
-                        baseUrl
-                            .buildUpon()
-                            .appendEncodedPath("items/$id/Images/${ImageType.PRIMARY}")
-                            .appendQueryParameter("tag", tag)
-                            .build()
-                    },
-                blurHash =
-                    primaryImageTag?.let { tag ->
-                        imageBlurHashes?.get(ImageType.PRIMARY)?.get(tag)
-                    },
-            ),
     )
 }
