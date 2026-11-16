@@ -6,6 +6,7 @@ import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidPerson
+import dev.jdtech.jellyfin.models.FindroidPlaylist
 import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidShow
@@ -117,6 +118,15 @@ interface JellyfinRepository {
     suspend fun getUserConfiguration(): UserConfiguration?
 
     suspend fun getDownloads(): List<FindroidItem>
+
+    /** Every downloaded episode on this device for the current server. */
+    suspend fun getDownloadedEpisodes(): List<FindroidEpisode>
+
+    /** The user's playlists that can contain videos. */
+    suspend fun getPlaylists(): List<FindroidPlaylist>
+
+    /** The movies and episodes in a playlist, in playlist order. */
+    suspend fun getPlaylistItems(playlistId: UUID): List<FindroidItem>
 
     fun getUserId(): UUID
 }

@@ -42,6 +42,7 @@ import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidFolder
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
+import dev.jdtech.jellyfin.models.FindroidPlaylist
 import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.navigation.navigateOrReuse
@@ -50,6 +51,8 @@ import dev.jdtech.jellyfin.presentation.film.CollectionScreen
 import dev.jdtech.jellyfin.presentation.film.DownloadsScreen
 import dev.jdtech.jellyfin.presentation.film.EpisodeScreen
 import dev.jdtech.jellyfin.presentation.film.FavoritesScreen
+import dev.jdtech.jellyfin.presentation.film.PlaylistScreen
+import dev.jdtech.jellyfin.presentation.film.PlaylistsScreen
 import dev.jdtech.jellyfin.presentation.film.HomeScreen
 import dev.jdtech.jellyfin.presentation.film.LibraryScreen
 import dev.jdtech.jellyfin.presentation.film.MediaScreen
@@ -72,7 +75,7 @@ import dev.jdtech.jellyfin.setup.presentation.permission.PermissionAction
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionViewModel
 import java.util.UUID
 
-private val TOP_LEVEL_ROUTES = setOf(HomeRoute, MediaRoute, DownloadsRoute)
+private val TOP_LEVEL_ROUTES = setOf(HomeRoute, MediaRoute, PlaylistsRoute, DownloadsRoute)
 private val GLOBAL_TRANSITION_SPEC = fadeIn(tween(300)) togetherWith fadeOut(tween(300))
 
 data class TabBarItem(
@@ -97,6 +100,13 @@ val downloadsTab =
         title = CoreR.string.title_download,
         icon = CoreR.drawable.ic_download,
         route = DownloadsRoute,
+    )
+
+val playlistsTab =
+    TabBarItem(
+        title = CoreR.string.title_playlists,
+        icon = CoreR.drawable.ic_list_video,
+        route = PlaylistsRoute,
     )
 
 @Composable
@@ -205,7 +215,7 @@ private fun MainNavigation(
 ) {
     val navigationItems =
         when (isOfflineMode) {
-            false -> listOf(homeTab, mediaTab, downloadsTab)
+            false -> listOf(homeTab, mediaTab, playlistsTab, downloadsTab)
             true -> listOf(homeTab, downloadsTab)
         }
     val tabRoutes = navigationItems.map { it.route }
@@ -465,6 +475,17 @@ private fun EntryProviderScope<NavKey>.mainEntries(
                 }
         )
     }
+    entry<PlaylistsRoute> {
+        PlaylistsScreen(onItemClick = resumedAction { item -> navigateToItem(navigator, item) })
+    }
+    entry<PlaylistRoute> { key ->
+        PlaylistScreen(
+            playlistId = UUID.fromString(key.playlistId),
+            playlistName = key.playlistName,
+            onItemClick = resumedAction { item -> navigateToItem(navigator, item) },
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+        )
+    }
     entry<LibraryRoute> { key ->
         LibraryScreen(
             libraryId = UUID.fromString(key.libraryId),
@@ -598,6 +619,10 @@ private fun navigateToItem(navigator: Navigator, item: FindroidItem) {
         is FindroidShow -> navigator.navigate(ShowRoute(showId = item.id.toString()))
         is FindroidSeason -> navigator.navigate(SeasonRoute(seasonId = item.id.toString()))
         is FindroidEpisode -> navigator.navigate(EpisodeRoute(episodeId = item.id.toString()))
+        is FindroidPlaylist ->
+            navigator.navigate(
+                PlaylistRoute(playlistId = item.id.toString(), playlistName = item.name)
+            )
         is FindroidCollection ->
             navigator.navigate(
                 LibraryRoute(

@@ -115,4 +115,7 @@
     <string name="download_error_http">The server responded with error %1$d</string>
     <string name="download_error_server_unreachable">Could not reach the server to continue the download</string>
     <string name="download_error_gave_up">Download stopped after repeated connection problems</string>
+    <string name="title_playlists">Playlists</string>
+    <string name="no_playlists">You have no video playlists</string>
+    <string name="playlist_empty">This playlist has no movies or episodes</string>
 </resources>

@@ -9,6 +9,7 @@ import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidPerson
+import dev.jdtech.jellyfin.models.FindroidPlaylist
 import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidShow
@@ -322,6 +323,18 @@ class JellyfinRepositoryOfflineImpl(
             )
             items
         }
+
+    override suspend fun getDownloadedEpisodes(): List<FindroidEpisode> =
+        withContext(Dispatchers.IO) {
+            database
+                .getEpisodesByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
+                .map { it.toFindroidEpisode(database, jellyfinApi.userId!!) }
+        }
+
+    // Playlists live on the server, so there are none while offline
+    override suspend fun getPlaylists(): List<FindroidPlaylist> = emptyList()
+
+    override suspend fun getPlaylistItems(playlistId: UUID): List<FindroidItem> = emptyList()
 
     override fun getUserId(): UUID {
         return jellyfinApi.userId!!

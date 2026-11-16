@@ -711,6 +711,15 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     backendPreference =
                                                         appPreferences.downloadWhenRoaming,
                                                 ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.downloads_show_episodes,
+                                                    descriptionStringRes =
+                                                        R.string.downloads_show_episodes_summary,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.downloadsShowEpisodes,
+                                                ),
                                             )
                                     )
                                 ),

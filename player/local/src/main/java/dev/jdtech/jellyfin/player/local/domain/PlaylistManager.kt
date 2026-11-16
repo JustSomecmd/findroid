@@ -5,7 +5,6 @@ import androidx.media3.common.MimeTypes
 import dev.jdtech.jellyfin.models.FindroidChapter
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
-import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidSourceType
 import dev.jdtech.jellyfin.models.FindroidSources
 import dev.jdtech.jellyfin.player.core.domain.models.ExternalSubtitle
@@ -25,6 +24,9 @@ class PlaylistManager @Inject internal constructor(private val repository: Jelly
     private var items: List<FindroidItem> = emptyList()
     private val playerItems: MutableList<PlayerItem> = mutableListOf()
     var currentItemIndex: Int = 0
+
+    // True when playing a Jellyfin playlist, which can mix movies and episodes
+    private var isPlaylist = false
 
     suspend fun getInitialItem(
         itemId: UUID,
@@ -109,6 +111,17 @@ class PlaylistManager @Inject internal constructor(private val repository: Jelly
                     items = episodes
                     episode
                 }
+                BaseItemKind.PLAYLIST -> {
+                    val playlistItems = repository.getPlaylistItems(itemId)
+
+                    if (playlistItems.isEmpty()) {
+                        return null
+                    }
+
+                    isPlaylist = true
+                    items = playlistItems
+                    playlistItems.first()
+                }
                 else -> null
             }
 
@@ -133,10 +146,9 @@ class PlaylistManager @Inject internal constructor(private val repository: Jelly
 
         val itemIndex = currentItemIndex - 1
         val playerItem =
-            when (startItem) {
-                is FindroidMovie -> null
-                is FindroidEpisode -> {
-                    if (currentItemIndex == 0) {
+            when {
+                isPlaylist || startItem is FindroidEpisode -> {
+                    if (currentItemIndex <= 0) {
                         null
                     } else {
                         val item = items[itemIndex]
@@ -167,10 +179,9 @@ class PlaylistManager @Inject internal constructor(private val repository: Jelly
 
         val itemIndex = currentItemIndex + 1
         val playerItem =
-            when (startItem) {
-                is FindroidMovie -> null
-                is FindroidEpisode -> {
-                    if (currentItemIndex == items.lastIndex) {
+            when {
+                isPlaylist || startItem is FindroidEpisode -> {
+                    if (currentItemIndex < 0 || currentItemIndex >= items.lastIndex) {
                         null
                     } else {
                         val item = items[itemIndex]

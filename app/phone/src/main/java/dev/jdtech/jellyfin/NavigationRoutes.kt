@@ -24,6 +24,11 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object DownloadsRoute : NavKey
 
+@Serializable data object PlaylistsRoute : NavKey
+
+@Serializable
+data class PlaylistRoute(val playlistId: String, val playlistName: String) : NavKey
+
 @Serializable
 data class LibraryRoute(
     val libraryId: String,

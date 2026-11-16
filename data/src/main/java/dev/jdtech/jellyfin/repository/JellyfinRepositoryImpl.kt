@@ -11,6 +11,7 @@ import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidPerson
+import dev.jdtech.jellyfin.models.FindroidPlaylist
 import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidShow
@@ -22,6 +23,7 @@ import dev.jdtech.jellyfin.models.toFindroidEpisode
 import dev.jdtech.jellyfin.models.toFindroidItem
 import dev.jdtech.jellyfin.models.toFindroidMovie
 import dev.jdtech.jellyfin.models.toFindroidPerson
+import dev.jdtech.jellyfin.models.toFindroidPlaylist
 import dev.jdtech.jellyfin.models.toFindroidSeason
 import dev.jdtech.jellyfin.models.toFindroidSegment
 import dev.jdtech.jellyfin.models.toFindroidShow
@@ -566,6 +568,49 @@ class JellyfinRepositoryImpl(
                     .map { it.toFindroidShow(database, jellyfinApi.userId!!) }
             )
             items
+        }
+
+    override suspend fun getDownloadedEpisodes(): List<FindroidEpisode> =
+        withContext(Dispatchers.IO) {
+            database
+                .getEpisodesByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
+                .map { it.toFindroidEpisode(database, jellyfinApi.userId!!) }
+        }
+
+    override suspend fun getPlaylists(): List<FindroidPlaylist> =
+        withContext(Dispatchers.IO) {
+            jellyfinApi.libraryApi
+                .getItems(
+                    jellyfinApi.userId!!,
+                    includeItemTypes = listOf(BaseItemKind.PLAYLIST),
+                    recursive = true,
+                    sortBy = listOf(ItemSortBy.fromName(SortBy.NAME.sortString)),
+                )
+                .content
+                .items
+                // Findroid only plays video, so music playlists are left out
+                .filter { it.mediaType != MediaType.AUDIO }
+                .map { it.toFindroidPlaylist(this@JellyfinRepositoryImpl) }
+        }
+
+    override suspend fun getPlaylistItems(playlistId: UUID): List<FindroidItem> =
+        withContext(Dispatchers.IO) {
+            jellyfinApi.playlistApi
+                .getPlaylistItems(
+                    playlistId = playlistId,
+                    userId = jellyfinApi.userId!!,
+                    fields = listOf(ItemFields.CHAPTERS, ItemFields.TRICKPLAY),
+                )
+                .content
+                .items
+                .mapNotNull { item ->
+                    when (item.type) {
+                        BaseItemKind.MOVIE,
+                        BaseItemKind.EPISODE ->
+                            item.toFindroidItem(this@JellyfinRepositoryImpl, database)
+                        else -> null
+                    }
+                }
         }
 
     override fun getUserId(): UUID {
