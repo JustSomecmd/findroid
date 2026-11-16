@@ -119,6 +119,8 @@
     <string name="sort_newest_first">Newest first</string>
     <string name="sort_oldest_first">Oldest first</string>
     <string name="show_more">Show more</string>
+    <string name="collections_label">Collections</string>
+    <string name="people_label">People</string>
     <string name="no_playlists">You have no video playlists</string>
     <string name="playlist_empty">This playlist has no movies or episodes</string>
 </resources>

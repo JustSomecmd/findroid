@@ -9,6 +9,7 @@ import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.models.FindroidCollection
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
+import dev.jdtech.jellyfin.models.FindroidItemPerson
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidPerson
 import dev.jdtech.jellyfin.models.FindroidPlaylist
@@ -21,6 +22,7 @@ import dev.jdtech.jellyfin.models.SortOrder
 import dev.jdtech.jellyfin.models.toFindroidCollection
 import dev.jdtech.jellyfin.models.toFindroidEpisode
 import dev.jdtech.jellyfin.models.toFindroidItem
+import dev.jdtech.jellyfin.models.toFindroidItemPerson
 import dev.jdtech.jellyfin.models.toFindroidMovie
 import dev.jdtech.jellyfin.models.toFindroidPerson
 import dev.jdtech.jellyfin.models.toFindroidPlaylist
@@ -213,6 +215,38 @@ class JellyfinRepositoryImpl(
                 .content
                 .items
                 .mapNotNull { it.toFindroidItem(this@JellyfinRepositoryImpl, database) }
+        }
+
+    override suspend fun searchItems(
+        query: String,
+        types: List<BaseItemKind>,
+        limit: Int?,
+    ): List<FindroidItem> =
+        withContext(Dispatchers.IO) {
+            jellyfinApi.libraryApi
+                .getItems(
+                    jellyfinApi.userId!!,
+                    searchTerm = query,
+                    includeItemTypes = types,
+                    recursive = true,
+                    limit = limit,
+                )
+                .content
+                .items
+                // Findroid only plays video, so music playlists are left out
+                .filter { it.type != BaseItemKind.PLAYLIST || it.mediaType != MediaType.AUDIO }
+                .mapNotNull { it.toFindroidItem(this@JellyfinRepositoryImpl, database) }
+                // Episodes the server knows about but doesn't have can't be played
+                .filter { it !is FindroidEpisode || !it.missing }
+        }
+
+    override suspend fun searchPeople(query: String, limit: Int?): List<FindroidItemPerson> =
+        withContext(Dispatchers.IO) {
+            jellyfinApi.personApi
+                .getPersons(searchTerm = query, limit = limit, userId = jellyfinApi.userId!!)
+                .content
+                .items
+                .map { it.toFindroidItemPerson(this@JellyfinRepositoryImpl) }
         }
 
     override suspend fun getSuggestions(): List<FindroidItem> =

@@ -7,6 +7,7 @@ import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.models.FindroidCollection
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
+import dev.jdtech.jellyfin.models.FindroidItemPerson
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidPerson
 import dev.jdtech.jellyfin.models.FindroidPlaylist
@@ -132,6 +133,43 @@ class JellyfinRepositoryOfflineImpl(
             movies + shows + episodes
         }
     }
+
+    override suspend fun searchItems(
+        query: String,
+        types: List<BaseItemKind>,
+        limit: Int?,
+    ): List<FindroidItem> =
+        withContext(Dispatchers.IO) {
+            val serverId = appPreferences.getValue(appPreferences.currentServer)!!
+            val userId = jellyfinApi.userId!!
+            val items = mutableListOf<FindroidItem>()
+            if (BaseItemKind.MOVIE in types) {
+                items.addAll(
+                    database.searchMovies(serverId, query).map {
+                        it.toFindroidMovie(database, userId)
+                    }
+                )
+            }
+            if (BaseItemKind.SERIES in types) {
+                items.addAll(
+                    database.searchShows(serverId, query).map {
+                        it.toFindroidShow(database, userId)
+                    }
+                )
+            }
+            if (BaseItemKind.EPISODE in types) {
+                items.addAll(
+                    database.searchEpisodes(serverId, query).map {
+                        it.toFindroidEpisode(database, userId)
+                    }
+                )
+            }
+            if (limit != null) items.take(limit) else items
+        }
+
+    // People are only known to the server
+    override suspend fun searchPeople(query: String, limit: Int?): List<FindroidItemPerson> =
+        emptyList()
 
     override suspend fun getSuggestions(): List<FindroidItem> {
         return emptyList()

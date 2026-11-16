@@ -4,12 +4,15 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -37,6 +40,7 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.R as FilmR
 import dev.jdtech.jellyfin.film.presentation.search.SearchAction
 import dev.jdtech.jellyfin.film.presentation.search.SearchState
+import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.utils.GridCellsAdaptiveWithMinColumns
 import dev.jdtech.jellyfin.presentation.utils.rememberSafePadding
@@ -166,13 +170,54 @@ fun FilmSearchBar(
             horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.default),
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.default),
         ) {
-            items(items = state.items, key = { it.id }) { item ->
-                ItemCard(
-                    item = item,
-                    direction = Direction.VERTICAL,
-                    onClick = { onAction(SearchAction.OnItemClick(item)) },
-                    modifier = Modifier.animateItem(),
-                )
+            state.sections.forEach { section ->
+                stickyHeader(key = "header-${section.id}") {
+                    Card {
+                        Text(
+                            text = section.name.asString(),
+                            modifier =
+                                Modifier.padding(
+                                    horizontal = MaterialTheme.spacings.medium,
+                                    vertical = MaterialTheme.spacings.medium,
+                                ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+                items(items = section.items, key = { it.id }) { item ->
+                    ItemCard(
+                        item = item,
+                        direction =
+                            if (item is FindroidEpisode) Direction.HORIZONTAL
+                            else Direction.VERTICAL,
+                        onClick = { onAction(SearchAction.OnItemClick(item)) },
+                        modifier = Modifier.animateItem(),
+                    )
+                }
+            }
+            if (state.people.isNotEmpty()) {
+                item(key = "people", span = { GridItemSpan(maxLineSpan) }) {
+                    Column {
+                        ActorsRow(
+                            actors = state.people,
+                            onActorClick = { personId ->
+                                onAction(SearchAction.OnPersonClick(personId))
+                            },
+                            contentPadding = PaddingValues(0.dp),
+                            title = stringResource(CoreR.string.people_label),
+                        )
+                    }
+                }
+            }
+            if (!state.loading && state.query.isNotEmpty() && !state.hasResults) {
+                item(key = "no_results", span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        text = stringResource(CoreR.string.no_search_results),
+                        modifier = Modifier.padding(vertical = MaterialTheme.spacings.medium),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
     }

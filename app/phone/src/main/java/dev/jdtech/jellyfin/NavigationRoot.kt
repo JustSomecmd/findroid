@@ -75,7 +75,7 @@ import dev.jdtech.jellyfin.setup.presentation.permission.PermissionAction
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionViewModel
 import java.util.UUID
 
-private val TOP_LEVEL_ROUTES = setOf(HomeRoute, MediaRoute, PlaylistsRoute, DownloadsRoute)
+private val TOP_LEVEL_ROUTES = setOf(HomeRoute, MediaRoute, DownloadsRoute, PlaylistsRoute)
 private val GLOBAL_TRANSITION_SPEC = fadeIn(tween(300)) togetherWith fadeOut(tween(300))
 
 data class TabBarItem(
@@ -215,7 +215,7 @@ private fun MainNavigation(
 ) {
     val navigationItems =
         when (isOfflineMode) {
-            false -> listOf(homeTab, mediaTab, playlistsTab, downloadsTab)
+            false -> listOf(homeTab, mediaTab, downloadsTab, playlistsTab)
             true -> listOf(homeTab, downloadsTab)
         }
     val tabRoutes = navigationItems.map { it.route }
@@ -460,6 +460,10 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         MediaScreen(
             onItemClick = resumedAction { item -> navigateToItem(navigator, item) },
             onFavoritesClick = dropUnlessResumed { navigator.navigate(FavoritesRoute) },
+            onPersonClick =
+                resumedAction { personId ->
+                    navigator.navigate(PersonRoute(personId = personId.toString()))
+                },
             searchExpanded = searchExpanded.value,
             onSearchExpand = { searchExpanded.value = it },
         )

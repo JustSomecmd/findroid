@@ -75,11 +75,16 @@ abstract class BasePlayerActivity : AppCompatActivity() {
     protected fun configureInsets(playerControls: View) {
         playerControls.setOnApplyWindowInsetsListener { _, windowInsets ->
             val cutout = windowInsets.displayCutout
+            // The camera cutout is on the left or the right depending on which way the phone is
+            // held. Padding both sides equally keeps the controls clear of it and centred, instead
+            // of shifting them sideways every time the phone is turned around.
+            val horizontal = maxOf(cutout?.safeInsetLeft ?: 0, cutout?.safeInsetRight ?: 0)
+            val vertical = maxOf(cutout?.safeInsetTop ?: 0, cutout?.safeInsetBottom ?: 0)
             playerControls.updatePadding(
-                left = cutout?.safeInsetLeft ?: 0,
-                top = cutout?.safeInsetTop ?: 0,
-                right = cutout?.safeInsetRight ?: 0,
-                bottom = cutout?.safeInsetBottom ?: 0,
+                left = horizontal,
+                top = vertical,
+                right = horizontal,
+                bottom = vertical,
             )
             return@setOnApplyWindowInsetsListener windowInsets
         }

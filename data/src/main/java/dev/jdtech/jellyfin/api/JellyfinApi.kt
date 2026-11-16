@@ -13,6 +13,7 @@ import org.jellyfin.sdk.api.client.extensions.deviceApi
 import org.jellyfin.sdk.api.client.extensions.libraryApi
 import org.jellyfin.sdk.api.client.extensions.mediaInfoApi
 import org.jellyfin.sdk.api.client.extensions.mediaSegmentApi
+import org.jellyfin.sdk.api.client.extensions.personApi
 import org.jellyfin.sdk.api.client.extensions.playlistApi
 import org.jellyfin.sdk.api.client.extensions.sessionApi
 import org.jellyfin.sdk.api.client.extensions.showApi
@@ -68,6 +69,7 @@ class JellyfinApi(
     val mediaInfoApi = api.mediaInfoApi
     val mediaSegmentApi = api.mediaSegmentApi
     val playlistApi = api.playlistApi
+    val personApi = api.personApi
     val sessionApi = api.sessionApi
     val showApi = api.showApi
     val suggestionApi = api.suggestionApi
