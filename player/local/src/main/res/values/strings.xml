@@ -22,4 +22,10 @@
     <string name="player_controls_skip_preview">Skip preview</string>
     <string name="player_controls_skip_commercial">Skip commercial</string>
     <string name="player_controls_skip_unknown">Skip</string>
+    <string name="chapters">Chapters</string>
+    <string name="chapter_number">Chapter %1$d</string>
+    <string name="select_quality">Quality</string>
+    <string name="quality_original">Original</string>
+    <string name="quality_original_summary">Original (no conversion)</string>
+    <string name="quality_failed">The server could not convert this video</string>
 </resources>

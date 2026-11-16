@@ -11,6 +11,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -21,6 +22,7 @@ import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidSegmentType
 import dev.jdtech.jellyfin.player.core.domain.models.PlayerChapter
 import dev.jdtech.jellyfin.player.core.domain.models.PlayerItem
+import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.core.domain.models.Trickplay
 import dev.jdtech.jellyfin.player.local.R
 import dev.jdtech.jellyfin.player.local.domain.PlaylistManager
@@ -30,6 +32,7 @@ import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.Constants
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.ceil
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +69,8 @@ constructor(
                 currentTrickplay = null,
                 currentChapters = emptyList(),
                 fileLoaded = false,
+                currentQuality = StreamQuality.ORIGINAL,
+                canChangeQuality = false,
             )
         )
     val uiState = _uiState.asStateFlow()
@@ -80,6 +85,9 @@ constructor(
         val currentTrickplay: Trickplay?,
         val currentChapters: List<PlayerChapter>,
         val fileLoaded: Boolean,
+        val currentQuality: StreamQuality,
+        /** False for downloaded items, which play from the device. */
+        val canChangeQuality: Boolean,
     )
 
     private var items: MutableList<PlayerItem> = mutableListOf()
@@ -239,6 +247,8 @@ constructor(
             MediaItem.Builder()
                 .setMediaId(itemId.toString())
                 .setUri(streamUrl)
+                // Converted streams are HLS playlists
+                .setMimeType(if (isTranscoded) MimeTypes.APPLICATION_M3U8 else null)
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(name).build())
                 .setSubtitleConfigurations(mediaSubtitles)
                 .build()
@@ -349,8 +359,13 @@ constructor(
                 items
                     .first { it.itemId.toString() == player.currentMediaItem?.mediaId }
                     .let { item ->
+                        val hideNumbers = appPreferences.getValue(appPreferences.hideEpisodeNumbers)
                         val itemTitle =
-                            if (item.parentIndexNumber != null && item.indexNumber != null) {
+                            if (
+                                !hideNumbers &&
+                                    item.parentIndexNumber != null &&
+                                    item.indexNumber != null
+                            ) {
                                 if (item.indexNumberEnd == null) {
                                     "S${item.parentIndexNumber}:E${item.indexNumber} - ${item.name}"
                                 } else {
@@ -365,6 +380,8 @@ constructor(
                                 currentSegment = null,
                                 currentChapters = item.chapters,
                                 fileLoaded = false,
+                                currentQuality = playlistManager.quality,
+                                canChangeQuality = !item.isLocal,
                             )
                         }
 
@@ -482,6 +499,63 @@ constructor(
                     )
                     .setTrackTypeDisabled(trackType, false)
                     .build()
+        }
+    }
+
+    /**
+     * Switches every streamed item in the queue to [quality] and continues the current one at the
+     * same position.
+     */
+    fun selectQuality(quality: StreamQuality) {
+        if (quality == playlistManager.quality) return
+        playlistManager.quality = quality
+        _uiState.update { it.copy(currentQuality = quality) }
+
+        viewModelScope.launch {
+            val index = player.currentMediaItemIndex
+            val position = player.currentPosition
+            val playWhenReady = player.playWhenReady
+
+            val reloaded = items.map { item ->
+                if (item.isLocal) {
+                    item
+                } else {
+                    try {
+                        playlistManager.reloadPlayerItem(item) ?: item
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Timber.e(e)
+                        item
+                    }
+                }
+            }
+
+            val current = reloaded.getOrNull(index)
+            if (quality != StreamQuality.ORIGINAL && current != null && !current.isTranscoded) {
+                Toast.makeText(application, R.string.quality_failed, Toast.LENGTH_LONG).show()
+            }
+
+            items = reloaded.toMutableList()
+            player.setMediaItems(items.map { it.toMediaItem() }, index, position)
+            player.prepare()
+            player.playWhenReady = playWhenReady
+        }
+    }
+
+    /**
+     * Turns video decoding off while playing in the background and back on when the player is shown
+     * again. Only ExoPlayer needs this; mpv stops drawing by itself when the screen goes away.
+     */
+    fun setVideoEnabled(enabled: Boolean) {
+        if (player !is ExoPlayer) return
+        val parameters = player.trackSelectionParameters
+        if (parameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO) == !enabled) return
+        try {
+            player.trackSelectionParameters =
+                parameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !enabled).build()
+        } catch (e: IllegalStateException) {
+            Timber.e(e)
         }
     }
 
@@ -634,6 +708,20 @@ constructor(
         }
 
         return maxOf(0, currentChapterIndex - 1)
+    }
+
+    /** The chapter that is playing, for marking it in the chapter list. */
+    fun currentChapterIndex(): Int? {
+        val chapters = getChapters()
+        if (chapters.isEmpty()) return null
+        return chapters
+            .indexOfLast { it.startPosition <= player.currentPosition }
+            .takeIf { it >= 0 }
+    }
+
+    /** Jumps to a chapter picked from the chapter list. */
+    fun seekToChapterIndex(chapterIndex: Int) {
+        seekToChapter(chapterIndex)
     }
 
     fun isLastChapter(): Boolean =

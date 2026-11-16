@@ -59,6 +59,9 @@ object MediaDownloadQueue {
     fun isQueued(context: Context, itemId: UUID): Boolean =
         read(context).any { it.itemId == itemId }
 
+    /** Items waiting to download, next one first. */
+    fun queuedItemIds(context: Context): List<UUID> = read(context).map { it.itemId }
+
     /** Starts the download right away if nothing else is downloading, otherwise queues it. */
     suspend fun add(context: Context, workManager: WorkManager, entry: Entry) {
         mutex.withLock {

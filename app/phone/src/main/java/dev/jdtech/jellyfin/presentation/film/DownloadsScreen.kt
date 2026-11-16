@@ -1,12 +1,17 @@
 package dev.jdtech.jellyfin.presentation.film
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -27,12 +32,15 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.core.presentation.dummy.dummyMovies
 import dev.jdtech.jellyfin.film.presentation.collection.CollectionAction
 import dev.jdtech.jellyfin.film.presentation.collection.CollectionState
+import dev.jdtech.jellyfin.film.presentation.downloads.ActiveDownload
 import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsViewModel
 import dev.jdtech.jellyfin.models.CollectionSection
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.UiText
+import dev.jdtech.jellyfin.presentation.film.components.ActiveDownloadRow
 import dev.jdtech.jellyfin.presentation.film.components.CollectionGrid
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
+import dev.jdtech.jellyfin.presentation.theme.spacings
 
 @Composable
 fun DownloadsScreen(
@@ -40,11 +48,14 @@ fun DownloadsScreen(
     viewModel: DownloadsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val activeDownloads by viewModel.activeDownloads.collectAsStateWithLifecycle()
 
     LaunchedEffect(true) { viewModel.loadItems() }
 
     DownloadsScreenLayout(
         state = state,
+        activeDownloads = activeDownloads,
+        onActiveDownloadClick = { item -> onItemClick(item) },
         onAction = { action ->
             when (action) {
                 is CollectionAction.OnItemClick -> onItemClick(action.item)
@@ -56,7 +67,12 @@ fun DownloadsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DownloadsScreenLayout(state: CollectionState, onAction: (CollectionAction) -> Unit) {
+private fun DownloadsScreenLayout(
+    state: CollectionState,
+    onAction: (CollectionAction) -> Unit,
+    activeDownloads: List<ActiveDownload> = emptyList(),
+    onActiveDownloadClick: (FindroidItem) -> Unit = {},
+) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     Scaffold(
@@ -74,7 +90,7 @@ private fun DownloadsScreenLayout(state: CollectionState, onAction: (CollectionA
         contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-            if (state.sections.isEmpty()) {
+            if (state.sections.isEmpty() && activeDownloads.isEmpty()) {
                 Text(
                     text = stringResource(CoreR.string.no_downloads),
                     modifier = Modifier.align(Alignment.Center),
@@ -83,7 +99,39 @@ private fun DownloadsScreenLayout(state: CollectionState, onAction: (CollectionA
             }
         }
 
-        CollectionGrid(sections = state.sections, innerPadding = innerPadding, onAction = onAction)
+        CollectionGrid(
+            sections = state.sections,
+            innerPadding = innerPadding,
+            onAction = onAction,
+            header = {
+                if (activeDownloads.isNotEmpty()) {
+                    item(key = "active_downloads", span = { GridItemSpan(maxLineSpan) }) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)
+                        ) {
+                            Card {
+                                Text(
+                                    text = stringResource(CoreR.string.downloads_in_progress),
+                                    modifier =
+                                        Modifier.padding(
+                                            horizontal = MaterialTheme.spacings.medium,
+                                            vertical = MaterialTheme.spacings.medium,
+                                        ),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                            }
+                            activeDownloads.forEach { download ->
+                                ActiveDownloadRow(
+                                    download = download,
+                                    onClick = { onActiveDownloadClick(download.item) },
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+        )
     }
 }
 

@@ -37,6 +37,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.databinding.ActivityPlayerBinding
 import dev.jdtech.jellyfin.player.local.presentation.PlayerEvents
 import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
+import dev.jdtech.jellyfin.presentation.player.ChapterSelectionDialogFragment
+import dev.jdtech.jellyfin.presentation.player.QualitySelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.SpeedSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.TrackSelectionDialogFragment
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
@@ -44,6 +46,7 @@ import dev.jdtech.jellyfin.utils.PlayerGestureHelper
 import dev.jdtech.jellyfin.utils.PreviewScrubListener
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -58,6 +61,10 @@ class PlayerActivity : BasePlayerActivity() {
     lateinit var binding: ActivityPlayerBinding
     private var playerGestureHelper: PlayerGestureHelper? = null
     override val viewModel: PlayerViewModel by viewModels()
+
+    override fun isBackgroundPlaybackEnabled(): Boolean =
+        appPreferences.getValue(appPreferences.playerBackgroundPlayback)
+
     private var previewScrubListener: PreviewScrubListener? = null
     private var wasZoom: Boolean = false
     private var skipButtonTimeoutExpired: Boolean = true
@@ -134,6 +141,10 @@ class PlayerActivity : BasePlayerActivity() {
         val audioButton = binding.playerView.findViewById<ImageButton>(R.id.btn_audio_track)
         val subtitleButton = binding.playerView.findViewById<ImageButton>(R.id.btn_subtitle)
         val speedButton = binding.playerView.findViewById<ImageButton>(R.id.btn_speed)
+        val chaptersButton = binding.playerView.findViewById<ImageButton>(R.id.btn_chapters)
+        val chaptersSpace = binding.playerView.findViewById<Space>(R.id.space_chapters)
+        val qualityButton = binding.playerView.findViewById<ImageButton>(R.id.btn_quality)
+        val qualitySpace = binding.playerView.findViewById<Space>(R.id.space_quality)
         skipSegmentButton = binding.playerView.findViewById(R.id.btn_skip_segment)
         val pipButton = binding.playerView.findViewById<ImageButton>(R.id.btn_pip)
         val lockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_lockview)
@@ -196,6 +207,12 @@ class PlayerActivity : BasePlayerActivity() {
                             } else {
                                 playerControlView.setExtraAdGroupMarkers(null, null)
                             }
+                            chaptersButton.isVisible = currentChapters.isNotEmpty()
+                            chaptersSpace.isVisible = currentChapters.isNotEmpty()
+
+                            // Quality: downloads play from the device and can't be converted
+                            qualityButton.isVisible = canChangeQuality
+                            qualitySpace.isVisible = canChangeQuality
 
                             // File Loaded
                             if (fileLoaded) {
@@ -237,25 +254,16 @@ class PlayerActivity : BasePlayerActivity() {
                     }
                 }
 
-                launch {
-                    while (true) {
-                        viewModel.updatePlaybackProgress()
-                        delay(5000L)
-                    }
-                }
-
-                if (
-                    appPreferences.getValue(appPreferences.playerMediaSegmentsSkipButton) ||
-                        appPreferences.getValue(appPreferences.playerMediaSegmentsAutoSkip)
-                ) {
-                    launch {
-                        while (true) {
-                            viewModel.updateCurrentSegment()
-                            delay(1000L)
-                        }
-                    }
+                if (!backgroundPlayback) {
+                    launchPlaybackLoops(this)
                 }
             }
+        }
+
+        // With background playback, progress keeps being saved and intros keep being skipped
+        // while the screen is off
+        if (backgroundPlayback) {
+            launchPlaybackLoops(lifecycleScope)
         }
 
         audioButton.isEnabled = false
@@ -311,6 +319,16 @@ class PlayerActivity : BasePlayerActivity() {
                 .show(supportFragmentManager, "speedselectiondialog")
         }
 
+        chaptersButton.setOnClickListener {
+            ChapterSelectionDialogFragment(viewModel)
+                .show(supportFragmentManager, "chapterselectiondialog")
+        }
+
+        qualityButton.setOnClickListener {
+            QualitySelectionDialogFragment(viewModel)
+                .show(supportFragmentManager, "qualityselectiondialog")
+        }
+
         pipButton.setOnClickListener { pictureInPicture() }
 
         // Set marker color
@@ -332,11 +350,36 @@ class PlayerActivity : BasePlayerActivity() {
         hideSystemUI()
     }
 
+    /** Reports progress to the server and checks for skippable segments while playing. */
+    private fun launchPlaybackLoops(scope: CoroutineScope) {
+        scope.launch {
+            while (true) {
+                viewModel.updatePlaybackProgress()
+                delay(5000L)
+            }
+        }
+
+        if (
+            appPreferences.getValue(appPreferences.playerMediaSegmentsSkipButton) ||
+                appPreferences.getValue(appPreferences.playerMediaSegmentsAutoSkip)
+        ) {
+            scope.launch {
+                while (true) {
+                    viewModel.updateCurrentSegment()
+                    delay(1000L)
+                }
+            }
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+
+        // Tapping the playback notification only brings the player back
+        val itemIdString = intent.extras?.getString("itemId") ?: return
         setIntent(intent)
 
-        val itemId = UUID.fromString(intent.extras!!.getString("itemId"))
+        val itemId = UUID.fromString(itemIdString)
         val itemKind = intent.extras!!.getString("itemKind")
         val startFromBeginning = intent.extras!!.getBoolean("startFromBeginning")
 

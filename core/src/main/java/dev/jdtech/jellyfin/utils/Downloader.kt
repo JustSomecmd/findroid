@@ -22,6 +22,9 @@ interface Downloader {
     suspend fun deleteItem(item: FindroidItem, source: FindroidSource)
 
     fun observeDownload(itemId: UUID): Flow<DownloadInfo>
+
+    /** Items waiting for another download to finish, next one first. */
+    fun queuedItemIds(): List<UUID>
 }
 
 enum class DownloadStatus {

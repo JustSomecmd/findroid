@@ -22,7 +22,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -31,6 +30,7 @@ import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.utils.episodeTitle
 import dev.jdtech.jellyfin.utils.format
 
 @Composable
@@ -73,21 +73,7 @@ fun EpisodeCard(
         Box(modifier = if (fullTitle) Modifier else Modifier.fillMaxHeight()) {
             Column {
                 Text(
-                    text =
-                        if (showSeasonNumber) {
-                            stringResource(
-                                id = dev.jdtech.jellyfin.core.R.string.episode_name_extended,
-                                episode.parentIndexNumber,
-                                episode.indexNumber,
-                                episode.name,
-                            )
-                        } else {
-                            stringResource(
-                                id = dev.jdtech.jellyfin.core.R.string.episode_name,
-                                episode.indexNumber,
-                                episode.name,
-                            )
-                        },
+                    text = episodeTitle(episode, includeSeason = showSeasonNumber),
                     maxLines = if (fullTitle) Int.MAX_VALUE else 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium,

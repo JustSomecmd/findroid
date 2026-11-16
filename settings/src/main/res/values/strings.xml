@@ -79,6 +79,8 @@
     <string name="extra_info">Display Extra Info</string>
     <string name="extra_info_summary">Displays detailed information about Audio, Video and Subtitles</string>
     <string name="show_all_episodes">Show all episodes on show pages</string>
+    <string name="hide_episode_numbers">Hide episode numbers in titles</string>
+    <string name="hide_episode_numbers_summary">Show episode titles without the season and episode number in front, like \"S1:E2 - \"</string>
     <string name="episode_links_to_show">Episode pages link to the show</string>
     <string name="episode_links_to_show_summary">The button at the top of an episode opens the show instead of its season</string>
     <string name="show_all_episodes_summary">Replace Next up and the seasons row with a list of every episode, newest first</string>
@@ -114,6 +116,9 @@
     <string name="none">None</string>
     <string name="edit_file_title">Edit %1$s</string>
     <string name="pref_player_backend">Player backend</string>
+    <string name="pref_player_stream_quality">Streaming quality</string>
+    <string name="pref_player_background_playback">Background playback</string>
+    <string name="pref_player_background_playback_summary">Keep playing when the screen turns off or you leave the player</string>
     <string name="mpv_options">mpv options</string>
     <string name="advanced">Advanced</string>
     <string name="discard_changes_dialog_title">Discard changes?</string>

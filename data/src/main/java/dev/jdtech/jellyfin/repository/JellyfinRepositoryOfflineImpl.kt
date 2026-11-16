@@ -14,6 +14,7 @@ import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSource
+import dev.jdtech.jellyfin.models.FindroidTranscodeStream
 import dev.jdtech.jellyfin.models.SortBy
 import dev.jdtech.jellyfin.models.SortOrder
 import dev.jdtech.jellyfin.models.toFindroidEpisode
@@ -248,6 +249,15 @@ class JellyfinRepositoryOfflineImpl(
         withContext(Dispatchers.IO) {
             database.getSources(itemId).map { it.toFindroidSource(database) }
         }
+
+    // Converting needs the server
+    override suspend fun getTranscodeStream(
+        itemId: UUID,
+        mediaSourceId: String,
+        maxWidth: Int,
+        maxHeight: Int,
+        maxBitrate: Int,
+    ): FindroidTranscodeStream? = null
 
     override suspend fun getStreamUrl(itemId: UUID, mediaSourceId: String): String {
         TODO("Not yet implemented")

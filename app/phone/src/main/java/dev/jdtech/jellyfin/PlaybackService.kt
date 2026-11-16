@@ -1,0 +1,103 @@
+package dev.jdtech.jellyfin
+
+import android.content.Intent
+import android.net.wifi.WifiManager
+import android.os.PowerManager
+import androidx.media3.common.Player
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
+
+/**
+ * Keeps the player running with the screen off or the app in the background, when background
+ * playback is turned on in the settings.
+ *
+ * The player itself belongs to the player screen. This service shows the playback notification,
+ * keeps Android from stopping the app while it plays, and keeps the CPU and Wi-Fi awake while
+ * something is playing.
+ */
+class PlaybackService : MediaSessionService() {
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var observedPlayer: Player? = null
+
+    private val playerListener =
+        object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                updateLocks(isPlaying)
+            }
+        }
+
+    override fun onCreate() {
+        super.onCreate()
+        currentSession?.let { attach(it) }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // The player screen starts the service again whenever it has a new session
+        currentSession?.let { attach(it) }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun attach(session: MediaSession) {
+        if (!isSessionAdded(session)) {
+            addSession(session)
+        }
+        if (observedPlayer !== session.player) {
+            observedPlayer?.removeListener(playerListener)
+            observedPlayer = session.player
+            session.player.addListener(playerListener)
+            updateLocks(session.player.isPlaying)
+        }
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+        currentSession
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Swiping the app away from recent apps stops playback
+        currentSession?.player?.pause()
+        super.onTaskRemoved(rootIntent)
+        stopSelf()
+    }
+
+    override fun onDestroy() {
+        observedPlayer?.removeListener(playerListener)
+        observedPlayer = null
+        updateLocks(false)
+        super.onDestroy()
+    }
+
+    private fun updateLocks(isPlaying: Boolean) {
+        if (isPlaying) {
+            val wake =
+                wakeLock
+                    ?: getSystemService(PowerManager::class.java)
+                        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Findroid:playback")
+                        .apply { setReferenceCounted(false) }
+                        .also { wakeLock = it }
+            val wifi =
+                wifiLock
+                    ?: applicationContext
+                        .getSystemService(WifiManager::class.java)
+                        .createWifiLock(WIFI_LOCK_MODE, "Findroid:playback")
+                        .apply { setReferenceCounted(false) }
+                        .also { wifiLock = it }
+            if (!wake.isHeld) wake.acquire(WAKE_LOCK_TIMEOUT_MS)
+            if (!wifi.isHeld) wifi.acquire()
+        } else {
+            wakeLock?.takeIf { it.isHeld }?.release()
+            wifiLock?.takeIf { it.isHeld }?.release()
+        }
+    }
+
+    companion object {
+        /** The session of the player screen that is open, if background playback is on. */
+        @Volatile var currentSession: MediaSession? = null
+
+        // Long enough for any movie; renewed every time playback starts again
+        private const val WAKE_LOCK_TIMEOUT_MS = 6 * 60 * 60 * 1000L
+
+        @Suppress("DEPRECATION")
+        private const val WIFI_LOCK_MODE = WifiManager.WIFI_MODE_FULL_HIGH_PERF
+    }
+}

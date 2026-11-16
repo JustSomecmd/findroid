@@ -26,9 +26,13 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val displayExtraInfo = Preference("pref_display_extra_info", false)
     val showAllEpisodes = Preference("pref_show_all_episodes", false)
     val episodeLinksToShow = Preference("pref_episode_links_to_show", false)
+    val hideEpisodeNumbers = Preference("pref_hide_episode_numbers", false)
+    val showEpisodesNewestFirst = Preference("pref_show_episodes_newest_first", true)
 
     // Player
     val playerBackend = Preference("pref_player_backend", "exoplayer")
+    val playerStreamQuality = Preference("pref_player_stream_quality", "original")
+    val playerBackgroundPlayback = Preference("pref_player_background_playback", false)
     val playerBrightness = Preference("pref_player_brightness", -1.0f)
 
     // Player - mpv

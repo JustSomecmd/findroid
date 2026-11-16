@@ -8,17 +8,28 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.collection.CollectionState
 import dev.jdtech.jellyfin.models.CollectionSection
 import dev.jdtech.jellyfin.models.FindroidEpisode
+import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.UiText
+import dev.jdtech.jellyfin.models.isDownloading
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.utils.DownloadInfo
+import dev.jdtech.jellyfin.utils.DownloadStatus
+import dev.jdtech.jellyfin.utils.Downloader
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** A download that hasn't finished yet: running, waiting in the queue, paused or failed. */
+data class ActiveDownload(val item: FindroidItem, val info: DownloadInfo)
 
 @HiltViewModel
 class DownloadsViewModel
@@ -26,18 +37,30 @@ class DownloadsViewModel
 constructor(
     private val repository: JellyfinRepository,
     private val appPreferences: AppPreferences,
+    private val downloader: Downloader,
 ) : ViewModel() {
     private val _state = MutableStateFlow(CollectionState())
     val state = _state.asStateFlow()
+
+    private val _activeDownloads = MutableStateFlow<List<ActiveDownload>>(emptyList())
+    val activeDownloads = _activeDownloads.asStateFlow()
+
+    private var activeDownloadsJob: Job? = null
 
     fun loadItems() {
         viewModelScope.launch {
             _state.emit(_state.value.copy(isLoading = true, error = null))
 
             try {
-                val items = repository.getDownloads()
+                val allItems = repository.getDownloads()
+                val allEpisodes = repository.getDownloadedEpisodes()
                 val showEpisodes = appPreferences.getValue(appPreferences.downloadsShowEpisodes)
-                val episodes = if (showEpisodes) repository.getDownloadedEpisodes() else emptyList()
+
+                observeActiveDownloads(allItems.filterIsInstance<FindroidMovie>() + allEpisodes)
+
+                // Unfinished downloads are listed separately at the top
+                val items = allItems.filter { it !is FindroidMovie || !it.isDownloading() }
+                val episodes = allEpisodes.filter { !it.isDownloading() }
 
                 val sections = mutableListOf<CollectionSection>()
 
@@ -74,6 +97,54 @@ constructor(
             }
         }
     }
+
+    /** Follows the progress of every unfinished download, running ones first, then the queue. */
+    private fun observeActiveDownloads(items: List<FindroidItem>) {
+        activeDownloadsJob?.cancel()
+        val unfinished = items.filter { it.isDownloading() }
+        if (unfinished.isEmpty()) {
+            _activeDownloads.value = emptyList()
+            return
+        }
+        activeDownloadsJob = viewModelScope.launch {
+            combine(
+                    unfinished.map { item ->
+                        downloader.observeDownload(item.id).map { ActiveDownload(item, it) }
+                    }
+                ) {
+                    it.toList()
+                }
+                .collect { downloads ->
+                    val queue = downloader.queuedItemIds()
+                    _activeDownloads.value =
+                        downloads
+                            .filter {
+                                it.info.status != DownloadStatus.NONE &&
+                                    it.info.status != DownloadStatus.SUCCESSFUL
+                            }
+                            .sortedWith(
+                                compareBy(
+                                    { statusOrder(it.info.status) },
+                                    {
+                                        queue.indexOf(it.item.id).let { index ->
+                                            if (index == -1) Int.MAX_VALUE else index
+                                        }
+                                    },
+                                )
+                            )
+                }
+        }
+    }
+
+    private fun statusOrder(status: DownloadStatus): Int =
+        when (status) {
+            DownloadStatus.RUNNING -> 0
+            DownloadStatus.PENDING -> 1
+            DownloadStatus.QUEUED -> 2
+            DownloadStatus.PAUSED -> 3
+            DownloadStatus.FAILED -> 4
+            else -> 5
+        }
 
     /** One section per show, named after the show, with its episodes in season/episode order. */
     private fun episodeSections(episodes: List<FindroidEpisode>): List<CollectionSection> =

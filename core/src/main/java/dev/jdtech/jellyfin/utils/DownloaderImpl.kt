@@ -348,6 +348,8 @@ class DownloaderImpl(
         MediaDownloadQueue.startNext(context, workManager)
     }
 
+    override fun queuedItemIds(): List<UUID> = MediaDownloadQueue.queuedItemIds(context)
+
     override fun observeDownload(itemId: UUID): Flow<DownloadInfo> =
         combine(
                 workManager.getWorkInfosForUniqueWorkFlow(

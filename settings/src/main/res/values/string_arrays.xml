@@ -10,6 +10,20 @@
         <item>light</item>
         <item>dark</item>
     </string-array>
+    <string-array name="stream_quality">
+        <item>Original (no conversion)</item>
+        <item>1080p · 8 Mbps</item>
+        <item>720p · 4 Mbps</item>
+        <item>480p · 1.5 Mbps</item>
+        <item>360p · 800 kbps</item>
+    </string-array>
+    <string-array name="stream_quality_values">
+        <item>original</item>
+        <item>1080p</item>
+        <item>720p</item>
+        <item>480p</item>
+        <item>360p</item>
+    </string-array>
     <string-array name="player_backends">
         <item>exoplayer</item>
         <item>mpv</item>

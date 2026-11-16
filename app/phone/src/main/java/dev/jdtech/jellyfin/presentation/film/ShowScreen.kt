@@ -64,6 +64,7 @@ import dev.jdtech.jellyfin.presentation.film.components.ItemTopBar
 import dev.jdtech.jellyfin.presentation.film.components.OverviewText
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.utils.episodeTitle
 import dev.jdtech.jellyfin.presentation.utils.rememberSafePadding
 import dev.jdtech.jellyfin.utils.getShowDateString
 import java.util.UUID
@@ -247,13 +248,7 @@ private fun ShowScreenLayout(state: ShowState, onAction: (ShowAction) -> Unit) {
                             )
                             Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
                             Text(
-                                text =
-                                    stringResource(
-                                        id = CoreR.string.episode_name_extended,
-                                        nextUp.parentIndexNumber,
-                                        nextUp.indexNumber,
-                                        nextUp.name,
-                                    ),
+                                text = episodeTitle(nextUp, includeSeason = true),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                         }

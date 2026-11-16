@@ -1,6 +1,7 @@
 package dev.jdtech.jellyfin.repository
 
 import android.content.Context
+import android.net.Uri
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -16,11 +17,13 @@ import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSource
+import dev.jdtech.jellyfin.models.FindroidTranscodeStream
 import dev.jdtech.jellyfin.models.SortBy
 import dev.jdtech.jellyfin.models.SortOrder
 import dev.jdtech.jellyfin.models.toFindroidCollection
 import dev.jdtech.jellyfin.models.toFindroidEpisode
 import dev.jdtech.jellyfin.models.toFindroidItem
+import dev.jdtech.jellyfin.models.toFindroidMediaStream
 import dev.jdtech.jellyfin.models.toFindroidMovie
 import dev.jdtech.jellyfin.models.toFindroidPerson
 import dev.jdtech.jellyfin.models.toFindroidPlaylist
@@ -36,12 +39,18 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
+import org.jellyfin.sdk.model.api.CodecProfile
+import org.jellyfin.sdk.model.api.CodecType
 import org.jellyfin.sdk.model.api.DeviceOptionsDto
 import org.jellyfin.sdk.model.api.DeviceProfile
+import org.jellyfin.sdk.model.api.DlnaProfileType
+import org.jellyfin.sdk.model.api.EncodingContext
 import org.jellyfin.sdk.model.api.GeneralCommandType
 import org.jellyfin.sdk.model.api.ItemFields
 import org.jellyfin.sdk.model.api.ItemFilter
 import org.jellyfin.sdk.model.api.ItemSortBy
+import org.jellyfin.sdk.model.api.MediaStreamProtocol
+import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.MediaType
 import org.jellyfin.sdk.model.api.PlayMethod
 import org.jellyfin.sdk.model.api.PlaybackInfoDto
@@ -49,11 +58,15 @@ import org.jellyfin.sdk.model.api.PlaybackOrder
 import org.jellyfin.sdk.model.api.PlaybackProgressInfo
 import org.jellyfin.sdk.model.api.PlaybackStartInfo
 import org.jellyfin.sdk.model.api.PlaybackStopInfo
+import org.jellyfin.sdk.model.api.ProfileCondition
+import org.jellyfin.sdk.model.api.ProfileConditionType
+import org.jellyfin.sdk.model.api.ProfileConditionValue
 import org.jellyfin.sdk.model.api.PublicSystemInfo
 import org.jellyfin.sdk.model.api.RepeatMode
 import org.jellyfin.sdk.model.api.SortOrder as ItemSortOrder
 import org.jellyfin.sdk.model.api.SubtitleDeliveryMethod
 import org.jellyfin.sdk.model.api.SubtitleProfile
+import org.jellyfin.sdk.model.api.TranscodingProfile
 import org.jellyfin.sdk.model.api.UserConfiguration
 import timber.log.Timber
 
@@ -385,6 +398,125 @@ class JellyfinRepositoryImpl(
                 ""
             }
         }
+
+    override suspend fun getTranscodeStream(
+        itemId: UUID,
+        mediaSourceId: String,
+        maxWidth: Int,
+        maxHeight: Int,
+        maxBitrate: Int,
+    ): FindroidTranscodeStream? =
+        withContext(Dispatchers.IO) {
+            val sizeConditions =
+                listOf(
+                    ProfileCondition(
+                        condition = ProfileConditionType.LESS_THAN_EQUAL,
+                        property = ProfileConditionValue.WIDTH,
+                        value = maxWidth.toString(),
+                        isRequired = false,
+                    ),
+                    ProfileCondition(
+                        condition = ProfileConditionType.LESS_THAN_EQUAL,
+                        property = ProfileConditionValue.HEIGHT,
+                        value = maxHeight.toString(),
+                        isRequired = false,
+                    ),
+                )
+            val response =
+                jellyfinApi.mediaInfoApi
+                    .getPostedPlaybackInfo(
+                        itemId,
+                        PlaybackInfoDto(
+                            userId = jellyfinApi.userId!!,
+                            mediaSourceId = mediaSourceId,
+                            maxStreamingBitrate = maxBitrate,
+                            enableDirectPlay = false,
+                            enableDirectStream = false,
+                            enableTranscoding = true,
+                            allowVideoStreamCopy = false,
+                            allowAudioStreamCopy = true,
+                            autoOpenLiveStream = true,
+                            deviceProfile =
+                                DeviceProfile(
+                                    name = "Findroid transcode",
+                                    maxStreamingBitrate = maxBitrate,
+                                    maxStaticBitrate = maxBitrate,
+                                    directPlayProfiles = emptyList(),
+                                    transcodingProfiles =
+                                        listOf(
+                                            TranscodingProfile(
+                                                container = "ts",
+                                                type = DlnaProfileType.VIDEO,
+                                                videoCodec = "h264",
+                                                audioCodec = "aac",
+                                                protocol = MediaStreamProtocol.HLS,
+                                                context = EncodingContext.STREAMING,
+                                                maxAudioChannels = "2",
+                                                minSegments = 1,
+                                                breakOnNonKeyFrames = true,
+                                                conditions = emptyList(),
+                                            )
+                                        ),
+                                    containerProfiles = emptyList(),
+                                    codecProfiles =
+                                        listOf(
+                                            CodecProfile(
+                                                type = CodecType.VIDEO,
+                                                codec = "h264",
+                                                conditions = sizeConditions,
+                                                applyConditions = emptyList(),
+                                            )
+                                        ),
+                                    subtitleProfiles =
+                                        listOf("srt", "subrip", "ass", "ssa", "vtt", "webvtt").map {
+                                            SubtitleProfile(it, SubtitleDeliveryMethod.EXTERNAL)
+                                        },
+                                ),
+                        ),
+                    )
+                    .content
+            val source =
+                response.mediaSources.firstOrNull { it.id == mediaSourceId }
+                    ?: response.mediaSources.firstOrNull()
+                    ?: return@withContext null
+            val transcodingUrl = source.transcodingUrl
+            if (transcodingUrl.isNullOrBlank()) {
+                Timber.w("Server returned no transcoding url (error: ${response.errorCode})")
+                return@withContext null
+            }
+            val subtitles =
+                source.mediaStreams
+                    .orEmpty()
+                    .filter {
+                        it.type == MediaStreamType.SUBTITLE &&
+                            it.deliveryMethod == SubtitleDeliveryMethod.EXTERNAL &&
+                            !it.deliveryUrl.isNullOrBlank()
+                    }
+                    .map { it.toFindroidMediaStream(this@JellyfinRepositoryImpl) }
+            FindroidTranscodeStream(
+                url = limitSize(getBaseUrl() + transcodingUrl, maxWidth, maxHeight),
+                subtitles = subtitles,
+            )
+        }
+
+    /**
+     * Makes sure the stream address asks for at most the given size, whatever the server derived
+     * from the device profile.
+     */
+    private fun limitSize(url: String, maxWidth: Int, maxHeight: Int): String {
+        val uri = Uri.parse(url)
+        val builder = uri.buildUpon().clearQuery()
+        for (name in uri.queryParameterNames) {
+            if (name.equals("MaxWidth", ignoreCase = true)) continue
+            if (name.equals("MaxHeight", ignoreCase = true)) continue
+            for (value in uri.getQueryParameters(name)) {
+                builder.appendQueryParameter(name, value)
+            }
+        }
+        builder.appendQueryParameter("MaxWidth", maxWidth.toString())
+        builder.appendQueryParameter("MaxHeight", maxHeight.toString())
+        return builder.build().toString()
+    }
 
     override suspend fun getSegments(itemId: UUID): List<FindroidSegment> =
         withContext(Dispatchers.IO) {

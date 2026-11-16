@@ -241,6 +241,15 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     backendPreference =
                                                         appPreferences.episodeLinksToShow,
                                                 ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.hide_episode_numbers,
+                                                    descriptionStringRes =
+                                                        R.string.hide_episode_numbers_summary,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.hideEpisodeNumbers,
+                                                ),
                                             )
                                     ),
                                 ),
@@ -290,6 +299,24 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                     PreferenceGroup(
                                         preferences =
                                             listOf(
+                                                PreferenceSelect(
+                                                    nameStringResource =
+                                                        R.string.pref_player_stream_quality,
+                                                    backendPreference =
+                                                        appPreferences.playerStreamQuality,
+                                                    options = R.array.stream_quality,
+                                                    optionValues = R.array.stream_quality_values,
+                                                ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.pref_player_background_playback,
+                                                    descriptionStringRes =
+                                                        R.string
+                                                            .pref_player_background_playback_summary,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.playerBackgroundPlayback,
+                                                ),
                                                 PreferenceSelect(
                                                     nameStringResource =
                                                         R.string.pref_player_backend,

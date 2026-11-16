@@ -11,6 +11,7 @@ import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSource
+import dev.jdtech.jellyfin.models.FindroidTranscodeStream
 import dev.jdtech.jellyfin.models.SortBy
 import dev.jdtech.jellyfin.models.SortOrder
 import java.util.UUID
@@ -100,6 +101,18 @@ interface JellyfinRepository {
     suspend fun getMediaSources(itemId: UUID, includePath: Boolean = false): List<FindroidSource>
 
     suspend fun getStreamUrl(itemId: UUID, mediaSourceId: String): String
+
+    /**
+     * Asks the server to convert a video to at most [maxWidth] x [maxHeight] and [maxBitrate] bits
+     * per second. Returns null when the server can't convert it.
+     */
+    suspend fun getTranscodeStream(
+        itemId: UUID,
+        mediaSourceId: String,
+        maxWidth: Int,
+        maxHeight: Int,
+        maxBitrate: Int,
+    ): FindroidTranscodeStream?
 
     suspend fun getSegments(itemId: UUID): List<FindroidSegment>
 

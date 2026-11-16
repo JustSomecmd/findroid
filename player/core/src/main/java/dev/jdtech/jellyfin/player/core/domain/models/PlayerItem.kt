@@ -17,4 +17,8 @@ data class PlayerItem(
     val externalSubtitles: List<ExternalSubtitle> = emptyList(),
     val chapters: List<PlayerChapter> = emptyList(),
     val trickplayInfo: TrickplayInfo? = null,
+    /** Played from a download on the device, so it can't be converted to another quality. */
+    val isLocal: Boolean = false,
+    /** Converted by the server to a lower quality. */
+    val isTranscoded: Boolean = false,
 ) : Parcelable

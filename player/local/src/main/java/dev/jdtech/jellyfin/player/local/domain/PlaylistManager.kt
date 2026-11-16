@@ -10,16 +10,24 @@ import dev.jdtech.jellyfin.models.FindroidSources
 import dev.jdtech.jellyfin.player.core.domain.models.ExternalSubtitle
 import dev.jdtech.jellyfin.player.core.domain.models.PlayerChapter
 import dev.jdtech.jellyfin.player.core.domain.models.PlayerItem
+import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.core.domain.models.TrickplayInfo
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.ItemFields
 import org.jellyfin.sdk.model.api.MediaStreamType
 import timber.log.Timber
 
-class PlaylistManager @Inject internal constructor(private val repository: JellyfinRepository) {
+class PlaylistManager
+@Inject
+internal constructor(
+    private val repository: JellyfinRepository,
+    appPreferences: AppPreferences,
+) {
     private var startItem: FindroidItem? = null
     private var items: List<FindroidItem> = emptyList()
     private val playerItems: MutableList<PlayerItem> = mutableListOf()
@@ -27,6 +35,10 @@ class PlaylistManager @Inject internal constructor(private val repository: Jelly
 
     // True when playing a Jellyfin playlist, which can mix movies and episodes
     private var isPlaylist = false
+
+    /** Quality used for streamed items. Changing it applies to items loaded from then on. */
+    var quality: StreamQuality =
+        StreamQuality.fromKey(appPreferences.getValue(appPreferences.playerStreamQuality))
 
     suspend fun getInitialItem(
         itemId: UUID,
@@ -211,6 +223,15 @@ class PlaylistManager @Inject internal constructor(private val repository: Jelly
         currentItemIndex = items.indexOfFirst { it.id == itemId }
     }
 
+    /** Loads a queued item again with the current [quality]. */
+    suspend fun reloadPlayerItem(playerItem: PlayerItem): PlayerItem? {
+        val item = items.firstOrNull { it.id == playerItem.itemId } ?: return null
+        val reloaded = item.toPlayerItem(null, playerItem.playbackPosition)
+        val index = playerItems.indexOfFirst { it.itemId == playerItem.itemId }
+        if (index != -1) playerItems[index] = reloaded
+        return reloaded
+    }
+
     private suspend fun FindroidItem.toPlayerItem(
         mediaSourceIndex: Int?,
         playbackPosition: Long,
@@ -224,26 +245,63 @@ class PlaylistManager @Inject internal constructor(private val repository: Jelly
             } else {
                 mediaSources[mediaSourceIndex]
             }
-        val externalSubtitles =
-            mediaSource.mediaStreams
-                .filter { mediaStream ->
-                    mediaStream.isExternal &&
-                        mediaStream.type == MediaStreamType.SUBTITLE &&
-                        !mediaStream.path.isNullOrBlank()
-                }
-                .map { mediaStream ->
-                    ExternalSubtitle(
-                        mediaStream.title,
-                        mediaStream.language,
-                        mediaStream.path!!.toUri(),
-                        when (mediaStream.codec) {
-                            "subrip" -> MimeTypes.APPLICATION_SUBRIP
-                            "webvtt" -> MimeTypes.APPLICATION_SUBRIP
-                            "ass" -> MimeTypes.TEXT_SSA
-                            else -> MimeTypes.TEXT_UNKNOWN
-                        },
+        val isLocal = mediaSource.type == FindroidSourceType.LOCAL
+        val transcodeStream =
+            if (!isLocal && quality != StreamQuality.ORIGINAL) {
+                try {
+                    repository.getTranscodeStream(
+                        itemId = id,
+                        mediaSourceId = mediaSource.id,
+                        maxWidth = quality.maxWidth,
+                        maxHeight = quality.maxHeight,
+                        maxBitrate = quality.maxBitrate,
                     )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.e(e, "Could not get a converted stream, playing the original")
+                    null
                 }
+            } else {
+                null
+            }
+        val transcodeSubtitles =
+            transcodeStream?.subtitles?.mapNotNull { mediaStream ->
+                val path = mediaStream.path ?: return@mapNotNull null
+                ExternalSubtitle(
+                    mediaStream.title,
+                    mediaStream.language,
+                    path.toUri(),
+                    // The server may convert the subtitle, so the file type decides
+                    when (path.substringBefore('?').substringAfterLast('.').lowercase()) {
+                        "vtt" -> MimeTypes.TEXT_VTT
+                        "ass",
+                        "ssa" -> MimeTypes.TEXT_SSA
+                        else -> MimeTypes.APPLICATION_SUBRIP
+                    },
+                )
+            }
+        val externalSubtitles =
+            transcodeSubtitles
+                ?: mediaSource.mediaStreams
+                    .filter { mediaStream ->
+                        mediaStream.isExternal &&
+                            mediaStream.type == MediaStreamType.SUBTITLE &&
+                            !mediaStream.path.isNullOrBlank()
+                    }
+                    .map { mediaStream ->
+                        ExternalSubtitle(
+                            mediaStream.title,
+                            mediaStream.language,
+                            mediaStream.path!!.toUri(),
+                            when (mediaStream.codec) {
+                                "subrip" -> MimeTypes.APPLICATION_SUBRIP
+                                "webvtt" -> MimeTypes.APPLICATION_SUBRIP
+                                "ass" -> MimeTypes.TEXT_SSA
+                                else -> MimeTypes.TEXT_UNKNOWN
+                            },
+                        )
+                    }
         val trickplayInfo =
             when (this) {
                 is FindroidSources -> {
@@ -265,7 +323,7 @@ class PlaylistManager @Inject internal constructor(private val repository: Jelly
             name = name,
             itemId = id,
             mediaSourceId = mediaSource.id,
-            mediaSourceUri = mediaSource.path,
+            mediaSourceUri = transcodeStream?.url ?: mediaSource.path,
             playbackPosition = playbackPosition,
             parentIndexNumber = if (this is FindroidEpisode) parentIndexNumber else null,
             indexNumber = if (this is FindroidEpisode) indexNumber else null,
@@ -273,6 +331,8 @@ class PlaylistManager @Inject internal constructor(private val repository: Jelly
             externalSubtitles = externalSubtitles,
             chapters = chapters.toPlayerChapters(),
             trickplayInfo = trickplayInfo,
+            isLocal = isLocal,
+            isTranscoded = transcodeStream != null,
         )
     }
 

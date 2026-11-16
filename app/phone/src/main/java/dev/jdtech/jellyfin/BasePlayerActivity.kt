@@ -1,5 +1,7 @@
 package dev.jdtech.jellyfin
 
+import android.app.PendingIntent
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
@@ -15,7 +17,13 @@ abstract class BasePlayerActivity : AppCompatActivity() {
 
     abstract val viewModel: PlayerViewModel
 
-    private lateinit var mediaSession: MediaSession
+    /** Whether playback continues with the screen off or the app in the background. */
+    protected abstract fun isBackgroundPlaybackEnabled(): Boolean
+
+    // Read once, so changing the setting mid-playback can't leave things half set up
+    protected val backgroundPlayback: Boolean by lazy { isBackgroundPlaybackEnabled() }
+
+    private var mediaSession: MediaSession? = null
     private var wasPip: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,7 +34,26 @@ abstract class BasePlayerActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
 
-        mediaSession = MediaSession.Builder(this, viewModel.player).build()
+        val session =
+            mediaSession
+                ?: MediaSession.Builder(this, viewModel.player)
+                    .setSessionActivity(
+                        PendingIntent.getActivity(
+                            this,
+                            0,
+                            Intent(this, javaClass),
+                            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                        )
+                    )
+                    .build()
+                    .also { mediaSession = it }
+
+        if (backgroundPlayback) {
+            // Started while the player is on screen, which Android allows
+            PlaybackService.currentSession = session
+            startService(Intent(this, PlaybackService::class.java))
+            viewModel.setVideoEnabled(true)
+        }
     }
 
     override fun onResume() {
@@ -34,7 +61,7 @@ abstract class BasePlayerActivity : AppCompatActivity() {
 
         if (wasPip) {
             wasPip = false
-        } else {
+        } else if (!backgroundPlayback) {
             viewModel.player.playWhenReady = viewModel.playWhenReady
         }
         hideSystemUI()
@@ -45,6 +72,9 @@ abstract class BasePlayerActivity : AppCompatActivity() {
 
         if (isInPictureInPictureMode) {
             wasPip = true
+        } else if (backgroundPlayback) {
+            // Keeps playing; only save where it is
+            viewModel.updatePlaybackProgress()
         } else {
             viewModel.playWhenReady = viewModel.player.playWhenReady
             viewModel.player.playWhenReady = false
@@ -55,11 +85,33 @@ abstract class BasePlayerActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
 
-        mediaSession.release()
+        if (!backgroundPlayback || isFinishing) {
+            releaseSession()
+        } else if (!wasPip) {
+            // Nothing is shown, so stop decoding video and only play the sound
+            viewModel.setVideoEnabled(false)
+        }
 
         if (wasPip) {
             finish()
         }
+    }
+
+    override fun onDestroy() {
+        releaseSession()
+        super.onDestroy()
+    }
+
+    private fun releaseSession() {
+        val session = mediaSession ?: return
+        if (backgroundPlayback) {
+            if (PlaybackService.currentSession === session) {
+                PlaybackService.currentSession = null
+            }
+            stopService(Intent(this, PlaybackService::class.java))
+        }
+        session.release()
+        mediaSession = null
     }
 
     protected fun hideSystemUI() {

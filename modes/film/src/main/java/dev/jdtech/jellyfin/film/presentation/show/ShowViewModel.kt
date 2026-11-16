@@ -35,13 +35,14 @@ constructor(
             try {
                 val show = repository.getShow(showId)
                 val showAllEpisodes = appPreferences.getValue(appPreferences.showAllEpisodes)
+                val newestFirst = appPreferences.getValue(appPreferences.showEpisodesNewestFirst)
                 val nextUp = if (showAllEpisodes) null else getNextUp(showId)
                 val seasons = repository.getSeasons(showId)
                 val episodes =
                     if (showAllEpisodes) {
                         sortEpisodes(
                             repository.getAllEpisodes(showId).filter { !it.missing },
-                            _state.value.newestFirst,
+                            newestFirst,
                         )
                     } else {
                         emptyList()
@@ -59,6 +60,7 @@ constructor(
                         writers = writers,
                         showAllEpisodes = showAllEpisodes,
                         episodes = episodes,
+                        newestFirst = newestFirst,
                     )
                 )
             } catch (e: Exception) {
@@ -144,6 +146,8 @@ constructor(
             is ShowAction.ToggleEpisodeOrder -> {
                 viewModelScope.launch {
                     val newestFirst = !_state.value.newestFirst
+                    // Remembered for every show page
+                    appPreferences.setValue(appPreferences.showEpisodesNewestFirst, newestFirst)
                     val episodes = sortEpisodes(_state.value.episodes, newestFirst)
                     _state.emit(_state.value.copy(newestFirst = newestFirst, episodes = episodes))
                 }
