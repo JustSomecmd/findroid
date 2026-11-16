@@ -71,7 +71,26 @@ constructor(
 
     private data class ContentRange(val start: Long, val total: Long?)
 
-    override suspend fun doWork(): Result =
+    override suspend fun doWork(): Result {
+        val result = download()
+        // A retry keeps this download's place. When it ends for good, the next one can start.
+        if (result !is Result.Retry) {
+            try {
+                MediaDownloadQueue.startNext(
+                    appContext,
+                    WorkManager.getInstance(appContext),
+                    excludeWorkId = id,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Could not start the next queued download")
+            }
+        }
+        return result
+    }
+
+    private suspend fun download(): Result =
         withContext(Dispatchers.IO) {
             val itemId =
                 params.inputData.getString(KEY_ITEM_ID)?.let {

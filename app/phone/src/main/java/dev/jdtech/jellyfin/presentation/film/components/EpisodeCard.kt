@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -40,18 +41,21 @@ fun EpisodeCard(
     // Used when episodes from several seasons are listed together
     showSeasonNumber: Boolean = false,
     showReleaseDate: Boolean = false,
+    // Shows the whole title, letting the row grow taller instead of cutting the title off
+    fullTitle: Boolean = false,
 ) {
     val backgroundColor = MaterialTheme.colorScheme.background
 
     Row(
         modifier =
             modifier
-                .height(84.dp)
+                .then(if (fullTitle) Modifier.heightIn(min = 84.dp) else Modifier.height(84.dp))
                 .fillMaxWidth()
                 .clip(MaterialTheme.shapes.medium)
                 .clickable(onClick = onClick)
     ) {
-        Box {
+        // The thumbnail takes its size from the height, so it keeps 84dp when the row grows
+        Box(modifier = if (fullTitle) Modifier.height(84.dp) else Modifier) {
             ItemPoster(
                 item = episode,
                 direction = Direction.HORIZONTAL,
@@ -66,7 +70,7 @@ fun EpisodeCard(
             }
         }
         Spacer(Modifier.width(MaterialTheme.spacings.default / 2))
-        Box(modifier = Modifier.fillMaxHeight()) {
+        Box(modifier = if (fullTitle) Modifier else Modifier.fillMaxHeight()) {
             Column {
                 Text(
                     text =
@@ -84,7 +88,7 @@ fun EpisodeCard(
                                 episode.name,
                             )
                         },
-                    maxLines = 1,
+                    maxLines = if (fullTitle) Int.MAX_VALUE else 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -101,24 +105,27 @@ fun EpisodeCard(
                 Text(
                     text = episode.overview,
                     modifier = Modifier.alpha(0.7f),
-                    maxLines = 5,
+                    maxLines = if (fullTitle) 2 else 5,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Canvas(
-                modifier =
-                    Modifier.align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .height(MaterialTheme.spacings.default)
-            ) {
-                drawRect(
-                    brush =
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, backgroundColor),
-                            startY = 0f,
-                        )
-                )
+            // Fades out the description where the fixed-height row cuts it off
+            if (!fullTitle) {
+                Canvas(
+                    modifier =
+                        Modifier.align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .height(MaterialTheme.spacings.default)
+                ) {
+                    drawRect(
+                        brush =
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, backgroundColor),
+                                startY = 0f,
+                            )
+                    )
+                }
             }
         }
     }

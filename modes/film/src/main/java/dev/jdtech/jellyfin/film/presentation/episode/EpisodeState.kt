@@ -9,5 +9,7 @@ data class EpisodeState(
     val videoMetadata: VideoMetadata? = null,
     val actors: List<FindroidItemPerson> = emptyList(),
     val displayExtraInfo: Boolean = false,
+    /** When true, the button at the top opens the show instead of the season. */
+    val linkToShow: Boolean = false,
     val error: Exception? = null,
 )

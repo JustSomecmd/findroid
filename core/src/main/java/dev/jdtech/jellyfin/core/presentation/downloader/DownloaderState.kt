@@ -15,6 +15,7 @@ data class DownloaderState(
             status in
                 arrayOf(
                     DownloadStatus.PENDING,
+                    DownloadStatus.QUEUED,
                     DownloadStatus.RUNNING,
                     DownloadStatus.PAUSED,
                     DownloadStatus.FAILED,

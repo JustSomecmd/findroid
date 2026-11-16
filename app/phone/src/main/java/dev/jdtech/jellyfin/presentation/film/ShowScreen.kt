@@ -294,6 +294,7 @@ private fun ShowScreenLayout(state: ShowState, onAction: (ShowAction) -> Unit) {
                                 onClick = { onAction(ShowAction.NavigateToItem(episode)) },
                                 showSeasonNumber = true,
                                 showReleaseDate = true,
+                                fullTitle = true,
                             )
                             Spacer(Modifier.height(MaterialTheme.spacings.small))
                         }

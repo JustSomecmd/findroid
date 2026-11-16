@@ -70,6 +70,7 @@ fun EpisodeScreen(
     navigateHome: () -> Unit,
     navigateToPerson: (personId: UUID) -> Unit,
     navigateToSeason: (seasonId: UUID) -> Unit,
+    navigateToShow: (showId: UUID) -> Unit,
     viewModel: EpisodeViewModel = hiltViewModel(),
     downloaderViewModel: DownloaderViewModel = hiltViewModel(),
 ) {
@@ -116,6 +117,7 @@ fun EpisodeScreen(
                 is EpisodeAction.OnHomeClick -> navigateHome()
                 is EpisodeAction.NavigateToPerson -> navigateToPerson(action.personId)
                 is EpisodeAction.NavigateToSeason -> navigateToSeason(action.seasonId)
+                is EpisodeAction.NavigateToShow -> navigateToShow(action.showId)
                 else -> Unit
             }
             viewModel.onAction(action)
@@ -285,7 +287,13 @@ private fun EpisodeScreenLayout(
             Spacer(modifier = Modifier.width(4.dp))
             state.episode?.let { episode ->
                 Button(
-                    onClick = { onAction(EpisodeAction.NavigateToSeason(episode.seasonId)) },
+                    onClick = {
+                        if (state.linkToShow) {
+                            onAction(EpisodeAction.NavigateToShow(episode.seriesId))
+                        } else {
+                            onAction(EpisodeAction.NavigateToSeason(episode.seasonId))
+                        }
+                    },
                     modifier = Modifier.alpha(0.7f),
                     colors =
                         ButtonDefaults.buttonColors(
@@ -293,15 +301,23 @@ private fun EpisodeScreenLayout(
                             contentColor = Color.White,
                         ),
                 ) {
-                    episode.seasonName?.let { seasonName -> Text(seasonName) }
-                        ?: run {
-                            Text(
-                                stringResource(
-                                    CoreR.string.season_number,
-                                    episode.parentIndexNumber,
+                    if (state.linkToShow) {
+                        Text(
+                            text = episode.seriesName,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else {
+                        episode.seasonName?.let { seasonName -> Text(seasonName) }
+                            ?: run {
+                                Text(
+                                    stringResource(
+                                        CoreR.string.season_number,
+                                        episode.parentIndexNumber,
+                                    )
                                 )
-                            )
-                        }
+                            }
+                    }
                 }
             }
         }

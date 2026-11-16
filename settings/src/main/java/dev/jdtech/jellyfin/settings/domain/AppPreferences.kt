@@ -25,6 +25,7 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val homeLatest = Preference<Boolean>("home_latest", true)
     val displayExtraInfo = Preference("pref_display_extra_info", false)
     val showAllEpisodes = Preference("pref_show_all_episodes", false)
+    val episodeLinksToShow = Preference("pref_episode_links_to_show", false)
 
     // Player
     val playerBackend = Preference("pref_player_backend", "exoplayer")

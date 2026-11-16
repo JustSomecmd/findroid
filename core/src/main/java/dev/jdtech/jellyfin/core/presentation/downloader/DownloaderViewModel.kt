@@ -47,6 +47,7 @@ class DownloaderViewModel @Inject constructor(private val downloader: Downloader
         if (
             preparing &&
                 info.status != DownloadStatus.PENDING &&
+                info.status != DownloadStatus.QUEUED &&
                 info.status != DownloadStatus.RUNNING
         ) {
             return

@@ -57,6 +57,7 @@ fun DownloaderCard(
     val statusText =
         when (state.status) {
             DownloadStatus.PENDING -> stringResource(CoreR.string.download_pending)
+            DownloadStatus.QUEUED -> stringResource(CoreR.string.download_queued)
             DownloadStatus.PAUSED -> stringResource(CoreR.string.download_paused)
             DownloadStatus.FAILED -> stringResource(CoreR.string.download_failed)
             else -> stringResource(CoreR.string.download_downloading)
@@ -124,6 +125,7 @@ fun DownloaderCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
                     when (state.status) {
                         DownloadStatus.PENDING,
+                        DownloadStatus.QUEUED,
                         DownloadStatus.RUNNING -> {
                             FilledTonalIconButton(onClick = onPauseClick) {
                                 Icon(

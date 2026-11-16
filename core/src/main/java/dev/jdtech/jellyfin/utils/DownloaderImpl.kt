@@ -4,9 +4,6 @@ import android.content.Context
 import android.os.Environment
 import android.os.StatFs
 import android.text.format.Formatter
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
-import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
@@ -35,6 +32,7 @@ import dev.jdtech.jellyfin.models.toFindroidUserDataDto
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.work.ImagesDownloaderWorker
+import dev.jdtech.jellyfin.work.MediaDownloadQueue
 import dev.jdtech.jellyfin.work.MediaDownloadWorker
 import java.io.File
 import java.io.IOException
@@ -53,6 +51,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -77,6 +76,19 @@ class DownloaderImpl(
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .build()
+
+    init {
+        // Picks the queue up again if it was left waiting, for example after the app was killed
+        scope.launch {
+            try {
+                MediaDownloadQueue.startNext(context, workManager)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e)
+            }
+        }
+    }
 
     override suspend fun downloadItem(
         item: FindroidItem,
@@ -174,12 +186,16 @@ class DownloaderImpl(
 
             MediaDownloadWorker.clearDownloadState(context, source.id)
             MediaDownloadWorker.saveExpectedBytes(context, source.id, source.size)
-            enqueueMediaDownload(
-                itemId = item.id,
-                sourceId = source.id,
-                title = item.name,
-                url = source.path,
-                policy = ExistingWorkPolicy.REPLACE,
+            MediaDownloadQueue.add(
+                context,
+                workManager,
+                MediaDownloadQueue.Entry(
+                    itemId = item.id,
+                    sourceId = source.id,
+                    url = source.path,
+                    title = item.name,
+                    networkType = networkType(),
+                ),
             )
             changes.update { it + 1 }
             return null
@@ -200,8 +216,10 @@ class DownloaderImpl(
 
     override suspend fun pauseDownload(item: FindroidItem) {
         withContext(Dispatchers.IO) {
+            MediaDownloadQueue.remove(context, item.id)
             cancelMediaDownload(item.id)
             changes.update { it + 1 }
+            MediaDownloadQueue.startNext(context, workManager)
         }
     }
 
@@ -218,6 +236,16 @@ class DownloaderImpl(
 
     override suspend fun resumeDownload(item: FindroidItem): UiText? =
         withContext(Dispatchers.IO) {
+            // Already downloading, waiting for the network, or waiting in the queue
+            val hasActiveWork =
+                workManager
+                    .getWorkInfosForUniqueWorkFlow(MediaDownloadWorker.uniqueWorkName(item.id))
+                    .first()
+                    .any { !it.state.isFinished }
+            if (hasActiveWork || MediaDownloadQueue.isQueued(context, item.id)) {
+                return@withContext null
+            }
+
             val partial =
                 database.getSources(item.id).firstOrNull {
                     it.path.endsWith(MediaDownloadWorker.DOWNLOAD_SUFFIX)
@@ -243,13 +271,16 @@ class DownloaderImpl(
             }
 
             MediaDownloadWorker.resetFailures(context, partial.id)
-            enqueueMediaDownload(
-                itemId = item.id,
-                sourceId = partial.id,
-                title = item.name,
-                url = url,
-                // Never start a second worker on the file while one is queued or running
-                policy = ExistingWorkPolicy.KEEP,
+            MediaDownloadQueue.add(
+                context,
+                workManager,
+                MediaDownloadQueue.Entry(
+                    itemId = item.id,
+                    sourceId = partial.id,
+                    url = url,
+                    title = item.name,
+                    networkType = networkType(),
+                ),
             )
             changes.update { it + 1 }
             null
@@ -272,6 +303,7 @@ class DownloaderImpl(
     }
 
     private suspend fun deleteItemFiles(item: FindroidItem, source: FindroidSource) {
+        MediaDownloadQueue.remove(context, item.id)
         cancelMediaDownload(item.id)
 
         when (item) {
@@ -313,6 +345,7 @@ class DownloaderImpl(
         File(context.filesDir, "images/${item.id}").deleteRecursively()
 
         changes.update { it + 1 }
+        MediaDownloadQueue.startNext(context, workManager)
     }
 
     override fun observeDownload(itemId: UUID): Flow<DownloadInfo> =
@@ -321,7 +354,8 @@ class DownloaderImpl(
                     MediaDownloadWorker.uniqueWorkName(itemId)
                 ),
                 changes,
-            ) { workInfos, _ ->
+                MediaDownloadQueue.changes,
+            ) { workInfos, _, _ ->
                 workInfos.firstOrNull { !it.state.isFinished } ?: workInfos.lastOrNull()
             }
             .map { workInfo -> toDownloadInfo(itemId, workInfo) }
@@ -359,13 +393,15 @@ class DownloaderImpl(
                 File(partial.path).length(),
                 MediaDownloadWorker.getExpectedBytes(context, partial.id),
             )
-        return when (state) {
-            WorkInfo.State.RUNNING ->
+        return when {
+            state == WorkInfo.State.RUNNING ->
                 DownloadInfo(DownloadStatus.RUNNING, progress = progress, canResume = true)
-            WorkInfo.State.ENQUEUED,
-            WorkInfo.State.BLOCKED ->
+            // Waiting for the network, or for a retry after a connection problem
+            state == WorkInfo.State.ENQUEUED || state == WorkInfo.State.BLOCKED ->
                 DownloadInfo(DownloadStatus.PENDING, progress = progress, canResume = true)
-            WorkInfo.State.FAILED ->
+            MediaDownloadQueue.isQueued(context, itemId) ->
+                DownloadInfo(DownloadStatus.QUEUED, progress = progress, canResume = true)
+            state == WorkInfo.State.FAILED ->
                 DownloadInfo(
                     status = DownloadStatus.FAILED,
                     progress = progress,
@@ -383,45 +419,13 @@ class DownloaderImpl(
     private fun progressOf(downloaded: Long, total: Long): Float =
         if (total > 0) (downloaded.toFloat() / total).coerceIn(0f, 1f) else 0f
 
-    private suspend fun enqueueMediaDownload(
-        itemId: UUID,
-        sourceId: String,
-        title: String,
-        url: String,
-        policy: ExistingWorkPolicy,
-    ) {
-        val networkType =
-            when {
-                !appPreferences.getValue(appPreferences.downloadOverMobileData) ->
-                    NetworkType.UNMETERED
-                !appPreferences.getValue(appPreferences.downloadWhenRoaming) ->
-                    NetworkType.NOT_ROAMING
-                // No constraint: the worker retries by itself when the server can't be reached
-                else -> NetworkType.NOT_REQUIRED
-            }
-        val request =
-            OneTimeWorkRequestBuilder<MediaDownloadWorker>()
-                .setInputData(
-                    workDataOf(
-                        MediaDownloadWorker.KEY_ITEM_ID to itemId.toString(),
-                        MediaDownloadWorker.KEY_SOURCE_ID to sourceId,
-                        MediaDownloadWorker.KEY_URL to url,
-                        MediaDownloadWorker.KEY_TITLE to title,
-                    )
-                )
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(networkType).build())
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-                .addTag(MediaDownloadWorker.TAG)
-                .build()
-        val name = MediaDownloadWorker.uniqueWorkName(itemId)
-        workManager.enqueueUniqueWork(name, policy, request)
-        // Wait until WorkManager has stored the request, so observers see it straight away
-        withTimeoutOrNull(STATE_WAIT_MS) {
-            workManager.getWorkInfosForUniqueWorkFlow(name).first { infos ->
-                infos.any { !it.state.isFinished }
-            }
+    private fun networkType(): NetworkType =
+        when {
+            !appPreferences.getValue(appPreferences.downloadOverMobileData) -> NetworkType.UNMETERED
+            !appPreferences.getValue(appPreferences.downloadWhenRoaming) -> NetworkType.NOT_ROAMING
+            // No constraint: the worker retries by itself when the server can't be reached
+            else -> NetworkType.NOT_REQUIRED
         }
-    }
 
     companion object {
         private const val STATE_WAIT_MS = 2000L

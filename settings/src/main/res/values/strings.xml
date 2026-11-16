@@ -79,6 +79,8 @@
     <string name="extra_info">Display Extra Info</string>
     <string name="extra_info_summary">Displays detailed information about Audio, Video and Subtitles</string>
     <string name="show_all_episodes">Show all episodes on show pages</string>
+    <string name="episode_links_to_show">Episode pages link to the show</string>
+    <string name="episode_links_to_show_summary">The button at the top of an episode opens the show instead of its season</string>
     <string name="show_all_episodes_summary">Replace Next up and the seasons row with a list of every episode, newest first</string>
     <string name="mb">MB</string>
     <string name="ms">ms</string>

@@ -27,6 +27,8 @@ interface Downloader {
 enum class DownloadStatus {
     NONE,
     PENDING,
+    /** Waiting for another download to finish first. */
+    QUEUED,
     RUNNING,
     PAUSED,
     FAILED,

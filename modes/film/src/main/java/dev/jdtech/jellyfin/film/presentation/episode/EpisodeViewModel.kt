@@ -38,12 +38,14 @@ constructor(
                 val videoMetadata = videoMetadataParser.parse(episode.sources.first())
                 val actors = getActors(episode)
                 val displayExtraInfo = appPreferences.getValue(appPreferences.displayExtraInfo)
+                val linkToShow = appPreferences.getValue(appPreferences.episodeLinksToShow)
                 _state.emit(
                     _state.value.copy(
                         episode = episode,
                         videoMetadata = videoMetadata,
                         actors = actors,
                         displayExtraInfo = displayExtraInfo,
+                        linkToShow = linkToShow,
                     )
                 )
             } catch (e: Exception) {
