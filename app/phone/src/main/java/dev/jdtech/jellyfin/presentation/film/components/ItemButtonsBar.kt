@@ -1,8 +1,12 @@
 package dev.jdtech.jellyfin.presentation.film.components
 
-import android.app.DownloadManager
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -38,6 +42,7 @@ import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.utils.DownloadStatus
 
 @Composable
 fun ItemButtonsBar(
@@ -52,8 +57,24 @@ fun ItemButtonsBar(
     modifier: Modifier = Modifier,
     downloaderState: DownloaderState? = null,
     canPlay: Boolean = true,
+    onDownloadPauseClick: () -> Unit = {},
+    onDownloadResumeClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
+
+    // Download progress is shown in a notification, which needs this permission on Android 13+.
+    // The download starts whether or not it is granted.
+    val notificationPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val requestNotificationPermission: () -> Unit = {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
 
     val trailerUri =
@@ -164,6 +185,7 @@ fun ItemButtonsBar(
                     } else if (item.canDownload) {
                         FilledTonalIconButton(
                             onClick = {
+                                requestNotificationPermission()
                                 storageLocations = context.getExternalFilesDirs(null)
                                 if (storageLocations.size > 1) {
                                     storageSelectionDialogOpen = true
@@ -187,7 +209,15 @@ fun ItemButtonsBar(
                         DownloaderCard(
                             state = downloaderState,
                             onCancelClick = { cancelDownloadDialogOpen = true },
-                            onRetryClick = { onDownloadClick(selectedStorageIndex) },
+                            onRetryClick = {
+                                if (downloaderState.canResume) {
+                                    onDownloadResumeClick()
+                                } else {
+                                    onDownloadClick(selectedStorageIndex)
+                                }
+                            },
+                            onPauseClick = onDownloadPauseClick,
+                            onResumeClick = onDownloadResumeClick,
                         )
                         Spacer(Modifier.height(MaterialTheme.spacings.small))
                     }
@@ -261,8 +291,7 @@ private fun ItemButtonsBarDownloadingPreview() {
     FindroidTheme {
         ItemButtonsBar(
             item = dummyEpisode,
-            downloaderState =
-                DownloaderState(status = DownloadManager.STATUS_RUNNING, progress = 0.3f),
+            downloaderState = DownloaderState(status = DownloadStatus.RUNNING, progress = 0.3f),
             onPlayClick = {},
             onMarkAsPlayedClick = {},
             onMarkAsFavoriteClick = {},

@@ -1,0 +1,84 @@
+# Builds the personal "Findroid+" version from the custom branch and publishes the signed APKs
+# on the Releases page of this fork.
+#
+# Needs four repository secrets (Settings > Secrets and variables > Actions):
+#   KEYSTORE_BASE64    the signing keystore file, base64 encoded
+#   KEYSTORE_PASSWORD  password of the keystore
+#   KEY_ALIAS          alias of the key inside the keystore
+#   KEY_PASSWORD       password of the key
+
+name: Custom release
+
+on:
+  push:
+    branches:
+      - custom
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: custom-release
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Signing secrets are missing. Add KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Build signed APKs
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew :app:phone:assembleLibreRelease \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/release.jks" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: custom-${{ github.run_number }}
+          name: Findroid+ build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          fail_on_unmatched_files: true
+          body: |
+            Built from ${{ github.sha }} on the custom branch.
+            Most phones need the arm64-v8a file.
+          files: |
+            app/phone/build/outputs/apk/libre/release/*-arm64-v8a.apk
+            app/phone/build/outputs/apk/libre/release/*-armeabi-v7a.apk

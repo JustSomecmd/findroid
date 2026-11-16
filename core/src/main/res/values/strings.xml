@@ -109,4 +109,10 @@
     <string name="download_paused">Paused</string>
     <string name="download_downloading">Downloading…</string>
     <string name="download_failed">Failed to download</string>
+    <string name="pause_download">Pause download</string>
+    <string name="resume_download">Resume download</string>
+    <string name="download_complete">Download complete</string>
+    <string name="download_error_http">The server responded with error %1$d</string>
+    <string name="download_error_server_unreachable">Could not reach the server to continue the download</string>
+    <string name="download_error_gave_up">Download stopped after repeated connection problems</string>
 </resources>
