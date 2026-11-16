@@ -135,23 +135,23 @@ class DownloaderImpl(
                 is FindroidMovie -> {
                     database.insertMovie(
                         item.toFindroidMovieDto(
-                            appPreferences.getValue(appPreferences.currentServer),
-                        ),
+                            appPreferences.getValue(appPreferences.currentServer)
+                        )
                     )
                 }
                 is FindroidEpisode -> {
                     val show = jellyfinRepository.getShow(item.seriesId)
                     database.insertShow(
                         show.toFindroidShowDto(
-                            appPreferences.getValue(appPreferences.currentServer),
-                        ),
+                            appPreferences.getValue(appPreferences.currentServer)
+                        )
                     )
                     val season = jellyfinRepository.getSeason(item.seasonId)
                     database.insertSeason(season.toFindroidSeasonDto())
                     database.insertEpisode(
                         item.toFindroidEpisodeDto(
-                            appPreferences.getValue(appPreferences.currentServer),
-                        ),
+                            appPreferences.getValue(appPreferences.currentServer)
+                        )
                     )
 
                     startImagesDownloader(show)
@@ -238,7 +238,7 @@ class DownloaderImpl(
                 }
             if (url.isNullOrBlank()) {
                 return@withContext UiText.StringResource(
-                    CoreR.string.download_error_server_unreachable,
+                    CoreR.string.download_error_server_unreachable
                 )
             }
 
@@ -318,7 +318,7 @@ class DownloaderImpl(
     override fun observeDownload(itemId: UUID): Flow<DownloadInfo> =
         combine(
                 workManager.getWorkInfosForUniqueWorkFlow(
-                    MediaDownloadWorker.uniqueWorkName(itemId),
+                    MediaDownloadWorker.uniqueWorkName(itemId)
                 ),
                 changes,
             ) { workInfos, _ ->
@@ -407,7 +407,7 @@ class DownloaderImpl(
                         MediaDownloadWorker.KEY_SOURCE_ID to sourceId,
                         MediaDownloadWorker.KEY_URL to url,
                         MediaDownloadWorker.KEY_TITLE to title,
-                    ),
+                    )
                 )
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(networkType).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
@@ -444,7 +444,7 @@ class DownloaderImpl(
             val downloaded = withContext(Dispatchers.IO) { downloadSmallFile(url, file) }
             if (downloaded) {
                 database.insertMediaStream(
-                    mediaStream.toFindroidMediaStreamDto(id, source.id, file.path),
+                    mediaStream.toFindroidMediaStreamDto(id, source.id, file.path)
                 )
             }
         }
@@ -487,7 +487,7 @@ class DownloaderImpl(
             ceil(
                     trickplayInfo.thumbnailCount
                         .toDouble()
-                        .div(trickplayInfo.tileWidth * trickplayInfo.tileHeight),
+                        .div(trickplayInfo.tileWidth * trickplayInfo.tileHeight)
                 )
                 .toInt()
         val byteArrays = mutableListOf<ByteArray>()

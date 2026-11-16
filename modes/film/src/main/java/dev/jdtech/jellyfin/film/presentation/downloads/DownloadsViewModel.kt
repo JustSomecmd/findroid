@@ -37,8 +37,7 @@ constructor(
             try {
                 val items = repository.getDownloads()
                 val showEpisodes = appPreferences.getValue(appPreferences.downloadsShowEpisodes)
-                val episodes =
-                    if (showEpisodes) repository.getDownloadedEpisodes() else emptyList()
+                val episodes = if (showEpisodes) repository.getDownloadedEpisodes() else emptyList()
 
                 val sections = mutableListOf<CollectionSection>()
 

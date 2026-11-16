@@ -104,7 +104,7 @@ constructor(
                         title,
                         startBytes,
                         getExpectedBytes(appContext, sourceId),
-                    ),
+                    )
                 )
 
             val outcome =
@@ -135,8 +135,8 @@ constructor(
                             Result.failure(
                                 workDataOf(
                                     KEY_ERROR to
-                                        appContext.getString(CoreR.string.download_error_gave_up),
-                                ),
+                                        appContext.getString(CoreR.string.download_error_gave_up)
+                                )
                             )
                         } else {
                             Result.retry()
@@ -224,7 +224,7 @@ constructor(
                                 CoreR.string.not_enough_storage,
                                 Formatter.formatFileSize(appContext, needed),
                                 Formatter.formatFileSize(appContext, available),
-                            ),
+                            )
                         )
                     }
                 }
@@ -289,7 +289,7 @@ constructor(
         if (!file.renameTo(finalFile)) {
             Timber.e("Could not rename ${file.path} to ${finalFile.path}")
             return Result.failure(
-                workDataOf(KEY_ERROR to appContext.getString(CoreR.string.downloading_error)),
+                workDataOf(KEY_ERROR to appContext.getString(CoreR.string.downloading_error))
             )
         }
         database.setSourcePath(sourceId, finalFile.path)
@@ -349,7 +349,7 @@ constructor(
             NotificationCompat.Builder(appContext, NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon(CoreR.drawable.ic_download)
                 .setContentTitle(
-                    title.ifEmpty { appContext.getString(CoreR.string.download_downloading) },
+                    title.ifEmpty { appContext.getString(CoreR.string.download_downloading) }
                 )
                 .setContentText(sizeText)
                 .setProgress(100, percent, total <= 0)
