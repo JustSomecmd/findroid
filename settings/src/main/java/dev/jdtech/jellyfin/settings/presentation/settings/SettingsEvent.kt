@@ -13,6 +13,8 @@ sealed interface SettingsEvent {
 
     data class NavigateToSettingsFileEdit(val filePath: String) : SettingsEvent
 
+    data object NavigateToPlayerButtons : SettingsEvent
+
     data class UpdateTheme(val theme: String) : SettingsEvent
 
     data class LaunchIntent(val intent: Intent) : SettingsEvent

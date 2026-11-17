@@ -54,4 +54,6 @@ data class CollectionRoute(val collectionId: String, val collectionName: String)
 
 @Serializable data class SettingsFileEditRoute(val filePath: String) : NavKey
 
+@Serializable data object SettingsPlayerButtonsRoute : NavKey
+
 @Serializable data object AboutRoute : NavKey

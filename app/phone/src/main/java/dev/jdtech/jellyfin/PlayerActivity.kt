@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.Icon
 import android.media.AudioManager
 import android.os.Build
@@ -24,13 +25,13 @@ import android.util.Rational
 import android.view.Gravity
 import android.view.SurfaceView
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.Space
 import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
@@ -53,6 +54,9 @@ import dev.jdtech.jellyfin.presentation.player.QualitySelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.SpeedSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.TrackSelectionDialogFragment
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.settings.domain.PlayerButton
+import dev.jdtech.jellyfin.settings.domain.PlayerButtonLayout
+import dev.jdtech.jellyfin.settings.domain.PlayerButtonPlacement
 import dev.jdtech.jellyfin.utils.PlayerGestureHelper
 import dev.jdtech.jellyfin.utils.PreviewScrubListener
 import java.util.UUID
@@ -86,6 +90,8 @@ class PlayerActivity : BasePlayerActivity() {
     private var previewScrubListener: PreviewScrubListener? = null
     private var wasZoom: Boolean = false
     private var skipButtonTimeoutExpired: Boolean = true
+    private var hasCurrentSegment: Boolean = false
+    private var controllerFadingOut: Boolean = false
 
     private lateinit var skipSegmentButton: Button
 
@@ -126,9 +132,7 @@ class PlayerActivity : BasePlayerActivity() {
         binding.playerView.player = viewModel.player
         binding.playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
-                if (visibility == View.GONE) {
-                    hideSystemUI()
-                }
+                onControllerVisibilityChanged(visibility)
             }
         )
 
@@ -160,14 +164,25 @@ class PlayerActivity : BasePlayerActivity() {
         val subtitleButton = binding.playerView.findViewById<ImageButton>(R.id.btn_subtitle)
         val speedButton = binding.playerView.findViewById<ImageButton>(R.id.btn_speed)
         val chaptersButton = binding.playerView.findViewById<ImageButton>(R.id.btn_chapters)
-        val chaptersSpace = binding.playerView.findViewById<Space>(R.id.space_chapters)
         val qualityButton = binding.playerView.findViewById<ImageButton>(R.id.btn_quality)
-        val qualitySpace = binding.playerView.findViewById<Space>(R.id.space_quality)
         skipSegmentButton = binding.playerView.findViewById(R.id.btn_skip_segment)
         val pipButton = binding.playerView.findViewById<ImageButton>(R.id.btn_pip)
         val lockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_lockview)
         val unlockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_unlock)
         val rotateButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotate)
+
+        applyButtonLayout(
+            mapOf(
+                PlayerButton.LOCK to lockButton,
+                PlayerButton.PIP to pipButton,
+                PlayerButton.CHAPTERS to chaptersButton,
+                PlayerButton.QUALITY to qualityButton,
+                PlayerButton.SPEED to speedButton,
+                PlayerButton.AUDIO to audioButton,
+                PlayerButton.SUBTITLES to subtitleButton,
+                PlayerButton.ROTATE to rotateButton,
+            )
+        )
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -198,14 +213,7 @@ class PlayerActivity : BasePlayerActivity() {
                                     skipSegmentButton.isVisible = false
                                 }
                             } ?: run { skipSegmentButton.isVisible = false }
-
-                            binding.playerView.setControllerVisibilityListener(
-                                PlayerView.ControllerVisibilityListener { visibility ->
-                                    if (skipButtonTimeoutExpired && currentSegment != null) {
-                                        skipSegmentButton.visibility = visibility
-                                    }
-                                }
-                            )
+                            hasCurrentSegment = currentSegment != null
 
                             // Trickplay
                             previewScrubListener?.let { it.currentTrickplay = currentTrickplay }
@@ -227,11 +235,9 @@ class PlayerActivity : BasePlayerActivity() {
                                 playerControlView.setExtraAdGroupMarkers(null, null)
                             }
                             chaptersButton.isVisible = currentChapters.isNotEmpty()
-                            chaptersSpace.isVisible = currentChapters.isNotEmpty()
 
                             // Quality: downloads play from the device and can't be converted
                             qualityButton.isVisible = canChangeQuality
-                            qualitySpace.isVisible = canChangeQuality
 
                             // File Loaded
                             if (fileLoaded) {
@@ -306,9 +312,7 @@ class PlayerActivity : BasePlayerActivity() {
             pipButton.isEnabled = false
             pipButton.imageAlpha = 75
         } else {
-            val pipSpace = binding.playerView.findViewById<Space>(R.id.space_pip)
             pipButton.isVisible = false
-            pipSpace.isVisible = false
         }
 
         audioButton.setOnClickListener {
@@ -446,6 +450,7 @@ class PlayerActivity : BasePlayerActivity() {
         val titleRow = binding.playerView.findViewById<View>(R.id.title_row)
         val buttonsScroll = binding.playerView.findViewById<View>(R.id.extra_buttons_scroll)
         val extraButtons = binding.playerView.findViewById<LinearLayout>(R.id.extra_buttons)
+        val bottomButtons = binding.playerView.findViewById<LinearLayout>(R.id.bottom_buttons)
 
         topBar.orientation = if (portrait) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
         titleRow.layoutParams =
@@ -458,13 +463,13 @@ class PlayerActivity : BasePlayerActivity() {
                 gravity = Gravity.END
             }
 
-        val spaceWidth = ((if (portrait) 4 else 16) * resources.displayMetrics.density).toInt()
-        for (i in 0 until extraButtons.childCount) {
-            val child = extraButtons.getChildAt(i)
-            if (child is Space) {
-                child.layoutParams = child.layoutParams.apply { width = spaceWidth }
-            }
-        }
+        // Gaps between buttons. Dividers only go between visible buttons, so a hidden button
+        // leaves no extra gap behind.
+        val density = resources.displayMetrics.density
+        extraButtons.dividerDrawable = gap(((if (portrait) 4 else 16) * density).toInt())
+        extraButtons.showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
+        bottomButtons?.dividerDrawable = gap(((if (portrait) 4 else 8) * density).toInt())
+        bottomButtons?.showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
 
         binding.playerView
             .findViewById<ImageButton>(R.id.btn_rotate)
@@ -472,6 +477,84 @@ class PlayerActivity : BasePlayerActivity() {
                 if (portrait) CoreR.drawable.ic_rotate_to_landscape
                 else CoreR.drawable.ic_rotate_to_portrait
             )
+    }
+
+    private fun gap(width: Int) =
+        GradientDrawable().apply {
+            setSize(width, 1)
+            setColor(Color.TRANSPARENT)
+        }
+
+    /**
+     * Puts the optional buttons in the bars and order chosen in settings, leaving out hidden ones.
+     */
+    private fun applyButtonLayout(buttons: Map<PlayerButton, View>) {
+        val topBar = binding.playerView.findViewById<LinearLayout>(R.id.extra_buttons) ?: return
+        val bottomBar = binding.playerView.findViewById<LinearLayout>(R.id.bottom_buttons) ?: return
+        val density = resources.displayMetrics.density
+
+        buttons.values.forEach { (it.parent as? ViewGroup)?.removeView(it) }
+
+        val layout = PlayerButtonLayout.parse(appPreferences.getValue(appPreferences.playerButtons))
+        for (config in layout) {
+            val view = buttons[config.button] ?: continue
+            val bar =
+                when (config.placement) {
+                    PlayerButtonPlacement.TOP -> topBar
+                    PlayerButtonPlacement.BOTTOM -> bottomBar
+                    PlayerButtonPlacement.HIDDEN -> continue
+                }
+            // The bottom bar is slimmer, so its buttons are too
+            val padding = ((if (bar == topBar) 16 else 12) * density).toInt()
+            view.setPadding(padding, padding, padding, padding)
+            bar.addView(
+                view,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+    }
+
+    private fun onControllerVisibilityChanged(visibility: Int) {
+        if (visibility == View.GONE && !isInPictureInPictureMode) {
+            hideSystemUI()
+        }
+        if (skipButtonTimeoutExpired && hasCurrentSegment) {
+            skipSegmentButton.visibility = visibility
+        }
+        fadeController(visibility)
+    }
+
+    /**
+     * The player shows and hides its controls instantly; this fades them instead. To fade out, the
+     * controls are made visible again right after the player hides them, and hidden for real once
+     * they are fully transparent. Showing them again in the middle of a fade picks up from there.
+     */
+    private fun fadeController(visibility: Int) {
+        val controller = binding.playerView.findViewById<View>(R.id.exo_controller) ?: return
+        controller.animate().cancel()
+
+        if (isInPictureInPictureMode || !binding.playerView.useController) {
+            controllerFadingOut = false
+            controller.alpha = 1f
+            return
+        }
+
+        if (visibility == View.VISIBLE) {
+            if (!controllerFadingOut) controller.alpha = 0f
+            controllerFadingOut = false
+            controller.animate().alpha(1f).setDuration(CONTROLS_FADE_IN_MS)
+        } else {
+            controllerFadingOut = true
+            controller.visibility = View.VISIBLE
+            controller.animate().alpha(0f).setDuration(CONTROLS_FADE_OUT_MS).withEndAction {
+                controllerFadingOut = false
+                controller.visibility = View.GONE
+                controller.alpha = 1f
+            }
+        }
     }
 
     override fun onUserLeaveHint() {
@@ -667,3 +750,5 @@ private const val EXTRA_PIP_CONTROL = "control"
 private const val PIP_CONTROL_PLAY = 1
 private const val PIP_CONTROL_PAUSE = 2
 private const val PIP_CONTROL_BACKGROUND = 3
+private const val CONTROLS_FADE_IN_MS = 150L
+private const val CONTROLS_FADE_OUT_MS = 250L

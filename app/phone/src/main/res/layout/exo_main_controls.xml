@@ -61,24 +61,21 @@
             android:id="@+id/extra_buttons"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:gravity="center_vertical"
             android:orientation="horizontal">
+
+            <!-- The player puts these in the order and bar chosen in settings -->
 
             <ImageButton
                 android:id="@+id/btn_lockview"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="end"
-                android:layout_weight="1"
                 android:background="@drawable/transparent_circle_background"
                 android:contentDescription="@string/player_controls_lock"
                 android:padding="16dp"
                 android:src="@drawable/ic_lock"
                 app:tint="@android:color/white" />
-
-            <Space
-                android:layout_width="16dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
 
             <ImageButton
                 android:id="@+id/btn_pip"
@@ -90,11 +87,6 @@
                 android:padding="16dp"
                 android:src="@drawable/ic_picture_in_picture"
                 app:tint="@android:color/white" />
-
-            <Space
-                android:id="@+id/space_pip"
-                android:layout_width="16dp"
-                android:layout_height="0dp" />
 
             <ImageButton
                 android:id="@+id/btn_chapters"
@@ -108,12 +100,6 @@
                 android:visibility="gone"
                 app:tint="@android:color/white" />
 
-            <Space
-                android:id="@+id/space_chapters"
-                android:layout_width="16dp"
-                android:layout_height="0dp"
-                android:visibility="gone" />
-
             <ImageButton
                 android:id="@+id/btn_quality"
                 android:layout_width="wrap_content"
@@ -126,12 +112,6 @@
                 android:visibility="gone"
                 app:tint="@android:color/white" />
 
-            <Space
-                android:id="@+id/space_quality"
-                android:layout_width="16dp"
-                android:layout_height="0dp"
-                android:visibility="gone" />
-
             <ImageButton
                 android:id="@+id/btn_speed"
                 android:layout_width="wrap_content"
@@ -143,10 +123,6 @@
                 android:src="@drawable/ic_gauge"
                 app:tint="@android:color/white" />
 
-            <Space
-                android:layout_width="16dp"
-                android:layout_height="0dp" />
-
             <ImageButton
                 android:id="@+id/btn_audio_track"
                 android:layout_width="wrap_content"
@@ -157,10 +133,6 @@
                 android:padding="16dp"
                 android:src="@drawable/ic_speaker"
                 app:tint="@android:color/white" />
-
-            <Space
-                android:layout_width="16dp"
-                android:layout_height="0dp" />
 
             <ImageButton
                 android:id="@+id/btn_subtitle"
@@ -292,20 +264,35 @@
                 android:textSize="14sp"
                 tools:text="24:21" />
 
-            <Space
+            <HorizontalScrollView
+                android:id="@+id/bottom_buttons_scroll"
                 android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
-            <ImageButton
-                android:id="@+id/btn_rotate"
-                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="@drawable/transparent_circle_background"
-                android:contentDescription="@string/player_controls_rotate"
-                android:padding="12dp"
-                android:src="@drawable/ic_rotate_to_portrait"
-                app:tint="@android:color/white" />
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/bottom_buttons"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageButton
+                        android:id="@+id/btn_rotate"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/transparent_circle_background"
+                        android:contentDescription="@string/player_controls_rotate"
+                        android:padding="12dp"
+                        android:src="@drawable/ic_rotate_to_portrait"
+                        app:tint="@android:color/white" />
+
+                </LinearLayout>
+
+            </HorizontalScrollView>
         </LinearLayout>
 
 

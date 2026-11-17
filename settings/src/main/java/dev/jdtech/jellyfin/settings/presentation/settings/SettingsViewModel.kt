@@ -317,6 +317,21 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     backendPreference =
                                                         appPreferences.playerBackgroundPlayback,
                                                 ),
+                                                PreferenceCategory(
+                                                    nameStringResource =
+                                                        R.string.pref_player_buttons,
+                                                    descriptionStringRes =
+                                                        R.string.pref_player_buttons_summary,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    onClick = {
+                                                        viewModelScope.launch {
+                                                            eventsChannel.send(
+                                                                SettingsEvent
+                                                                    .NavigateToPlayerButtons
+                                                            )
+                                                        }
+                                                    },
+                                                ),
                                                 PreferenceSelect(
                                                     nameStringResource =
                                                         R.string.pref_player_backend,

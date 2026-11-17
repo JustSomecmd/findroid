@@ -61,6 +61,7 @@ import dev.jdtech.jellyfin.presentation.film.PlaylistsScreen
 import dev.jdtech.jellyfin.presentation.film.SeasonScreen
 import dev.jdtech.jellyfin.presentation.film.ShowScreen
 import dev.jdtech.jellyfin.presentation.settings.AboutScreen
+import dev.jdtech.jellyfin.presentation.settings.PlayerButtonsScreen
 import dev.jdtech.jellyfin.presentation.settings.SettingsFileEditScreen
 import dev.jdtech.jellyfin.presentation.settings.SettingsScreen
 import dev.jdtech.jellyfin.presentation.setup.addresses.ServerAddressesScreen
@@ -598,6 +599,8 @@ private fun EntryProviderScope<NavKey>.mainEntries(
                 resumedAction { filePath ->
                     navigator.navigate(SettingsFileEditRoute(filePath = filePath))
                 },
+            navigateToPlayerButtons =
+                dropUnlessResumed { navigator.navigate(SettingsPlayerButtonsRoute) },
             navigateToServers = dropUnlessResumed { navigator.navigate(ServersRoute) },
             navigateToUsers = dropUnlessResumed { navigator.navigate(UsersRoute) },
             navigateToAbout = dropUnlessResumed { navigator.navigate(AboutRoute) },
@@ -609,6 +612,9 @@ private fun EntryProviderScope<NavKey>.mainEntries(
             filePath = key.filePath,
             navigateBack = dropUnlessResumed { navigator.goBack() },
         )
+    }
+    entry<SettingsPlayerButtonsRoute> {
+        PlayerButtonsScreen(navigateBack = dropUnlessResumed { navigator.goBack() })
     }
     entry<AboutRoute> { AboutScreen(navigateBack = dropUnlessResumed { navigator.goBack() }) }
 }

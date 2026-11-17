@@ -56,6 +56,7 @@ fun SettingsScreen(
     indexes: List<Int> = emptyList(),
     navigateToSettings: (indexes: List<Int>) -> Unit,
     navigateToSettingsFileEdit: (filePath: String) -> Unit,
+    navigateToPlayerButtons: () -> Unit,
     navigateToServers: () -> Unit,
     navigateToUsers: () -> Unit,
     navigateToAbout: () -> Unit,
@@ -73,6 +74,7 @@ fun SettingsScreen(
             is SettingsEvent.NavigateToSettings -> navigateToSettings(event.indexes)
             is SettingsEvent.NavigateToSettingsFileEdit ->
                 navigateToSettingsFileEdit(event.filePath)
+            is SettingsEvent.NavigateToPlayerButtons -> navigateToPlayerButtons()
             is SettingsEvent.NavigateToUsers -> navigateToUsers()
             is SettingsEvent.NavigateToServers -> navigateToServers()
             is SettingsEvent.NavigateToAbout -> navigateToAbout()

@@ -261,6 +261,10 @@ constructor(
 
                 val buffer = ByteArray(BUFFER_SIZE)
                 var lastUpdate = 0L
+                var lastUpdateBytes = downloaded
+                // Bytes per second, smoothed so the number doesn't jump around. Unknown (-1)
+                // until a full interval has passed.
+                var speed = -1.0
                 body.byteStream().use { input ->
                     while (true) {
                         currentCoroutineContext().ensureActive()
@@ -271,8 +275,22 @@ constructor(
 
                         val now = SystemClock.elapsedRealtime()
                         if (now - lastUpdate >= PROGRESS_INTERVAL_MS) {
+                            if (lastUpdate > 0L) {
+                                val sample =
+                                    (downloaded - lastUpdateBytes) * 1000.0 / (now - lastUpdate)
+                                speed =
+                                    if (speed < 0) sample
+                                    else speed * (1 - SPEED_SMOOTHING) + sample * SPEED_SMOOTHING
+                            }
                             lastUpdate = now
-                            reportProgress(downloaded, totalBytes, title, notificationId)
+                            lastUpdateBytes = downloaded
+                            reportProgress(
+                                downloaded,
+                                totalBytes,
+                                speed.toLong(),
+                                title,
+                                notificationId,
+                            )
                         }
                     }
                 }
@@ -320,13 +338,16 @@ constructor(
     private suspend fun reportProgress(
         downloaded: Long,
         total: Long,
+        bytesPerSecond: Long,
         title: String,
         notificationId: Int,
     ) {
         setProgress(workDataOf(PROGRESS_DOWNLOADED to downloaded, PROGRESS_TOTAL to total))
         if (foregroundActive) {
             foregroundActive =
-                tryForeground(createForegroundInfo(notificationId, title, downloaded, total))
+                tryForeground(
+                    createForegroundInfo(notificationId, title, downloaded, total, bytesPerSecond)
+                )
         }
     }
 
@@ -354,15 +375,26 @@ constructor(
         title: String,
         downloaded: Long,
         total: Long,
+        bytesPerSecond: Long = -1L,
     ): ForegroundInfo {
         ensureNotificationChannel()
         val percent = if (total > 0) (downloaded * 100 / total).toInt().coerceIn(0, 100) else 0
-        val sizeText =
+        val size =
             if (total > 0) {
                 "${Formatter.formatShortFileSize(appContext, downloaded)} / " +
                     Formatter.formatShortFileSize(appContext, total)
             } else {
                 Formatter.formatShortFileSize(appContext, downloaded)
+            }
+        val sizeText =
+            if (bytesPerSecond >= 0) {
+                appContext.getString(
+                    CoreR.string.download_size_and_speed,
+                    size,
+                    Formatter.formatShortFileSize(appContext, bytesPerSecond),
+                )
+            } else {
+                size
             }
         val notification =
             NotificationCompat.Builder(appContext, NOTIFICATION_CHANNEL_ID)
@@ -456,6 +488,8 @@ constructor(
         private const val NOTIFICATION_CHANNEL_ID = "downloads"
         private const val BUFFER_SIZE = 64 * 1024
         private const val PROGRESS_INTERVAL_MS = 1000L
+        // How much each new measurement counts towards the shown speed
+        private const val SPEED_SMOOTHING = 0.4
         private const val MAX_FAILURES_WITHOUT_PROGRESS = 8
 
         private const val PREFS_NAME = "media_downloads"
