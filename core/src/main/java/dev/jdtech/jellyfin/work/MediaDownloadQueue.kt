@@ -203,7 +203,19 @@ object MediaDownloadQueue {
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    // The queue as last read or written. The download page asks for it on every progress update,
+    // so it is kept here instead of being read and parsed from storage each time. Everything that
+    // changes the queue runs in this process and goes through write().
+    @Volatile private var cached: List<Entry>? = null
+
     private fun read(context: Context): List<Entry> {
+        cached?.let {
+            return it
+        }
+        return parse(context).also { cached = it }
+    }
+
+    private fun parse(context: Context): List<Entry> {
         val json = prefs(context).getString(KEY_QUEUE, null) ?: return emptyList()
         return try {
             val array = JSONArray(json)
@@ -231,6 +243,7 @@ object MediaDownloadQueue {
     }
 
     private fun write(context: Context, entries: List<Entry>) {
+        cached = entries
         val array = JSONArray()
         for (entry in entries) {
             array.put(

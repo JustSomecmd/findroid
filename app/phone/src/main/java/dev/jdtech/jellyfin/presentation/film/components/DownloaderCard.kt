@@ -100,12 +100,14 @@ fun DownloaderCard(
                     Text(
                         text = statusText,
                         color = textColor,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style =
+                            MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = "tnum"),
                     )
                     Text(
                         text = animatedProgress.times(100).roundToInt().toString() + "%",
                         color = textColor,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style =
+                            MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = "tnum"),
                     )
                 }
                 Spacer(Modifier.height(MaterialTheme.spacings.small))

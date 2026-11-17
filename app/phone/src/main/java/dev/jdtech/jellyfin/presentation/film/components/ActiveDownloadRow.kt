@@ -1,6 +1,7 @@
 package dev.jdtech.jellyfin.presentation.film.components
 
 import android.text.format.Formatter
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,8 +12,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -61,6 +64,11 @@ fun ActiveDownloadRow(
             else -> ""
         }
     val percent = (info.progress * 100).roundToInt()
+    val animatedProgress by
+        animateFloatAsState(
+            targetValue = info.progress,
+            animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec,
+        )
     val speed =
         if (info.status == DownloadStatus.RUNNING && info.bytesPerSecond >= 0) {
             stringResource(
@@ -106,13 +114,14 @@ fun ActiveDownloadRow(
                 color =
                     if (info.status == DownloadStatus.FAILED) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelMedium,
+                // Digits of equal width, so the line doesn't shift as the numbers change
+                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
             )
             if (info.status == DownloadStatus.PENDING) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             } else {
                 LinearProgressIndicator(
-                    progress = { info.progress },
+                    progress = { animatedProgress },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

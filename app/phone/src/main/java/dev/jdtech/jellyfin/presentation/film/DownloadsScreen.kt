@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin.presentation.film
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -120,8 +121,11 @@ private fun DownloadsScreenLayout(
             header = {
                 if (activeDownloads.isNotEmpty()) {
                     item(key = "active_downloads", span = { GridItemSpan(maxLineSpan) }) {
+                        // Grows and shrinks smoothly as downloads start, finish or leave the list
                         Column(
-                            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)
+                            modifier = Modifier.animateContentSize(),
+                            verticalArrangement =
+                                Arrangement.spacedBy(MaterialTheme.spacings.small),
                         ) {
                             Card {
                                 Row(

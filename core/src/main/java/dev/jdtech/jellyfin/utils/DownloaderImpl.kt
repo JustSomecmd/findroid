@@ -47,6 +47,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -394,6 +395,8 @@ class DownloaderImpl(
                 workInfos.firstOrNull { !it.state.isFinished } ?: workInfos.lastOrNull()
             }
             .map { workInfo -> toDownloadInfo(itemId, workInfo) }
+            // Queue and download changes elsewhere often leave this one as it was
+            .distinctUntilChanged()
             .flowOn(Dispatchers.IO)
 
     private suspend fun toDownloadInfo(itemId: UUID, workInfo: WorkInfo?): DownloadInfo {

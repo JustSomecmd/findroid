@@ -5,12 +5,15 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItemPerson
+import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -33,19 +36,26 @@ constructor(
         this.showId = showId
         viewModelScope.launch {
             try {
-                val show = repository.getShow(showId)
                 val showAllEpisodes = appPreferences.getValue(appPreferences.showAllEpisodes)
                 val newestFirst = appPreferences.getValue(appPreferences.showEpisodesNewestFirst)
-                val nextUp = if (showAllEpisodes) null else getNextUp(showId)
-                val seasons = repository.getSeasons(showId)
-                val episodes =
-                    if (showAllEpisodes) {
-                        sortEpisodes(
-                            repository.getAllEpisodes(showId).filter { !it.missing },
-                            newestFirst,
-                        )
-                    } else {
-                        emptyList()
+                // The show, its seasons and its episodes are separate requests that don't depend
+                // on each other, so they are made at the same time
+                val (show, nextUp, seasons, episodes) =
+                    coroutineScope {
+                        val show = async { repository.getShow(showId) }
+                        val nextUp = async { if (showAllEpisodes) null else getNextUp(showId) }
+                        val seasons = async { repository.getSeasons(showId) }
+                        val episodes = async {
+                            if (showAllEpisodes) {
+                                sortEpisodes(
+                                    repository.getAllEpisodes(showId).filter { !it.missing },
+                                    newestFirst,
+                                )
+                            } else {
+                                emptyList()
+                            }
+                        }
+                        ShowParts(show.await(), nextUp.await(), seasons.await(), episodes.await())
                     }
                 val actors = getActors(show)
                 val director = getDirector(show)
@@ -156,3 +166,11 @@ constructor(
         }
     }
 }
+
+/** The parts of a show page that are loaded at the same time. */
+private data class ShowParts(
+    val show: FindroidShow,
+    val nextUp: FindroidEpisode?,
+    val seasons: List<FindroidSeason>,
+    val episodes: List<FindroidEpisode>,
+)
