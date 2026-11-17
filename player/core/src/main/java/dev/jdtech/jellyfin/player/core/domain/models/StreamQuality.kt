@@ -1,6 +1,9 @@
 package dev.jdtech.jellyfin.player.core.domain.models
 
-/** Streaming qualities. Anything but [ORIGINAL] is converted by the Jellyfin server. */
+/**
+ * Streaming qualities. Anything but [ORIGINAL] is converted by the Jellyfin server. [AUDIO_ONLY]
+ * leaves out the picture altogether, which uses a small part of the data.
+ */
 enum class StreamQuality(
     /** Stored in the settings. */
     val key: String,
@@ -12,7 +15,8 @@ enum class StreamQuality(
     P1080("1080p", 1920, 1080, 8_000_000),
     P720("720p", 1280, 720, 4_000_000),
     P480("480p", 854, 480, 1_500_000),
-    P360("360p", 640, 360, 800_000);
+    P360("360p", 640, 360, 800_000),
+    AUDIO_ONLY("audio", 0, 0, 128_000);
 
     /** For example "720p · 4 Mbps". */
     val label: String

@@ -326,6 +326,20 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     backendPreference =
                                                         appPreferences.playerBackgroundPlayback,
                                                 ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.pref_player_background_audio_only,
+                                                    descriptionStringRes =
+                                                        R.string
+                                                            .pref_player_background_audio_only_summary,
+                                                    dependencies =
+                                                        listOf(
+                                                            appPreferences.playerBackgroundPlayback
+                                                        ),
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.playerBackgroundAudioOnly,
+                                                ),
                                                 PreferenceCategory(
                                                     nameStringResource =
                                                         R.string.pref_player_buttons,

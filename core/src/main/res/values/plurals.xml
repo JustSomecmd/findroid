@@ -4,4 +4,16 @@
         <item quantity="one">%d server discovered</item>
         <item quantity="other">%d servers discovered</item>
     </plurals>
+    <plurals name="storage_episodes_local">
+        <item quantity="one">%1$d episode · %2$s</item>
+        <item quantity="other">%1$d episodes · %2$s</item>
+    </plurals>
+    <plurals name="storage_episodes_server">
+        <item quantity="one">On the server: %1$d episode · %2$s</item>
+        <item quantity="other">On the server: %1$d episodes · %2$s</item>
+    </plurals>
+    <plurals name="storage_delete_show_message">
+        <item quantity="one">This deletes %1$d downloaded episode of %2$s and frees %3$s.</item>
+        <item quantity="other">This deletes %1$d downloaded episodes of %2$s and frees %3$s.</item>
+    </plurals>
 </resources>

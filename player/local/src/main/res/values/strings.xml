@@ -27,6 +27,8 @@
     <string name="select_quality">Quality</string>
     <string name="quality_original">Original</string>
     <string name="quality_original_summary">Original (no conversion)</string>
+    <string name="quality_audio_only">Sound only · 128 kbps</string>
+    <string name="player_audio_only">Sound only</string>
     <string name="quality_failed">The server could not convert this video</string>
     <string name="player_controls_rotate">Switch between portrait and landscape</string>
     <string name="player_pip_background">Listen in background</string>

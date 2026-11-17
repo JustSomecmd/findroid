@@ -3,7 +3,9 @@ package dev.jdtech.jellyfin.presentation.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,17 +20,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -38,6 +45,10 @@ import kotlinx.coroutines.launch
  *
  * The rows keep their places in the layout during a drag and are only moved on screen, so the drag
  * isn't interrupted by the layout changing under the finger.
+ *
+ * When the column sits in a scrolling list, pass that list's [scrollState]: holding a row near the
+ * top or bottom edge of the visible area then scrolls the list, so a row can be taken past what
+ * fits on screen.
  */
 @Composable
 fun <K : Any> ReorderableColumn(
@@ -45,6 +56,7 @@ fun <K : Any> ReorderableColumn(
     onReorder: (List<K>) -> Unit,
     spacing: Dp,
     modifier: Modifier = Modifier,
+    scrollState: ScrollableState? = null,
     row: @Composable (key: K) -> Unit,
 ) {
     val currentKeys by rememberUpdatedState(keys)
@@ -64,6 +76,9 @@ fun <K : Any> ReorderableColumn(
     var generation by remember { mutableIntStateOf(0) }
     // Top and bottom of each row in the layout
     val bounds = remember { mutableMapOf<K, Pair<Float, Float>>() }
+    // Where the column is on screen, read live while scrolling
+    val columnPosition = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    val density = LocalDensity.current
 
     // Follows the saved order, except in the middle of a drag
     LaunchedEffect(keys) { if (draggedKey == null) order = keys }
@@ -151,11 +166,50 @@ fun <K : Any> ReorderableColumn(
         }
     }
 
+    // Scrolls the list while the dragged row is held near an edge of the visible area. The row
+    // moves along with the list so it stays under the finger.
+    LaunchedEffect(draggedKey, scrollState) {
+        val state = scrollState ?: return@LaunchedEffect
+        val dragged = draggedKey ?: return@LaunchedEffect
+        val edge = with(density) { AUTO_SCROLL_EDGE.toPx() }
+        val maxStep = with(density) { AUTO_SCROLL_MAX_STEP.toPx() }
+
+        while (isActive && !settling) {
+            withFrameNanos {}
+            val coordinates = columnPosition[0]?.takeIf { it.isAttached } ?: continue
+            val own = bounds[dragged] ?: continue
+
+            val columnTop = coordinates.positionInWindow().y
+            val columnBottom = columnTop + coordinates.size.height
+            // The part of the column that can be seen
+            val visible = coordinates.boundsInWindow()
+            val rowCenter = columnTop + (own.first + own.second) / 2 + dragOffset
+
+            val step =
+                when {
+                    // More of the list below and the row is near the bottom
+                    columnBottom > visible.bottom + 1 && rowCenter > visible.bottom - edge ->
+                        maxStep * ((rowCenter - (visible.bottom - edge)) / edge).coerceIn(0f, 1f)
+                    // More of the list above and the row is near the top
+                    columnTop < visible.top - 1 && rowCenter < visible.top + edge ->
+                        -maxStep * (((visible.top + edge) - rowCenter) / edge).coerceIn(0f, 1f)
+                    else -> 0f
+                }
+            if (step != 0f) {
+                val scrolled = state.scrollBy(step)
+                if (scrolled != 0f) drag(dragged, scrolled)
+            }
+        }
+    }
+
     val rows = order.filter { it in keys }
     val draggedIndex = draggedKey?.let { rows.indexOf(it) } ?: -1
     val gap = draggedKey?.let { height(it) + spacingPx } ?: 0f
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(spacing)) {
+    Column(
+        modifier = modifier.onGloballyPositioned { columnPosition[0] = it },
+        verticalArrangement = Arrangement.spacedBy(spacing),
+    ) {
         rows.forEachIndexed { index, rowKey ->
             key(rowKey) {
                 val isDragged = rowKey == draggedKey
@@ -211,4 +265,8 @@ fun <K : Any> ReorderableColumn(
 }
 
 private const val SETTLE_MS = 150
+// How close to an edge of the visible area the dragged row must be to scroll the list
+private val AUTO_SCROLL_EDGE = 72.dp
+// The fastest the list scrolls, per frame, when the row is right at the edge
+private val AUTO_SCROLL_MAX_STEP = 14.dp
 private const val SHIFT_MS = 150

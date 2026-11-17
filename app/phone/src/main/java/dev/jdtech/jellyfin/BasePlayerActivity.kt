@@ -56,6 +56,7 @@ abstract class BasePlayerActivity : AppCompatActivity() {
             PlaybackService.currentSession = session
             startService(Intent(this, PlaybackService::class.java))
             viewModel.setVideoEnabled(true)
+            viewModel.onPlayerShown()
         }
     }
 
@@ -99,6 +100,7 @@ abstract class BasePlayerActivity : AppCompatActivity() {
         } else if (!wasPip) {
             // Nothing is shown, so stop decoding video and only play the sound
             viewModel.setVideoEnabled(false)
+            viewModel.onPlayerHidden()
         }
 
         if (wasPip) {

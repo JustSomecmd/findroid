@@ -12,6 +12,7 @@ import dev.jdtech.jellyfin.models.FindroidPerson
 import dev.jdtech.jellyfin.models.FindroidPlaylist
 import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidSegment
+import dev.jdtech.jellyfin.models.FindroidServerSize
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSource
 import dev.jdtech.jellyfin.models.FindroidTranscodeStream
@@ -258,6 +259,14 @@ class JellyfinRepositoryOfflineImpl(
         maxHeight: Int,
         maxBitrate: Int,
     ): FindroidTranscodeStream? = null
+
+    override suspend fun getAudioOnlyStream(
+        itemId: UUID,
+        mediaSourceId: String,
+        bitrate: Int,
+    ): FindroidTranscodeStream? = null
+
+    override suspend fun getShowServerSize(seriesId: UUID): FindroidServerSize? = null
 
     override suspend fun getStreamUrl(itemId: UUID, mediaSourceId: String): String {
         TODO("Not yet implemented")

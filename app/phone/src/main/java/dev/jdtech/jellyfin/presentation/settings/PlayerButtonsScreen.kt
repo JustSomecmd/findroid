@@ -57,6 +57,7 @@ fun PlayerButtonsScreen(
 ) {
     val buttons by viewModel.buttons.collectAsStateWithLifecycle()
     val byButton = buttons.associateBy { it.button }
+    val scrollState = rememberScrollState()
 
     Scaffold(
         modifier = Modifier.fillMaxSize().recalculateWindowInsets(),
@@ -80,8 +81,7 @@ fun PlayerButtonsScreen(
         },
     ) { innerPadding ->
         Box(
-            modifier =
-                Modifier.fillMaxSize().padding(innerPadding).verticalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxSize().padding(innerPadding).verticalScroll(scrollState),
             contentAlignment = Alignment.TopCenter,
         ) {
             Column(
@@ -100,6 +100,7 @@ fun PlayerButtonsScreen(
                     keys = buttons.map { it.button },
                     onReorder = { viewModel.reorder(it) },
                     spacing = MaterialTheme.spacings.small,
+                    scrollState = scrollState,
                 ) { button ->
                     val config = byButton[button]
                     if (config != null) {

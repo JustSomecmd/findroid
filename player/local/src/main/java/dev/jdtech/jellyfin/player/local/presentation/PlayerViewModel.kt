@@ -38,6 +38,7 @@ import kotlin.math.ceil
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -91,9 +92,15 @@ constructor(
         val canChangeQuality: Boolean,
         /** Whether the current item has subtitles to choose from. */
         val hasSubtitles: Boolean = false,
+        /** Whether only the sound of the current item is streamed. */
+        val isAudioOnly: Boolean = false,
     )
 
     private var items: MutableList<PlayerItem> = mutableListOf()
+
+    // Switching to sound only while the player is in the background
+    private var backgroundAudioOnlyJob: Job? = null
+    private var qualityBeforeBackground: StreamQuality? = null
 
     private val trackSelector = DefaultTrackSelector(application)
     var playWhenReady = true
@@ -385,6 +392,7 @@ constructor(
                                 fileLoaded = false,
                                 currentQuality = playlistManager.quality,
                                 canChangeQuality = !item.isLocal,
+                                isAudioOnly = item.isAudioOnly,
                             )
                         }
 
@@ -509,7 +517,11 @@ constructor(
      * Switches every streamed item in the queue to [quality] and continues the current one at the
      * same position.
      */
-    fun selectQuality(quality: StreamQuality) {
+    /**
+     * Streams every item that isn't downloaded in [quality] from now on, carrying on from the same
+     * spot. [showErrors] tells the user when the server couldn't convert the video.
+     */
+    fun selectQuality(quality: StreamQuality, showErrors: Boolean = true) {
         if (quality == playlistManager.quality) return
         playlistManager.quality = quality
         _uiState.update { it.copy(currentQuality = quality) }
@@ -535,15 +547,49 @@ constructor(
             }
 
             val current = reloaded.getOrNull(index)
-            if (quality != StreamQuality.ORIGINAL && current != null && !current.isTranscoded) {
+            if (
+                showErrors &&
+                    quality != StreamQuality.ORIGINAL &&
+                    current != null &&
+                    !current.isTranscoded
+            ) {
                 Toast.makeText(application, R.string.quality_failed, Toast.LENGTH_LONG).show()
             }
+            _uiState.update { it.copy(isAudioOnly = current?.isAudioOnly == true) }
 
             items = reloaded.toMutableList()
             player.setMediaItems(items.map { it.toMediaItem() }, index, position)
             player.prepare()
             player.playWhenReady = playWhenReady
         }
+    }
+
+    /**
+     * Called when the player screen goes away while playback carries on. If the setting is on, it
+     * switches to streaming only the sound after a short wait, so quickly checking another app
+     * doesn't interrupt playback.
+     */
+    fun onPlayerHidden() {
+        backgroundAudioOnlyJob?.cancel()
+        if (!appPreferences.getValue(appPreferences.playerBackgroundAudioOnly)) return
+        backgroundAudioOnlyJob = viewModelScope.launch {
+            delay(BACKGROUND_AUDIO_ONLY_DELAY_MS)
+            val current = items.getOrNull(player.currentMediaItemIndex) ?: return@launch
+            if (current.isLocal || playlistManager.quality == StreamQuality.AUDIO_ONLY) {
+                return@launch
+            }
+            qualityBeforeBackground = playlistManager.quality
+            selectQuality(StreamQuality.AUDIO_ONLY, showErrors = false)
+        }
+    }
+
+    /** Called when the player screen is shown again; brings the picture back if it was dropped. */
+    fun onPlayerShown() {
+        backgroundAudioOnlyJob?.cancel()
+        backgroundAudioOnlyJob = null
+        val previous = qualityBeforeBackground ?: return
+        qualityBeforeBackground = null
+        selectQuality(previous)
     }
 
     /**
@@ -779,3 +825,6 @@ sealed interface PlayerEvents {
 
     data class IsPlayingChanged(val isPlaying: Boolean) : PlayerEvents
 }
+
+// How long the player waits in the background before dropping the picture
+private const val BACKGROUND_AUDIO_ONLY_DELAY_MS = 10_000L

@@ -22,10 +22,19 @@ class PlaybackService : MediaSessionService() {
 
     private val playerListener =
         object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                updateLocks(isPlaying)
+            override fun onEvents(player: Player, events: Player.Events) {
+                updateLocks(shouldStayAwake(player))
             }
         }
+
+    /**
+     * Playing, or loading in order to play. Loading counts too, so the phone doesn't fall asleep
+     * while the stream is switched or buffers with the screen off.
+     */
+    private fun shouldStayAwake(player: Player): Boolean =
+        player.playWhenReady &&
+            (player.playbackState == Player.STATE_READY ||
+                player.playbackState == Player.STATE_BUFFERING)
 
     override fun onCreate() {
         super.onCreate()
@@ -46,7 +55,7 @@ class PlaybackService : MediaSessionService() {
             observedPlayer?.removeListener(playerListener)
             observedPlayer = session.player
             session.player.addListener(playerListener)
-            updateLocks(session.player.isPlaying)
+            updateLocks(shouldStayAwake(session.player))
         }
     }
 

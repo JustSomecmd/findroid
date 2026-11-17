@@ -12,15 +12,17 @@ import dev.jdtech.jellyfin.player.local.R
 import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
 import java.lang.IllegalStateException
 
-/** Lets the user pick the original file or a lower quality converted by the server. */
+/**
+ * Lets the user pick the original file, a lower quality converted by the server, or only the sound.
+ */
 class QualitySelectionDialogFragment(private val viewModel: PlayerViewModel) : DialogFragment() {
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val qualities = StreamQuality.entries
         val labels = qualities.map { quality ->
-            if (quality == StreamQuality.ORIGINAL) {
-                getString(R.string.quality_original_summary)
-            } else {
-                quality.label
+            when (quality) {
+                StreamQuality.ORIGINAL -> getString(R.string.quality_original_summary)
+                StreamQuality.AUDIO_ONLY -> getString(R.string.quality_audio_only)
+                else -> quality.label
             }
         }
 

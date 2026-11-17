@@ -249,13 +249,21 @@ internal constructor(
         val transcodeStream =
             if (!isLocal && quality != StreamQuality.ORIGINAL) {
                 try {
-                    repository.getTranscodeStream(
-                        itemId = id,
-                        mediaSourceId = mediaSource.id,
-                        maxWidth = quality.maxWidth,
-                        maxHeight = quality.maxHeight,
-                        maxBitrate = quality.maxBitrate,
-                    )
+                    if (quality == StreamQuality.AUDIO_ONLY) {
+                        repository.getAudioOnlyStream(
+                            itemId = id,
+                            mediaSourceId = mediaSource.id,
+                            bitrate = quality.maxBitrate,
+                        )
+                    } else {
+                        repository.getTranscodeStream(
+                            itemId = id,
+                            mediaSourceId = mediaSource.id,
+                            maxWidth = quality.maxWidth,
+                            maxHeight = quality.maxHeight,
+                            maxBitrate = quality.maxBitrate,
+                        )
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -333,6 +341,7 @@ internal constructor(
             trickplayInfo = trickplayInfo,
             isLocal = isLocal,
             isTranscoded = transcodeStream != null,
+            isAudioOnly = transcodeStream != null && quality == StreamQuality.AUDIO_ONLY,
         )
     }
 

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown over the black picture area while only the sound is streamed -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/audio_only_overlay"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_gravity="center"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:translationY="-88dp"
+    android:visibility="gone">
+
+    <ImageView
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:alpha="0.8"
+        android:importantForAccessibility="no"
+        android:src="@drawable/ic_headphones"
+        app:tint="@android:color/white" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:alpha="0.8"
+        android:text="@string/player_audio_only"
+        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+        android:textColor="@android:color/white" />
+
+</LinearLayout>

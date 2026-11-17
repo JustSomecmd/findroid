@@ -121,6 +121,8 @@
     <string name="pref_player_stream_quality">Streaming quality</string>
     <string name="pref_player_background_playback">Background playback</string>
     <string name="pref_player_background_playback_summary">Keep playing when the screen turns off or you leave the player</string>
+    <string name="pref_player_background_audio_only">Sound only in the background</string>
+    <string name="pref_player_background_audio_only_summary">After 10 seconds in the background, stream only the sound to save data. The picture comes back when you return to the player. Downloads aren\'t affected.</string>
     <string name="pref_player_buttons">Player buttons</string>
     <string name="pref_player_buttons_summary">Choose which buttons the player shows and where</string>
     <string name="player_buttons_hint">Hold a button and drag it to change its place. Buttons keep this order inside each bar.</string>

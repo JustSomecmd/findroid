@@ -15,6 +15,7 @@ import dev.jdtech.jellyfin.models.FindroidPerson
 import dev.jdtech.jellyfin.models.FindroidPlaylist
 import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidSegment
+import dev.jdtech.jellyfin.models.FindroidServerSize
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSource
 import dev.jdtech.jellyfin.models.FindroidTranscodeStream
@@ -396,6 +397,69 @@ class JellyfinRepositoryImpl(
             } catch (e: Exception) {
                 Timber.e(e)
                 ""
+            }
+        }
+
+    override suspend fun getAudioOnlyStream(
+        itemId: UUID,
+        mediaSourceId: String,
+        bitrate: Int,
+    ): FindroidTranscodeStream? =
+        withContext(Dispatchers.IO) {
+            val accessToken = jellyfinApi.api.accessToken ?: return@withContext null
+            // The server's audio playlist works for videos too: it leaves the picture out
+            val url =
+                jellyfinApi.api.createUrl(
+                    "/Audio/{itemId}/main.m3u8",
+                    pathParameters = mapOf("itemId" to itemId),
+                    queryParameters =
+                        mapOf(
+                            "mediaSourceId" to mediaSourceId,
+                            "audioCodec" to "aac",
+                            "audioBitRate" to bitrate,
+                            "maxAudioChannels" to 2,
+                            "segmentContainer" to "ts",
+                            "playSessionId" to UUID.randomUUID().toString().replace("-", ""),
+                            "deviceId" to jellyfinApi.api.deviceInfo.id,
+                            "ApiKey" to accessToken,
+                        ),
+                )
+            FindroidTranscodeStream(url = url, subtitles = emptyList())
+        }
+
+    override suspend fun getShowServerSize(seriesId: UUID): FindroidServerSize? =
+        withContext(Dispatchers.IO) {
+            try {
+                val episodes =
+                    jellyfinApi.showApi
+                        .getEpisodes(
+                            seriesId,
+                            jellyfinApi.userId!!,
+                            fields = listOf(ItemFields.MEDIA_SOURCES),
+                            isMissing = false,
+                            enableImages = false,
+                            enableUserData = false,
+                        )
+                        .content
+                        .items
+                FindroidServerSize(
+                    episodeCount = episodes.size,
+                    // Every version of every episode, as that is what is stored on the server
+                    bytes =
+                        episodes.sumOf { episode ->
+                            episode.mediaSources
+                                .orEmpty()
+                                .distinctBy { it.id }
+                                .sumOf {
+                                    it.size ?: 0L
+                                }
+                        },
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e)
+                null
             }
         }
 

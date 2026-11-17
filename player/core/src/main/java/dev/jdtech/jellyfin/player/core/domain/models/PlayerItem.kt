@@ -21,4 +21,6 @@ data class PlayerItem(
     val isLocal: Boolean = false,
     /** Converted by the server to a lower quality. */
     val isTranscoded: Boolean = false,
+    /** Only the sound, without the picture. */
+    val isAudioOnly: Boolean = false,
 ) : Parcelable

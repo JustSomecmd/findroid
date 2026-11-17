@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin.presentation.film.components
 
+import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import dev.jdtech.jellyfin.film.presentation.downloads.ActiveDownload
@@ -16,6 +17,8 @@ fun ReorderableDownloadQueue(
     downloads: List<ActiveDownload>,
     onReorder: (List<UUID>) -> Unit,
     onClick: (ActiveDownload) -> Unit,
+    // The list the queue sits in, scrolled while a row is dragged near the edge
+    scrollState: ScrollableState? = null,
 ) {
     val byId = downloads.associateBy { it.item.id }
 
@@ -23,6 +26,7 @@ fun ReorderableDownloadQueue(
         keys = downloads.map { it.item.id },
         onReorder = onReorder,
         spacing = MaterialTheme.spacings.small,
+        scrollState = scrollState,
     ) { id ->
         val download = byId[id]
         if (download != null) {

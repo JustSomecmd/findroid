@@ -48,6 +48,7 @@ import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.navigation.navigateOrReuse
 import dev.jdtech.jellyfin.navigation.resumedAction
 import dev.jdtech.jellyfin.presentation.film.CollectionScreen
+import dev.jdtech.jellyfin.presentation.film.DownloadStorageScreen
 import dev.jdtech.jellyfin.presentation.film.DownloadsScreen
 import dev.jdtech.jellyfin.presentation.film.EpisodeScreen
 import dev.jdtech.jellyfin.presentation.film.FavoritesScreen
@@ -473,7 +474,14 @@ private fun EntryProviderScope<NavKey>.mainEntries(
                         navigator,
                         item,
                     )
-                }
+                },
+            onStorageClick = dropUnlessResumed { navigator.navigate(DownloadStorageRoute) },
+        )
+    }
+    entry<DownloadStorageRoute> {
+        DownloadStorageScreen(
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+            onItemClick = resumedAction { item -> navigateToItem(navigator, item) },
         )
     }
     entry<PlaylistsRoute> {

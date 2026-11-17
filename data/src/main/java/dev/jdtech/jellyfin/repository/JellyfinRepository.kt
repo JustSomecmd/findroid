@@ -9,6 +9,7 @@ import dev.jdtech.jellyfin.models.FindroidPerson
 import dev.jdtech.jellyfin.models.FindroidPlaylist
 import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidSegment
+import dev.jdtech.jellyfin.models.FindroidServerSize
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSource
 import dev.jdtech.jellyfin.models.FindroidTranscodeStream
@@ -113,6 +114,22 @@ interface JellyfinRepository {
         maxHeight: Int,
         maxBitrate: Int,
     ): FindroidTranscodeStream?
+
+    /**
+     * Asks the server for only the sound of a video, converted to AAC at [bitrate] bits per second
+     * and streamed over HLS. Returns null when it can't be streamed.
+     */
+    suspend fun getAudioOnlyStream(
+        itemId: UUID,
+        mediaSourceId: String,
+        bitrate: Int,
+    ): FindroidTranscodeStream?
+
+    /**
+     * How many episodes a show has on the server and how much space their files take there. Returns
+     * null when the server can't be reached.
+     */
+    suspend fun getShowServerSize(seriesId: UUID): FindroidServerSize?
 
     suspend fun getSegments(itemId: UUID): List<FindroidSegment>
 

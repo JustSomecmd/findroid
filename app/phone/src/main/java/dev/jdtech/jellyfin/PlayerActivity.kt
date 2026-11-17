@@ -171,6 +171,14 @@ class PlayerActivity : BasePlayerActivity() {
         val unlockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_unlock)
         val rotateButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotate)
 
+        // Sits between the picture and the controls
+        val audioOnlyOverlay =
+            binding.playerView.overlayFrameLayout?.let { overlay ->
+                layoutInflater.inflate(R.layout.player_audio_only_overlay, overlay, false).also {
+                    overlay.addView(it)
+                }
+            }
+
         applyButtonLayout(
             mapOf(
                 PlayerButton.LOCK to lockButton,
@@ -239,6 +247,8 @@ class PlayerActivity : BasePlayerActivity() {
 
                             // Subtitles: hidden when the video has none
                             subtitleButton.isVisible = hasSubtitles
+
+                            audioOnlyOverlay?.isVisible = isAudioOnly
 
                             // Quality: downloads play from the device and can't be converted
                             qualityButton.isVisible = canChangeQuality
