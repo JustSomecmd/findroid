@@ -156,11 +156,9 @@ private fun DownloadsScreenLayout(
                                     }
                                 }
                             }
-                            // Running first, then the queue (which can be reordered), then
-                            // paused and failed downloads
-                            val queued = activeDownloads.filter {
-                                it.info.status == DownloadStatus.QUEUED
-                            }
+                            // Running first, then the queue (which can be reordered, with paused
+                            // downloads keeping their place), then the rest
+                            val queued = activeDownloads.filter { it.inQueue }
                             activeDownloads
                                 .filter {
                                     it.info.status == DownloadStatus.RUNNING ||
@@ -182,8 +180,9 @@ private fun DownloadsScreenLayout(
                             }
                             activeDownloads
                                 .filter {
-                                    it.info.status == DownloadStatus.PAUSED ||
-                                        it.info.status == DownloadStatus.FAILED
+                                    !it.inQueue &&
+                                        (it.info.status == DownloadStatus.PAUSED ||
+                                            it.info.status == DownloadStatus.FAILED)
                                 }
                                 .forEach { download ->
                                     ActiveDownloadRow(

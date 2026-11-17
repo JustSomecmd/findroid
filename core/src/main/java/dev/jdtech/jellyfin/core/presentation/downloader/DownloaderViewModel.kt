@@ -59,6 +59,7 @@ class DownloaderViewModel @Inject constructor(private val downloader: Downloader
                 progress = info.progress,
                 errorText = info.errorText,
                 canResume = info.canResume,
+                bytesPerSecond = info.bytesPerSecond,
             )
         if (
             info.status == DownloadStatus.SUCCESSFUL &&

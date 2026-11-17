@@ -216,10 +216,26 @@ class DownloaderImpl(
 
     override suspend fun pauseDownload(item: FindroidItem) {
         withContext(Dispatchers.IO) {
-            MediaDownloadQueue.remove(context, item.id)
+            // A running download goes back to the front of the queue as paused, so the queue
+            // waits for it instead of starting the next one. Its address is fetched again on
+            // resume, so none is stored here.
+            val partial =
+                database.getSources(item.id).firstOrNull {
+                    it.path.endsWith(MediaDownloadWorker.DOWNLOAD_SUFFIX)
+                }
+            val running = partial?.let {
+                MediaDownloadQueue.Entry(
+                    itemId = item.id,
+                    sourceId = it.id,
+                    url = "",
+                    title = item.name,
+                    networkType = networkType(),
+                )
+            }
+            // Marked as paused first, so the stopping worker doesn't start the next download
+            MediaDownloadQueue.pause(context, item.id, running)
             cancelMediaDownload(item.id)
             changes.update { it + 1 }
-            MediaDownloadQueue.startNext(context, workManager)
         }
     }
 
@@ -242,7 +258,9 @@ class DownloaderImpl(
                     .getWorkInfosForUniqueWorkFlow(MediaDownloadWorker.uniqueWorkName(item.id))
                     .first()
                     .any { !it.state.isFinished }
-            if (hasActiveWork || MediaDownloadQueue.isQueued(context, item.id)) {
+            // Waiting in the queue and not paused: it starts by itself when its turn comes
+            val queued = MediaDownloadQueue.entry(context, item.id)
+            if (hasActiveWork || (queued != null && !queued.paused)) {
                 return@withContext null
             }
 
@@ -271,17 +289,24 @@ class DownloaderImpl(
             }
 
             MediaDownloadWorker.resetFailures(context, partial.id)
-            MediaDownloadQueue.add(
-                context,
-                workManager,
-                MediaDownloadQueue.Entry(
-                    itemId = item.id,
-                    sourceId = partial.id,
-                    url = url,
-                    title = item.name,
-                    networkType = networkType(),
-                ),
-            )
+            // A paused download in the queue continues from its place; anything else, like a
+            // failed one, is added again
+            val resumedInPlace =
+                queued != null &&
+                    MediaDownloadQueue.resume(context, workManager, item.id, url, networkType())
+            if (!resumedInPlace) {
+                MediaDownloadQueue.add(
+                    context,
+                    workManager,
+                    MediaDownloadQueue.Entry(
+                        itemId = item.id,
+                        sourceId = partial.id,
+                        url = url,
+                        title = item.name,
+                        networkType = networkType(),
+                    ),
+                )
+            }
             changes.update { it + 1 }
             null
         }
@@ -351,7 +376,11 @@ class DownloaderImpl(
     override fun queuedItemIds(): List<UUID> = MediaDownloadQueue.queuedItemIds(context)
 
     override suspend fun reorderQueue(itemIds: List<UUID>) {
-        withContext(Dispatchers.IO) { MediaDownloadQueue.reorder(context, itemIds) }
+        withContext(Dispatchers.IO) {
+            MediaDownloadQueue.reorder(context, itemIds)
+            // Moving a download in front of a paused one that was holding the queue starts it
+            MediaDownloadQueue.startNext(context, workManager)
+        }
     }
 
     override fun observeDownload(itemId: UUID): Flow<DownloadInfo> =
@@ -378,6 +407,8 @@ class DownloaderImpl(
                     status = DownloadStatus.RUNNING,
                     progress = progressOf(downloaded, total),
                     canResume = true,
+                    bytesPerSecond =
+                        workInfo.progress.getLong(MediaDownloadWorker.PROGRESS_SPEED, -1L),
                 )
             }
         }
@@ -399,13 +430,16 @@ class DownloaderImpl(
                 File(partial.path).length(),
                 MediaDownloadWorker.getExpectedBytes(context, partial.id),
             )
+        val queueEntry = MediaDownloadQueue.entry(context, itemId)
         return when {
             state == WorkInfo.State.RUNNING ->
                 DownloadInfo(DownloadStatus.RUNNING, progress = progress, canResume = true)
             // Waiting for the network, or for a retry after a connection problem
             state == WorkInfo.State.ENQUEUED || state == WorkInfo.State.BLOCKED ->
                 DownloadInfo(DownloadStatus.PENDING, progress = progress, canResume = true)
-            MediaDownloadQueue.isQueued(context, itemId) ->
+            queueEntry?.paused == true ->
+                DownloadInfo(DownloadStatus.PAUSED, progress = progress, canResume = true)
+            queueEntry != null ->
                 DownloadInfo(DownloadStatus.QUEUED, progress = progress, canResume = true)
             state == WorkInfo.State.FAILED ->
                 DownloadInfo(

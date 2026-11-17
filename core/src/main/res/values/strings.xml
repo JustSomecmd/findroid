@@ -118,6 +118,8 @@
     <string name="storage_delete_title">Delete downloads?</string>
     <string name="storage_delete_movie_message">This deletes the downloaded movie %1$s and frees %2$s.</string>
     <string name="storage_delete_confirm">Delete</string>
+    <string name="downloads_finished_channel">Finished downloads</string>
+    <string name="download_speed">%1$s/s</string>
     <string name="download_size_and_speed">%1$s · %2$s/s</string>
     <string name="downloads_in_progress">In progress</string>
     <string name="downloads_reorder_hint">Hold and drag to change the order</string>

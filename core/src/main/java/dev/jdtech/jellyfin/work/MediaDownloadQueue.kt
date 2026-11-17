@@ -28,8 +28,12 @@ import timber.log.Timber
  * Runs media downloads one at a time.
  *
  * A download that is started while another one is active waits in this queue, which is stored on
- * the device so it survives the app being closed. Whenever a download finishes, fails, is paused or
- * is cancelled, the next one in the queue starts.
+ * the device so it survives the app being closed. Whenever a download finishes, fails or is
+ * cancelled, the next one in the queue starts.
+ *
+ * A paused download keeps its place in the queue, and the queue never moves past it by itself: when
+ * a paused download is next in line, nothing starts until it is resumed or another download is
+ * moved in front of it. Pausing the running download puts it back at the front.
  */
 object MediaDownloadQueue {
     data class Entry(
@@ -38,6 +42,7 @@ object MediaDownloadQueue {
         val url: String,
         val title: String,
         val networkType: NetworkType,
+        val paused: Boolean = false,
     )
 
     private const val PREFS_NAME = "media_download_queue"
@@ -56,11 +61,59 @@ object MediaDownloadQueue {
     /** Changes whenever the queue changes, so download screens can refresh. */
     val changes: StateFlow<Int> = _changes.asStateFlow()
 
-    fun isQueued(context: Context, itemId: UUID): Boolean =
-        read(context).any { it.itemId == itemId }
-
-    /** Items waiting to download, next one first. */
+    /** Items waiting to download, paused ones included, next one first. */
     fun queuedItemIds(context: Context): List<UUID> = read(context).map { it.itemId }
+
+    /** The queue entry of an item, or null when it isn't in the queue. */
+    fun entry(context: Context, itemId: UUID): Entry? {
+        return read(context).firstOrNull { it.itemId == itemId }
+    }
+
+    /**
+     * Pauses a download. One that is waiting keeps its place. One that is running is passed as
+     * [running] and goes back to the front of the queue, so the queue waits for it.
+     */
+    suspend fun pause(context: Context, itemId: UUID, running: Entry?) {
+        mutex.withLock {
+            val queue = read(context)
+            val updated =
+                when {
+                    queue.any { it.itemId == itemId } ->
+                        queue.map { if (it.itemId == itemId) it.copy(paused = true) else it }
+                    running != null -> listOf(running.copy(paused = true)) + queue
+                    else -> queue
+                }
+            write(context, updated)
+        }
+        _changes.update { it + 1 }
+    }
+
+    /**
+     * Resumes a paused download with a fresh [url]. It starts right away if nothing else is
+     * downloading, otherwise it waits in its place. Returns false when it isn't in the queue.
+     */
+    suspend fun resume(
+        context: Context,
+        workManager: WorkManager,
+        itemId: UUID,
+        url: String,
+        networkType: NetworkType,
+    ): Boolean {
+        val found = mutex.withLock {
+            val queue = read(context)
+            val entry = queue.firstOrNull { it.itemId == itemId } ?: return@withLock false
+            val resumed = entry.copy(paused = false, url = url, networkType = networkType)
+            if (isIdle(workManager)) {
+                write(context, queue.filterNot { it.itemId == itemId })
+                startWork(workManager, resumed)
+            } else {
+                write(context, queue.map { if (it.itemId == itemId) resumed else it })
+            }
+            true
+        }
+        _changes.update { it + 1 }
+        return found
+    }
 
     /** Starts the download right away if nothing else is downloading, otherwise queues it. */
     suspend fun add(context: Context, workManager: WorkManager, entry: Entry) {
@@ -104,6 +157,8 @@ object MediaDownloadQueue {
             if (!isIdle(workManager)) return@withLock
             val queue = read(context)
             val next = queue.firstOrNull() ?: return@withLock
+            // The queue waits at a paused download instead of skipping it
+            if (next.paused) return@withLock
             write(context, queue.drop(1))
             startWork(workManager, next)
         }
@@ -163,6 +218,7 @@ object MediaDownloadQueue {
                         NetworkType.entries.firstOrNull {
                             it.name == entry.optString("networkType")
                         } ?: NetworkType.CONNECTED,
+                    paused = entry.optBoolean("paused", false),
                 )
             }
         } catch (e: JSONException) {
@@ -184,6 +240,7 @@ object MediaDownloadQueue {
                     .put("url", entry.url)
                     .put("title", entry.title)
                     .put("networkType", entry.networkType.name)
+                    .put("paused", entry.paused)
             )
         }
         prefs(context).edit().putString(KEY_QUEUE, array.toString()).apply()

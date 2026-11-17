@@ -30,7 +30,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** A download that hasn't finished yet: running, waiting in the queue, paused or failed. */
-data class ActiveDownload(val item: FindroidItem, val info: DownloadInfo)
+/**
+ * A download that hasn't finished. [inQueue] is true while it waits in the queue, paused or not.
+ */
+data class ActiveDownload(
+    val item: FindroidItem,
+    val info: DownloadInfo,
+    val inQueue: Boolean = false,
+)
 
 @HiltViewModel
 class DownloadsViewModel
@@ -128,9 +135,16 @@ constructor(
                                 it.info.status != DownloadStatus.NONE &&
                                     it.info.status != DownloadStatus.SUCCESSFUL
                             }
+                            .map { download ->
+                                val waiting =
+                                    download.item.id in queue &&
+                                        (download.info.status == DownloadStatus.QUEUED ||
+                                            download.info.status == DownloadStatus.PAUSED)
+                                download.copy(inQueue = waiting)
+                            }
                             .sortedWith(
                                 compareBy(
-                                    { statusOrder(it.info.status) },
+                                    { sortGroup(it) },
                                     {
                                         queue.indexOf(it.item.id).let { index ->
                                             if (index == -1) Int.MAX_VALUE else index
@@ -142,13 +156,17 @@ constructor(
         }
     }
 
-    private fun statusOrder(status: DownloadStatus): Int =
-        when (status) {
-            DownloadStatus.RUNNING -> 0
-            DownloadStatus.PENDING -> 1
-            DownloadStatus.QUEUED -> 2
-            DownloadStatus.PAUSED -> 3
-            DownloadStatus.FAILED -> 4
+    /**
+     * Running first, then the queue in its own order with paused downloads in their place, then
+     * downloads outside the queue.
+     */
+    private fun sortGroup(download: ActiveDownload): Int =
+        when {
+            download.info.status == DownloadStatus.RUNNING -> 0
+            download.info.status == DownloadStatus.PENDING -> 1
+            download.inQueue -> 2
+            download.info.status == DownloadStatus.PAUSED -> 3
+            download.info.status == DownloadStatus.FAILED -> 4
             else -> 5
         }
 

@@ -47,4 +47,6 @@ data class DownloadInfo(
     val errorText: UiText? = null,
     /** True when part of the file is on the device, so the download can continue from there. */
     val canResume: Boolean = false,
+    /** Current speed while downloading, or -1 when unknown. */
+    val bytesPerSecond: Long = -1L,
 )

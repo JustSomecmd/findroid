@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin.presentation.film.components
 
+import android.text.format.Formatter
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +65,15 @@ fun ActiveDownloadRow(
             else -> ""
         }
     val percent = (info.progress * 100).roundToInt()
+    val speed =
+        if (info.status == DownloadStatus.RUNNING && info.bytesPerSecond >= 0) {
+            stringResource(
+                CoreR.string.download_speed,
+                Formatter.formatShortFileSize(LocalContext.current, info.bytesPerSecond),
+            )
+        } else {
+            null
+        }
 
     Row(
         modifier =
@@ -95,7 +106,7 @@ fun ActiveDownloadRow(
                 )
             }
             Text(
-                text = "$status · $percent%",
+                text = listOfNotNull(status, "$percent%", speed).joinToString(" · "),
                 color =
                     if (info.status == DownloadStatus.FAILED) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,

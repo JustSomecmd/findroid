@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin.presentation.film.components
 
+import android.text.format.Formatter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -54,13 +56,21 @@ fun DownloaderCard(
             else -> MaterialTheme.colorScheme.onSurface
         }
 
-    val statusText =
+    val status =
         when (state.status) {
             DownloadStatus.PENDING -> stringResource(CoreR.string.download_pending)
             DownloadStatus.QUEUED -> stringResource(CoreR.string.download_queued)
             DownloadStatus.PAUSED -> stringResource(CoreR.string.download_paused)
             DownloadStatus.FAILED -> stringResource(CoreR.string.download_failed)
             else -> stringResource(CoreR.string.download_downloading)
+        }
+    // Adds the current speed while downloading
+    val statusText =
+        if (state.status == DownloadStatus.RUNNING && state.bytesPerSecond >= 0) {
+            val speed = Formatter.formatShortFileSize(LocalContext.current, state.bytesPerSecond)
+            "$status · ${stringResource(CoreR.string.download_speed, speed)}"
+        } else {
+            status
         }
 
     val progressIndicatorColor =
