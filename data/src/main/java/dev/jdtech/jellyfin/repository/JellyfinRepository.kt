@@ -133,6 +133,12 @@ interface JellyfinRepository {
 
     suspend fun getSegments(itemId: UUID): List<FindroidSegment>
 
+    /**
+     * Emits whenever the server reports that items were added, changed or removed, for as long as
+     * it is collected. Uses the server's live connection, the same one the official apps use.
+     */
+    fun libraryChanges(): Flow<Unit>
+
     suspend fun getTrickplayData(itemId: UUID, width: Int, index: Int): ByteArray?
 
     suspend fun postCapabilities()

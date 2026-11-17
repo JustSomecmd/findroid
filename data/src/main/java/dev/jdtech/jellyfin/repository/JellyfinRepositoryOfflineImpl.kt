@@ -28,6 +28,7 @@ import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.withContext
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
@@ -261,6 +262,8 @@ class JellyfinRepositoryOfflineImpl(
         maxHeight: Int,
         maxBitrate: Int,
     ): FindroidTranscodeStream? = null
+
+    override fun libraryChanges(): Flow<Unit> = emptyFlow()
 
     override suspend fun getAudioOnlyStream(
         itemId: UUID,

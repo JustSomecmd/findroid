@@ -36,7 +36,10 @@ import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import org.jellyfin.sdk.api.sockets.subscribe
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.CodecProfile
@@ -49,6 +52,7 @@ import org.jellyfin.sdk.model.api.GeneralCommandType
 import org.jellyfin.sdk.model.api.ItemFields
 import org.jellyfin.sdk.model.api.ItemFilter
 import org.jellyfin.sdk.model.api.ItemSortBy
+import org.jellyfin.sdk.model.api.LibraryChangedMessage
 import org.jellyfin.sdk.model.api.MediaStreamProtocol
 import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.MediaType
@@ -407,6 +411,13 @@ class JellyfinRepositoryImpl(
                 ""
             }
         }
+
+    override fun libraryChanges(): Flow<Unit> =
+        jellyfinApi.api.webSocket
+            .subscribe<LibraryChangedMessage>()
+            .map {}
+            // Without a live connection, Home still refreshes when it is opened
+            .catch { e -> Timber.w(e, "Live library updates unavailable") }
 
     override suspend fun getAudioOnlyStream(
         itemId: UUID,

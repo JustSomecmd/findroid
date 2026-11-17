@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin.film.presentation.home
 
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,8 +19,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -44,6 +47,26 @@ constructor(
     private val uiTextContinueWatching = UiText.StringResource(FilmR.string.continue_watching)
     private val uiTextNextUp = UiText.StringResource(FilmR.string.next_up)
 
+    // When Home last finished loading, to skip reloading it moments later
+    @Volatile private var lastLoaded = 0L
+
+    /** Loads Home again when it comes back into view, unless that was only moments ago. */
+    fun refreshIfStale() {
+        val sinceLastLoad = SystemClock.elapsedRealtime() - lastLoaded
+        if (lastLoaded == 0L || sinceLastLoad > REFRESH_AFTER_MS) loadData()
+    }
+
+    /**
+     * Reloads Home when the server reports new, changed or removed items, for as long as this is
+     * running. A burst of changes, like during a library scan, leads to a single reload.
+     */
+    suspend fun followLibraryChanges() {
+        repository.libraryChanges().collectLatest {
+            delay(LIBRARY_CHANGE_DELAY_MS)
+            loadData()
+        }
+    }
+
     fun loadData() {
         Timber.i("Loading data")
         viewModelScope.launch(Dispatchers.Default) {
@@ -63,6 +86,7 @@ constructor(
             } catch (e: Exception) {
                 _state.update { it.copy(error = e) }
             }
+            lastLoaded = SystemClock.elapsedRealtime()
             _state.update { it.copy(isLoading = false) }
         }
     }
@@ -176,3 +200,9 @@ constructor(
         }
     }
 }
+
+// Coming back to Home reloads it if it is older than this
+private const val REFRESH_AFTER_MS = 15_000L
+
+// Waits this long after a library change for more to come in before reloading
+private const val LIBRARY_CHANGE_DELAY_MS = 1_500L
