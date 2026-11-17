@@ -14,6 +14,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -88,6 +89,8 @@ constructor(
         val currentQuality: StreamQuality,
         /** False for downloaded items, which play from the device. */
         val canChangeQuality: Boolean,
+        /** Whether the current item has subtitles to choose from. */
+        val hasSubtitles: Boolean = false,
     )
 
     private var items: MutableList<PlayerItem> = mutableListOf()
@@ -761,6 +764,13 @@ constructor(
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         super.onIsPlayingChanged(isPlaying)
         eventsChannel.trySend(PlayerEvents.IsPlayingChanged(isPlaying))
+    }
+
+    override fun onTracksChanged(tracks: Tracks) {
+        super.onTracksChanged(tracks)
+        // The same subtitles the subtitle picker lists
+        val hasSubtitles = tracks.groups.any { it.type == C.TRACK_TYPE_TEXT && it.isSupported }
+        _uiState.update { it.copy(hasSubtitles = hasSubtitles) }
     }
 }
 

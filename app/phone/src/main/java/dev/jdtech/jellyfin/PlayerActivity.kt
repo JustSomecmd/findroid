@@ -234,7 +234,11 @@ class PlayerActivity : BasePlayerActivity() {
                             } else {
                                 playerControlView.setExtraAdGroupMarkers(null, null)
                             }
-                            chaptersButton.isVisible = currentChapters.isNotEmpty()
+                            // A single chapter has nothing to skip to
+                            chaptersButton.isVisible = currentChapters.size > 1
+
+                            // Subtitles: hidden when the video has none
+                            subtitleButton.isVisible = hasSubtitles
 
                             // Quality: downloads play from the device and can't be converted
                             qualityButton.isVisible = canChangeQuality

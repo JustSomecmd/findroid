@@ -208,9 +208,18 @@ private fun PlayerButton.iconRes(): Int =
         PlayerButton.ROTATE -> CoreR.drawable.ic_rotate_to_portrait
     }
 
-/** Chapters only show for videos that have them, quality only for streams, PiP only if allowed. */
+/**
+ * Chapters and subtitles only show for videos that have them, quality only for streams, PiP only if
+ * allowed.
+ */
 private fun PlayerButton.isConditional(): Boolean =
-    this == PlayerButton.CHAPTERS || this == PlayerButton.QUALITY || this == PlayerButton.PIP
+    when (this) {
+        PlayerButton.CHAPTERS,
+        PlayerButton.SUBTITLES,
+        PlayerButton.QUALITY,
+        PlayerButton.PIP -> true
+        else -> false
+    }
 
 @StringRes
 private fun PlayerButtonPlacement.nameRes(): Int =
