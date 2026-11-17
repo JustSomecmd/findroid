@@ -12,8 +12,4 @@
         <item quantity="one">This deletes %1$d downloaded episode of %2$s and frees %3$s.</item>
         <item quantity="other">This deletes %1$d downloaded episodes of %2$s and frees %3$s.</item>
     </plurals>
-    <plurals name="downloads_finished">
-        <item quantity="one">%1$d download finished</item>
-        <item quantity="other">%1$d downloads finished</item>
-    </plurals>
 </resources>

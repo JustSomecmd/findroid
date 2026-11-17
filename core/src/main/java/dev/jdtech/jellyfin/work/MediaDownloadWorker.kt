@@ -1,7 +1,6 @@
 package dev.jdtech.jellyfin.work
 
 import android.Manifest
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -437,74 +436,17 @@ constructor(
         ) {
             return
         }
-        ensureFinishedChannel()
+        ensureNotificationChannel()
         val notification =
-            NotificationCompat.Builder(appContext, FINISHED_CHANNEL_ID)
+            NotificationCompat.Builder(appContext, NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon(CoreR.drawable.ic_download)
                 .setContentTitle(title)
                 .setContentText(appContext.getString(CoreR.string.download_complete))
                 .setAutoCancel(true)
                 .setContentIntent(openAppIntent())
-                .setGroup(FINISHED_GROUP)
                 .build()
         // A different id than the progress notification, which WorkManager removes when done
-        val notificationId = "$itemId-done".hashCode()
-        notificationManager.notify(notificationId, notification)
-        updateFinishedSummary(notificationId, title)
-    }
-
-    /**
-     * Keeps all finished downloads together under one summary that can be expanded to see each of
-     * them. Since Android 16, an app's loose notifications are bundled together after a few, which
-     * hid the progress of the running download inside that bundle. With the finished ones in a
-     * group of their own, the progress notification stays on its own and visible.
-     */
-    private fun updateFinishedSummary(newId: Int, newTitle: String) {
-        // The one just posted may not be listed yet, so it is added by hand
-        val earlier =
-            notificationManager.activeNotifications
-                .filter {
-                    it.notification.group == FINISHED_GROUP &&
-                        (it.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0 &&
-                        it.id != newId
-                }
-                .sortedByDescending { it.postTime }
-                .mapNotNull { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE) }
-        val titles = listOf<CharSequence>(newTitle) + earlier
-
-        val count = titles.size
-        val style = NotificationCompat.InboxStyle()
-        titles.forEach { style.addLine(it) }
-        val summaryText =
-            appContext.resources.getQuantityString(
-                CoreR.plurals.downloads_finished,
-                count,
-                count,
-            )
-        style.setSummaryText(summaryText)
-
-        val summary =
-            NotificationCompat.Builder(appContext, FINISHED_CHANNEL_ID)
-                .setSmallIcon(CoreR.drawable.ic_download)
-                .setContentTitle(summaryText)
-                .setStyle(style)
-                .setGroup(FINISHED_GROUP)
-                .setGroupSummary(true)
-                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
-                .setAutoCancel(true)
-                .setContentIntent(openAppIntent())
-                .build()
-        notificationManager.notify(FINISHED_SUMMARY_ID, summary)
-    }
-
-    private fun ensureFinishedChannel() {
-        val channel =
-            NotificationChannel(
-                FINISHED_CHANNEL_ID,
-                appContext.getString(CoreR.string.downloads_finished_channel),
-                NotificationManager.IMPORTANCE_LOW,
-            )
-        notificationManager.createNotificationChannel(channel)
+        notificationManager.notify("$itemId-done".hashCode(), notification)
     }
 
     private fun openAppIntent(): PendingIntent? {
@@ -551,9 +493,6 @@ constructor(
         const val PROGRESS_SPEED = "PROGRESS_SPEED"
 
         private const val NOTIFICATION_CHANNEL_ID = "downloads"
-        private const val FINISHED_CHANNEL_ID = "downloads_finished"
-        private const val FINISHED_GROUP = "dev.jdtech.jellyfin.FINISHED_DOWNLOADS"
-        private const val FINISHED_SUMMARY_ID = 0x0D0E
         private const val BUFFER_SIZE = 64 * 1024
         private const val PROGRESS_INTERVAL_MS = 1000L
         // How much each new measurement counts towards the shown speed

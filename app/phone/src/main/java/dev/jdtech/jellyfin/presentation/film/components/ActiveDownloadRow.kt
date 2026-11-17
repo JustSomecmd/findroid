@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,8 +35,6 @@ import kotlin.math.roundToInt
 fun ActiveDownloadRow(
     download: ActiveDownload,
     onClick: () -> Unit,
-    // Shows that the row can be held and dragged to reorder the queue
-    showDragHandle: Boolean = false,
 ) {
     val item = download.item
     val info = download.info
@@ -120,14 +116,6 @@ fun ActiveDownloadRow(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-        }
-        if (showDragHandle) {
-            Spacer(Modifier.width(MaterialTheme.spacings.small))
-            Icon(
-                painter = painterResource(CoreR.drawable.ic_arrow_down_up),
-                contentDescription = stringResource(CoreR.string.downloads_reorder_hint),
-                modifier = Modifier.alpha(0.6f),
-            )
         }
     }
 }

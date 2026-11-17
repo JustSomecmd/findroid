@@ -30,11 +30,7 @@ fun ReorderableDownloadQueue(
     ) { id ->
         val download = byId[id]
         if (download != null) {
-            ActiveDownloadRow(
-                download = download,
-                onClick = { onClick(download) },
-                showDragHandle = true,
-            )
+            ActiveDownloadRow(download = download, onClick = { onClick(download) })
         }
     }
 }
