@@ -223,6 +223,16 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     backendPreference =
                                                         appPreferences.homeLatestEpisodes,
                                                 ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.pref_new_item_notifications,
+                                                    descriptionStringRes =
+                                                        R.string
+                                                            .pref_new_item_notifications_summary,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.newItemNotifications,
+                                                ),
                                             ),
                                     ),
                                     PreferenceGroup(

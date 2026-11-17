@@ -1,14 +1,17 @@
 package dev.jdtech.jellyfin
 
 import android.app.Application
+import android.content.SharedPreferences
 import android.os.Build
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -24,7 +27,9 @@ import com.google.android.material.color.DynamicColors
 import dagger.hilt.android.HiltAndroidApp
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.work.MpvCleanupWorker
+import dev.jdtech.jellyfin.work.NewItemsWorker
 import dev.jdtech.jellyfin.work.SyncWorker
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import kotlin.time.ExperimentalTime
 import okio.Path.Companion.toOkioPath
@@ -64,6 +69,11 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
         val workManager = WorkManager.getInstance(applicationContext)
 
         scheduleUserDataSync(workManager)
+        scheduleNewItemsCheck(workManager)
+        // Turning the setting on or off takes effect right away
+        appPreferences.sharedPreferences.registerOnSharedPreferenceChangeListener(
+            newItemsSettingListener
+        )
 
         if (!appPreferences.getValue(appPreferences.mpvMigrated)) {
             scheduleMpvCleanup(workManager)
@@ -104,6 +114,33 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
             uniqueWorkName = "syncUserData",
             existingWorkPolicy = ExistingWorkPolicy.KEEP,
             request = syncWorkRequest,
+        )
+    }
+
+    // Kept here, as the preferences only hold a weak reference to their listeners
+    private val newItemsSettingListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == appPreferences.newItemNotifications.backendName) {
+                scheduleNewItemsCheck(WorkManager.getInstance(applicationContext))
+            }
+        }
+
+    /** Checks the server for new episodes and movies every 15 minutes while the setting is on. */
+    private fun scheduleNewItemsCheck(workManager: WorkManager) {
+        if (!appPreferences.getValue(appPreferences.newItemNotifications)) {
+            workManager.cancelUniqueWork(NewItemsWorker.WORK_NAME)
+            return
+        }
+        val request =
+            PeriodicWorkRequestBuilder<NewItemsWorker>(15, TimeUnit.MINUTES)
+                .setConstraints(
+                    Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+                )
+                .build()
+        workManager.enqueueUniquePeriodicWork(
+            NewItemsWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
         )
     }
 
