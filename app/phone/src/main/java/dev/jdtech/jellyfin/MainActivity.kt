@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
+import dev.jdtech.jellyfin.presentation.utils.LocalEpisodeTitleFirst
 import dev.jdtech.jellyfin.presentation.utils.LocalHideEpisodeNumbers
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
@@ -35,15 +36,22 @@ class MainActivity : AppCompatActivity() {
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
 
-            // Follows the setting, so titles change as soon as it is switched
+            // Follow the settings, so titles change as soon as they are switched
             var hideEpisodeNumbers by remember {
                 mutableStateOf(appPreferences.getValue(appPreferences.hideEpisodeNumbers))
             }
+            var episodeTitleFirst by remember {
+                mutableStateOf(appPreferences.getValue(appPreferences.episodeTitleFirst))
+            }
             DisposableEffect(Unit) {
                 val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-                    if (key == appPreferences.hideEpisodeNumbers.backendName) {
-                        hideEpisodeNumbers =
-                            appPreferences.getValue(appPreferences.hideEpisodeNumbers)
+                    when (key) {
+                        appPreferences.hideEpisodeNumbers.backendName ->
+                            hideEpisodeNumbers =
+                                appPreferences.getValue(appPreferences.hideEpisodeNumbers)
+                        appPreferences.episodeTitleFirst.backendName ->
+                            episodeTitleFirst =
+                                appPreferences.getValue(appPreferences.episodeTitleFirst)
                     }
                 }
                 appPreferences.sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
@@ -59,6 +67,7 @@ class MainActivity : AppCompatActivity() {
                     CompositionLocalProvider(
                         LocalOfflineMode provides state.isOfflineMode,
                         LocalHideEpisodeNumbers provides hideEpisodeNumbers,
+                        LocalEpisodeTitleFirst provides episodeTitleFirst,
                     ) {
                         NavigationRoot(
                             hasServers = state.hasServers,

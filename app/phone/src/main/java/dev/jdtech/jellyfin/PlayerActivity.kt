@@ -574,6 +574,9 @@ class PlayerActivity : BasePlayerActivity() {
     }
 
     private fun finishPlayback() {
+        // Stops the sound together with the picture. With background playback on, the player
+        // would otherwise keep going until the screen has finished closing.
+        viewModel.player.playWhenReady = false
         try {
             viewModel.player.clearVideoSurfaceView(
                 binding.playerView.videoSurfaceView as SurfaceView

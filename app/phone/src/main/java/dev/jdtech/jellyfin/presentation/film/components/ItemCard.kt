@@ -27,6 +27,7 @@ import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.utils.LocalEpisodeTitleFirst
 import dev.jdtech.jellyfin.presentation.utils.episodeTitle
 
 @Composable
@@ -73,15 +74,20 @@ fun ItemCard(
             }
         }
         Spacer(modifier = Modifier.height(MaterialTheme.spacings.extraSmall))
+        val episodeTitleFirst = LocalEpisodeTitleFirst.current
         val title =
             when (item) {
-                is FindroidEpisode -> item.seriesName
+                is FindroidEpisode ->
+                    if (episodeTitleFirst) episodeTitle(item, includeSeason = true)
+                    else item.seriesName
                 is FindroidSeason -> if (showSeriesName) item.seriesName else item.name
                 else -> item.name
             }
         val subtitle =
             when (item) {
-                is FindroidEpisode -> episodeTitle(item, includeSeason = true)
+                is FindroidEpisode ->
+                    if (episodeTitleFirst) item.seriesName
+                    else episodeTitle(item, includeSeason = true)
                 is FindroidSeason -> if (showSeriesName) item.name else null
                 else -> null
             }

@@ -250,6 +250,15 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     backendPreference =
                                                         appPreferences.hideEpisodeNumbers,
                                                 ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.episode_title_first,
+                                                    descriptionStringRes =
+                                                        R.string.episode_title_first_summary,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.episodeTitleFirst,
+                                                ),
                                             )
                                     ),
                                 ),

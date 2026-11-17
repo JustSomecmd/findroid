@@ -75,7 +75,7 @@ abstract class BasePlayerActivity : AppCompatActivity() {
 
         if (isInPictureInPictureMode) {
             wasPip = true
-        } else if (backgroundPlayback) {
+        } else if (backgroundPlayback && !isFinishing) {
             // Keeps playing; only save where it is
             viewModel.updatePlaybackProgress()
         } else {

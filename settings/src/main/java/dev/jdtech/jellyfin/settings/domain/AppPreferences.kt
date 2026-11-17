@@ -27,6 +27,7 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val showAllEpisodes = Preference("pref_show_all_episodes", false)
     val episodeLinksToShow = Preference("pref_episode_links_to_show", false)
     val hideEpisodeNumbers = Preference("pref_hide_episode_numbers", false)
+    val episodeTitleFirst = Preference("pref_episode_title_first", false)
     val showEpisodesNewestFirst = Preference("pref_show_episodes_newest_first", true)
 
     // Player

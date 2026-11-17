@@ -80,6 +80,8 @@
     <string name="extra_info_summary">Displays detailed information about Audio, Video and Subtitles</string>
     <string name="show_all_episodes">Show all episodes on show pages</string>
     <string name="hide_episode_numbers">Hide episode numbers in titles</string>
+    <string name="episode_title_first">Episode title first</string>
+    <string name="episode_title_first_summary">On cards and in the download list, show the episode\'s title on top and the show\'s name below it</string>
     <string name="hide_episode_numbers_summary">Show episode titles without the season and episode number in front, like \"S1:E2 - \"</string>
     <string name="episode_links_to_show">Episode pages link to the show</string>
     <string name="episode_links_to_show_summary">The button at the top of an episode opens the show instead of its season</string>

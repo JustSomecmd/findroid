@@ -25,6 +25,7 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.downloads.ActiveDownload
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.utils.LocalEpisodeTitleFirst
 import dev.jdtech.jellyfin.presentation.utils.episodeTitle
 import dev.jdtech.jellyfin.utils.DownloadStatus
 import kotlin.math.roundToInt
@@ -40,12 +41,17 @@ fun ActiveDownloadRow(
     val item = download.item
     val info = download.info
 
+    val episodeTitleFirst = LocalEpisodeTitleFirst.current
     val title =
         when (item) {
-            is FindroidEpisode -> item.seriesName
+            is FindroidEpisode ->
+                if (episodeTitleFirst) episodeTitle(item, includeSeason = true) else item.seriesName
             else -> item.name
         }
-    val subtitle = (item as? FindroidEpisode)?.let { episodeTitle(it, includeSeason = true) }
+    val subtitle =
+        (item as? FindroidEpisode)?.let {
+            if (episodeTitleFirst) it.seriesName else episodeTitle(it, includeSeason = true)
+        }
 
     val status =
         when (info.status) {

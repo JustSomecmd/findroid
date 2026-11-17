@@ -9,6 +9,9 @@ import dev.jdtech.jellyfin.models.FindroidEpisode
 /** Whether episode titles are shown without their season and episode number. */
 val LocalHideEpisodeNumbers = compositionLocalOf { false }
 
+/** Whether cards show an episode's title above its show's name instead of below it. */
+val LocalEpisodeTitleFirst = compositionLocalOf { false }
+
 /**
  * The title of an episode as shown in lists: "S1:E2 - Title" when [includeSeason] is true, "2.
  * Title" otherwise, or just "Title" when episode numbers are hidden in the settings.
