@@ -9,7 +9,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
-import dev.jdtech.jellyfin.models.FindroidServerSize
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSourceType
 import dev.jdtech.jellyfin.repository.JellyfinRepository
@@ -18,13 +17,11 @@ import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.jellyfin.sdk.model.api.BaseItemKind
 import timber.log.Timber
 
 /** A show or movie with downloads, and the space they take on this phone. */
@@ -47,23 +44,6 @@ data class StorageState(
     val deviceFreeBytes: Long = 0L,
 )
 
-/** A show on the server and the space its episodes take there. */
-data class ServerShowEntry(val show: FindroidShow, val size: FindroidServerSize)
-
-/** How much space the shows take on the server. */
-data class ServerStorageState(
-    val isLoading: Boolean = false,
-    val isLoaded: Boolean = false,
-    val failed: Boolean = false,
-    /** Episodes counted so far and how many there are, while loading. */
-    val counted: Int = 0,
-    val total: Int = 0,
-    /** Biggest first. */
-    val shows: List<ServerShowEntry> = emptyList(),
-    val totalBytes: Long = 0L,
-    val episodeCount: Int = 0,
-)
-
 @HiltViewModel
 class StorageViewModel
 @Inject
@@ -74,11 +54,6 @@ constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(StorageState())
     val state = _state.asStateFlow()
-
-    private val _serverState = MutableStateFlow(ServerStorageState())
-    val serverState = _serverState.asStateFlow()
-
-    private var serverJob: Job? = null
 
     fun load() {
         viewModelScope.launch {
@@ -117,54 +92,6 @@ constructor(
                     deviceFreeBytes = device.second,
                 )
             }
-        }
-    }
-
-    /** Adds up every show on the server. Only runs once, unless [retry] is set after a failure. */
-    fun loadServer(retry: Boolean = false) {
-        val current = _serverState.value
-        if (current.isLoading || (current.isLoaded && !retry)) return
-
-        serverJob?.cancel()
-        _serverState.value = ServerStorageState(isLoading = true)
-        serverJob = viewModelScope.launch {
-            val sizes = repository.getServerShowSizes { counted, total ->
-                _serverState.update { it.copy(counted = counted, total = total) }
-            }
-            val shows =
-                try {
-                    repository
-                        .getItems(includeTypes = listOf(BaseItemKind.SERIES), recursive = true)
-                        .filterIsInstance<FindroidShow>()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.e(e)
-                    null
-                }
-
-            if (sizes == null || shows == null) {
-                _serverState.value = ServerStorageState(failed = true)
-                return@launch
-            }
-
-            val entries =
-                shows
-                    .map { show ->
-                        ServerShowEntry(
-                            show = show,
-                            size = sizes[show.id] ?: FindroidServerSize(0, 0L),
-                        )
-                    }
-                    .sortedByDescending { it.size.bytes }
-
-            _serverState.value =
-                ServerStorageState(
-                    isLoaded = true,
-                    shows = entries,
-                    totalBytes = entries.sumOf { it.size.bytes },
-                    episodeCount = entries.sumOf { it.size.episodeCount },
-                )
         }
     }
 

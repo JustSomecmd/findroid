@@ -8,10 +8,6 @@
         <item quantity="one">%1$d episode · %2$s</item>
         <item quantity="other">%1$d episodes · %2$s</item>
     </plurals>
-    <plurals name="storage_server_shows_count">
-        <item quantity="one">%1$d show · %2$d episodes</item>
-        <item quantity="other">%1$d shows · %2$d episodes</item>
-    </plurals>
     <plurals name="storage_delete_show_message">
         <item quantity="one">This deletes %1$d downloaded episode of %2$s and frees %3$s.</item>
         <item quantity="other">This deletes %1$d downloaded episodes of %2$s and frees %3$s.</item>

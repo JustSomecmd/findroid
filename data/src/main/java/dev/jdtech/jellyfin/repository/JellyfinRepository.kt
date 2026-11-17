@@ -9,7 +9,6 @@ import dev.jdtech.jellyfin.models.FindroidPerson
 import dev.jdtech.jellyfin.models.FindroidPlaylist
 import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidSegment
-import dev.jdtech.jellyfin.models.FindroidServerSize
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSource
 import dev.jdtech.jellyfin.models.FindroidTranscodeStream
@@ -83,7 +82,7 @@ interface JellyfinRepository {
 
     /**
      * The newest items of a library. Normally a show with several new episodes appears once, as the
-     * show. With [episodesInsteadOfShows], each show appears as its newest episode instead.
+     * show. With [episodesInsteadOfShows], every new episode appears on its own instead.
      */
     suspend fun getLatestMedia(
         parentId: UUID,
@@ -131,15 +130,6 @@ interface JellyfinRepository {
         mediaSourceId: String,
         bitrate: Int,
     ): FindroidTranscodeStream?
-
-    /**
-     * How many episodes each show has on the server and how much space their files take there, by
-     * show id. Goes through every episode a page at a time; [onProgress] gets how many episodes
-     * have been counted and how many there are. Returns null when the server can't be reached.
-     */
-    suspend fun getServerShowSizes(
-        onProgress: (counted: Int, total: Int) -> Unit = { _, _ -> }
-    ): Map<UUID, FindroidServerSize>?
 
     suspend fun getSegments(itemId: UUID): List<FindroidSegment>
 

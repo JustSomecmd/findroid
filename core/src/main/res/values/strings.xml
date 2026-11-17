@@ -115,14 +115,6 @@
     <string name="storage_legend_free">Free</string>
     <string name="storage_device_free">%1$s free of %2$s on this device</string>
     <string name="storage_items_header">Shows and movies</string>
-    <string name="storage_tab_phone">On this phone</string>
-    <string name="storage_tab_server">On the server</string>
-    <string name="storage_server_total">Shows on the server</string>
-    <string name="storage_server_shows_header">Shows, biggest first</string>
-    <string name="storage_server_counting">Counting episodes…</string>
-    <string name="storage_server_counting_progress">Counted %1$d of %2$d episodes</string>
-    <string name="storage_server_failed">Couldn\'t reach the server.</string>
-    <string name="storage_server_retry">Try again</string>
     <string name="storage_delete_title">Delete downloads?</string>
     <string name="storage_delete_movie_message">This deletes the downloaded movie %1$s and frees %2$s.</string>
     <string name="storage_delete_confirm">Delete</string>

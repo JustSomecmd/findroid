@@ -128,7 +128,7 @@ constructor(
 
     private suspend fun loadViews() {
         Timber.i("Loading views")
-        // Shows as their newest episode instead of their poster
+        // Every new episode on its own, with its thumbnail, instead of grouped under the show
         val latestEpisodes = appPreferences.getValue(appPreferences.homeLatestEpisodes)
         val items =
             if (appPreferences.getValue(appPreferences.homeLatest)) {
