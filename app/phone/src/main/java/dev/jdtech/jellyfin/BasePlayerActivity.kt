@@ -26,6 +26,9 @@ abstract class BasePlayerActivity : AppCompatActivity() {
     private var mediaSession: MediaSession? = null
     private var wasPip: Boolean = false
 
+    /** Set when the picture-in-picture window is closed to keep listening in the background. */
+    protected var continueInBackgroundAfterPip = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -84,6 +87,12 @@ abstract class BasePlayerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+
+        // Closing picture-in-picture normally ends playback; this keeps it going instead
+        if (wasPip && continueInBackgroundAfterPip) {
+            wasPip = false
+            continueInBackgroundAfterPip = false
+        }
 
         if (!backgroundPlayback || isFinishing) {
             releaseSession()

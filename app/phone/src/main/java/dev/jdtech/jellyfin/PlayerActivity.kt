@@ -1,13 +1,19 @@
 package dev.jdtech.jellyfin
 
 import android.app.AppOpsManager
+import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.drawable.Icon
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
@@ -27,6 +33,7 @@ import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -38,6 +45,7 @@ import androidx.media3.ui.PlayerView
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.databinding.ActivityPlayerBinding
+import dev.jdtech.jellyfin.player.local.R as PlayerR
 import dev.jdtech.jellyfin.player.local.presentation.PlayerEvents
 import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
 import dev.jdtech.jellyfin.presentation.player.ChapterSelectionDialogFragment
@@ -255,9 +263,14 @@ class PlayerActivity : BasePlayerActivity() {
                                     )
                                 }
 
-                                if (appPreferences.getValue(appPreferences.playerPipGesture)) {
+                                val pipGesture =
+                                    appPreferences.getValue(appPreferences.playerPipGesture)
+                                // Also keeps the play/pause button in the PiP window current
+                                if (pipGesture || (backgroundPlayback && isPipSupported)) {
                                     try {
-                                        setPictureInPictureParams(pipParams(event.isPlaying))
+                                        setPictureInPictureParams(
+                                            pipParams(pipGesture && event.isPlaying)
+                                        )
                                     } catch (_: IllegalArgumentException) {}
                                 }
                             }
@@ -359,6 +372,16 @@ class PlayerActivity : BasePlayerActivity() {
             previewScrubListener = PreviewScrubListener(imagePreview, timeBar, viewModel.player)
 
             timeBar.addListener(previewScrubListener!!)
+        }
+
+        if (backgroundPlayback && isPipSupported) {
+            ContextCompat.registerReceiver(
+                this,
+                pipControlReceiver,
+                IntentFilter(ACTION_PIP_CONTROL),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            pipControlReceiverRegistered = true
         }
 
         viewModel.initializePlayer(
@@ -518,11 +541,74 @@ class PlayerActivity : BasePlayerActivity() {
                 .setAspectRatio(aspectRatio)
                 .setSourceRectHint(sourceRectHint)
 
+        if (backgroundPlayback) {
+            // Custom buttons replace the default media buttons, so play/pause is added as well
+            builder.setActions(pipActions(viewModel.player.isPlaying))
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setAutoEnterEnabled(enableAutoEnter)
         }
 
         return builder.build()
+    }
+
+    private fun pipActions(isPlaying: Boolean): List<RemoteAction> {
+        val playPause =
+            if (isPlaying) {
+                pipAction(
+                    CoreR.drawable.ic_pause,
+                    getString(PlayerR.string.player_pip_pause),
+                    PIP_CONTROL_PAUSE,
+                )
+            } else {
+                pipAction(
+                    CoreR.drawable.ic_play,
+                    getString(PlayerR.string.player_pip_play),
+                    PIP_CONTROL_PLAY,
+                )
+            }
+        val background =
+            pipAction(
+                CoreR.drawable.ic_headphones,
+                getString(PlayerR.string.player_pip_background),
+                PIP_CONTROL_BACKGROUND,
+            )
+        return listOf(playPause, background)
+    }
+
+    private fun pipAction(iconRes: Int, title: String, control: Int): RemoteAction {
+        val intent =
+            Intent(ACTION_PIP_CONTROL).setPackage(packageName).putExtra(EXTRA_PIP_CONTROL, control)
+        val pendingIntent =
+            PendingIntent.getBroadcast(this, control, intent, PendingIntent.FLAG_IMMUTABLE)
+        return RemoteAction(Icon.createWithResource(this, iconRes), title, title, pendingIntent)
+    }
+
+    private val pipControlReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action != ACTION_PIP_CONTROL) return
+                when (intent.getIntExtra(EXTRA_PIP_CONTROL, 0)) {
+                    PIP_CONTROL_PLAY -> viewModel.player.play()
+                    PIP_CONTROL_PAUSE -> viewModel.player.pause()
+                    PIP_CONTROL_BACKGROUND -> {
+                        // Closes the window; the player keeps going in the background
+                        continueInBackgroundAfterPip = true
+                        moveTaskToBack(true)
+                    }
+                }
+            }
+        }
+
+    private var pipControlReceiverRegistered = false
+
+    override fun onDestroy() {
+        if (pipControlReceiverRegistered) {
+            unregisterReceiver(pipControlReceiver)
+            pipControlReceiverRegistered = false
+        }
+        super.onDestroy()
     }
 
     private fun pictureInPicture() {
@@ -575,3 +661,9 @@ class PlayerActivity : BasePlayerActivity() {
         }
     }
 }
+
+private const val ACTION_PIP_CONTROL = "dev.jdtech.jellyfin.PIP_CONTROL"
+private const val EXTRA_PIP_CONTROL = "control"
+private const val PIP_CONTROL_PLAY = 1
+private const val PIP_CONTROL_PAUSE = 2
+private const val PIP_CONTROL_BACKGROUND = 3

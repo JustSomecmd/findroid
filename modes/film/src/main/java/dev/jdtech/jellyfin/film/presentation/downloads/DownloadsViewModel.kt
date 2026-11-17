@@ -18,6 +18,7 @@ import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.utils.DownloadInfo
 import dev.jdtech.jellyfin.utils.DownloadStatus
 import dev.jdtech.jellyfin.utils.Downloader
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -96,6 +97,11 @@ constructor(
                 _state.emit(_state.value.copy(isLoading = false, error = e))
             }
         }
+    }
+
+    /** Saves the order the user dragged the queued downloads into. */
+    fun reorderQueue(itemIds: List<UUID>) {
+        viewModelScope.launch { downloader.reorderQueue(itemIds) }
     }
 
     /** Follows the progress of every unfinished download, running ones first, then the queue. */

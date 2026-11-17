@@ -350,6 +350,10 @@ class DownloaderImpl(
 
     override fun queuedItemIds(): List<UUID> = MediaDownloadQueue.queuedItemIds(context)
 
+    override suspend fun reorderQueue(itemIds: List<UUID>) {
+        withContext(Dispatchers.IO) { MediaDownloadQueue.reorder(context, itemIds) }
+    }
+
     override fun observeDownload(itemId: UUID): Flow<DownloadInfo> =
         combine(
                 workManager.getWorkInfosForUniqueWorkFlow(

@@ -76,6 +76,19 @@ object MediaDownloadQueue {
         _changes.update { it + 1 }
     }
 
+    /** Puts the queue in the given order. Items not in [itemIds] keep their place at the end. */
+    suspend fun reorder(context: Context, itemIds: List<UUID>) {
+        mutex.withLock {
+            val queue = read(context)
+            val byId = queue.associateBy { it.itemId }
+            write(
+                context,
+                itemIds.mapNotNull { byId[it] } + queue.filter { it.itemId !in itemIds },
+            )
+        }
+        _changes.update { it + 1 }
+    }
+
     suspend fun remove(context: Context, itemId: UUID) {
         mutex.withLock { write(context, read(context).filterNot { it.itemId == itemId }) }
         _changes.update { it + 1 }

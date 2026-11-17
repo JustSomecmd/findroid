@@ -39,8 +39,11 @@ import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.UiText
 import dev.jdtech.jellyfin.presentation.film.components.ActiveDownloadRow
 import dev.jdtech.jellyfin.presentation.film.components.CollectionGrid
+import dev.jdtech.jellyfin.presentation.film.components.ReorderableDownloadQueue
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.utils.DownloadStatus
+import java.util.UUID
 
 @Composable
 fun DownloadsScreen(
@@ -56,6 +59,7 @@ fun DownloadsScreen(
         state = state,
         activeDownloads = activeDownloads,
         onActiveDownloadClick = { item -> onItemClick(item) },
+        onReorderQueue = { itemIds -> viewModel.reorderQueue(itemIds) },
         onAction = { action ->
             when (action) {
                 is CollectionAction.OnItemClick -> onItemClick(action.item)
@@ -72,6 +76,7 @@ private fun DownloadsScreenLayout(
     onAction: (CollectionAction) -> Unit,
     activeDownloads: List<ActiveDownload> = emptyList(),
     onActiveDownloadClick: (FindroidItem) -> Unit = {},
+    onReorderQueue: (List<UUID>) -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
@@ -121,12 +126,40 @@ private fun DownloadsScreenLayout(
                                     style = MaterialTheme.typography.titleMedium,
                                 )
                             }
-                            activeDownloads.forEach { download ->
-                                ActiveDownloadRow(
-                                    download = download,
-                                    onClick = { onActiveDownloadClick(download.item) },
+                            // Running first, then the queue (which can be reordered), then
+                            // paused and failed downloads
+                            val queued = activeDownloads.filter {
+                                it.info.status == DownloadStatus.QUEUED
+                            }
+                            activeDownloads
+                                .filter {
+                                    it.info.status == DownloadStatus.RUNNING ||
+                                        it.info.status == DownloadStatus.PENDING
+                                }
+                                .forEach { download ->
+                                    ActiveDownloadRow(
+                                        download = download,
+                                        onClick = { onActiveDownloadClick(download.item) },
+                                    )
+                                }
+                            if (queued.isNotEmpty()) {
+                                ReorderableDownloadQueue(
+                                    downloads = queued,
+                                    onReorder = onReorderQueue,
+                                    onClick = { download -> onActiveDownloadClick(download.item) },
                                 )
                             }
+                            activeDownloads
+                                .filter {
+                                    it.info.status == DownloadStatus.PAUSED ||
+                                        it.info.status == DownloadStatus.FAILED
+                                }
+                                .forEach { download ->
+                                    ActiveDownloadRow(
+                                        download = download,
+                                        onClick = { onActiveDownloadClick(download.item) },
+                                    )
+                                }
                         }
                     }
                 }

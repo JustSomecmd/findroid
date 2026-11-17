@@ -25,6 +25,9 @@ interface Downloader {
 
     /** Items waiting for another download to finish, next one first. */
     fun queuedItemIds(): List<UUID>
+
+    /** Changes the order in which queued items download. */
+    suspend fun reorderQueue(itemIds: List<UUID>)
 }
 
 enum class DownloadStatus {

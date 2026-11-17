@@ -29,4 +29,7 @@
     <string name="quality_original_summary">Original (no conversion)</string>
     <string name="quality_failed">The server could not convert this video</string>
     <string name="player_controls_rotate">Switch between portrait and landscape</string>
+    <string name="player_pip_background">Listen in background</string>
+    <string name="player_pip_play">Play</string>
+    <string name="player_pip_pause">Pause</string>
 </resources>
