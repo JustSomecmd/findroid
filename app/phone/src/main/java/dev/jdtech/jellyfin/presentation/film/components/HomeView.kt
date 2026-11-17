@@ -24,6 +24,7 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.R as FilmR
 import dev.jdtech.jellyfin.film.presentation.home.HomeAction
 import dev.jdtech.jellyfin.models.FindroidCollection
+import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidImages
 import dev.jdtech.jellyfin.models.HomeItem
 import dev.jdtech.jellyfin.presentation.theme.spacings
@@ -71,7 +72,12 @@ fun HomeView(
             items(view.view.items, key = { it.id }) { item ->
                 ItemCard(
                     item = item,
-                    direction = Direction.VERTICAL,
+                    direction =
+                        if (view.episodeThumbnails && item is FindroidEpisode) {
+                            Direction.HORIZONTAL
+                        } else {
+                            Direction.VERTICAL
+                        },
                     showSeriesName = true,
                     onClick = { onAction(HomeAction.OnItemClick(item)) },
                 )

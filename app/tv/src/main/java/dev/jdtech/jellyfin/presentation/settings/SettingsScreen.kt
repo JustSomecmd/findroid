@@ -55,6 +55,7 @@ fun SettingsScreen(
             is SettingsEvent.NavigateToSettings -> navigateToSubSettings(event.indexes)
             is SettingsEvent.NavigateToSettingsFileEdit -> {}
             is SettingsEvent.NavigateToPlayerButtons -> Unit
+            is SettingsEvent.NavigateToStorage -> Unit
             is SettingsEvent.NavigateToUsers -> navigateToUsers()
             is SettingsEvent.NavigateToServers -> navigateToServers()
             is SettingsEvent.NavigateToAbout -> Unit

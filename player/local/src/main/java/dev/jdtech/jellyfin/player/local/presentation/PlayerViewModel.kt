@@ -141,7 +141,8 @@ constructor(
         trackSelector.setParameters(
             trackSelector
                 .buildUponParameters()
-                .setTunnelingEnabled(true)
+                // Off by default: on some phones it lets sound and picture start out of step
+                .setTunnelingEnabled(appPreferences.getValue(appPreferences.playerTunneling))
                 .setPreferredAudioLanguage(
                     appPreferences.getValue(appPreferences.preferredAudioLanguage)
                 )

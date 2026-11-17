@@ -474,8 +474,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
                         navigator,
                         item,
                     )
-                },
-            onStorageClick = dropUnlessResumed { navigator.navigate(DownloadStorageRoute) },
+                }
         )
     }
     entry<DownloadStorageRoute> {
@@ -609,6 +608,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
                 },
             navigateToPlayerButtons =
                 dropUnlessResumed { navigator.navigate(SettingsPlayerButtonsRoute) },
+            navigateToStorage = dropUnlessResumed { navigator.navigate(DownloadStorageRoute) },
             navigateToServers = dropUnlessResumed { navigator.navigate(ServersRoute) },
             navigateToUsers = dropUnlessResumed { navigator.navigate(UsersRoute) },
             navigateToAbout = dropUnlessResumed { navigator.navigate(AboutRoute) },

@@ -15,6 +15,8 @@ sealed interface SettingsEvent {
 
     data object NavigateToPlayerButtons : SettingsEvent
 
+    data object NavigateToStorage : SettingsEvent
+
     data class UpdateTheme(val theme: String) : SettingsEvent
 
     data class LaunchIntent(val intent: Intent) : SettingsEvent

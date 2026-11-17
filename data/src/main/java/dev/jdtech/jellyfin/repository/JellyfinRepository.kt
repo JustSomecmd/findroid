@@ -81,7 +81,14 @@ interface JellyfinRepository {
 
     suspend fun getResumeItems(): List<FindroidItem>
 
-    suspend fun getLatestMedia(parentId: UUID): List<FindroidItem>
+    /**
+     * The newest items of a library. Normally a show with several new episodes appears once, as the
+     * show. With [episodesInsteadOfShows], each show appears as its newest episode instead.
+     */
+    suspend fun getLatestMedia(
+        parentId: UUID,
+        episodesInsteadOfShows: Boolean = false,
+    ): List<FindroidItem>
 
     suspend fun getSeasons(seriesId: UUID, offline: Boolean = false): List<FindroidSeason>
 
@@ -126,10 +133,13 @@ interface JellyfinRepository {
     ): FindroidTranscodeStream?
 
     /**
-     * How many episodes a show has on the server and how much space their files take there. Returns
-     * null when the server can't be reached.
+     * How many episodes each show has on the server and how much space their files take there, by
+     * show id. Goes through every episode a page at a time; [onProgress] gets how many episodes
+     * have been counted and how many there are. Returns null when the server can't be reached.
      */
-    suspend fun getShowServerSize(seriesId: UUID): FindroidServerSize?
+    suspend fun getServerShowSizes(
+        onProgress: (counted: Int, total: Int) -> Unit = { _, _ -> }
+    ): Map<UUID, FindroidServerSize>?
 
     suspend fun getSegments(itemId: UUID): List<FindroidSegment>
 

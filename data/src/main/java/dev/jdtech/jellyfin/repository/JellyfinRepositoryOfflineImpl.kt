@@ -188,7 +188,10 @@ class JellyfinRepositoryOfflineImpl(
         }
     }
 
-    override suspend fun getLatestMedia(parentId: UUID): List<FindroidItem> {
+    override suspend fun getLatestMedia(
+        parentId: UUID,
+        episodesInsteadOfShows: Boolean,
+    ): List<FindroidItem> {
         return emptyList()
     }
 
@@ -266,7 +269,9 @@ class JellyfinRepositoryOfflineImpl(
         bitrate: Int,
     ): FindroidTranscodeStream? = null
 
-    override suspend fun getShowServerSize(seriesId: UUID): FindroidServerSize? = null
+    override suspend fun getServerShowSizes(
+        onProgress: (counted: Int, total: Int) -> Unit
+    ): Map<UUID, FindroidServerSize>? = null
 
     override suspend fun getStreamUrl(itemId: UUID, mediaSourceId: String): String {
         TODO("Not yet implemented")

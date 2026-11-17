@@ -18,8 +18,6 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -32,7 +30,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
@@ -58,7 +55,6 @@ import java.util.UUID
 @Composable
 fun DownloadsScreen(
     onItemClick: (item: FindroidItem) -> Unit,
-    onStorageClick: () -> Unit = {},
     viewModel: DownloadsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -71,7 +67,6 @@ fun DownloadsScreen(
         activeDownloads = activeDownloads,
         onActiveDownloadClick = { item -> onItemClick(item) },
         onReorderQueue = { itemIds -> viewModel.reorderQueue(itemIds) },
-        onStorageClick = onStorageClick,
         onAction = { action ->
             when (action) {
                 is CollectionAction.OnItemClick -> onItemClick(action.item)
@@ -89,7 +84,6 @@ private fun DownloadsScreenLayout(
     activeDownloads: List<ActiveDownload> = emptyList(),
     onActiveDownloadClick: (FindroidItem) -> Unit = {},
     onReorderQueue: (List<UUID>) -> Unit = {},
-    onStorageClick: () -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val gridState = rememberLazyGridState()
@@ -102,14 +96,6 @@ private fun DownloadsScreenLayout(
         topBar = {
             TopAppBar(
                 title = { Text(text = stringResource(CoreR.string.title_download)) },
-                actions = {
-                    IconButton(onClick = onStorageClick) {
-                        Icon(
-                            painter = painterResource(CoreR.drawable.ic_database),
-                            contentDescription = stringResource(CoreR.string.storage_open),
-                        )
-                    }
-                },
                 windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
                 scrollBehavior = scrollBehavior,
             )

@@ -279,12 +279,31 @@ class JellyfinRepositoryImpl(
                 .mapNotNull { it.toFindroidItem(this@JellyfinRepositoryImpl, database) }
         }
 
-    override suspend fun getLatestMedia(parentId: UUID): List<FindroidItem> =
+    override suspend fun getLatestMedia(
+        parentId: UUID,
+        episodesInsteadOfShows: Boolean,
+    ): List<FindroidItem> =
         withContext(Dispatchers.IO) {
-            jellyfinApi.libraryApi
-                .getLatestMedia(jellyfinApi.userId!!, parentId = parentId, limit = 16)
-                .content
-                .mapNotNull { it.toFindroidItem(this@JellyfinRepositoryImpl, database) }
+            val items =
+                if (episodesInsteadOfShows) {
+                    // Every new item on its own, newest first, then only the newest episode of
+                    // each show
+                    jellyfinApi.libraryApi
+                        .getLatestMedia(
+                            jellyfinApi.userId!!,
+                            parentId = parentId,
+                            limit = 100,
+                            groupItems = false,
+                        )
+                        .content
+                        .distinctBy { it.seriesId ?: it.id }
+                        .take(16)
+                } else {
+                    jellyfinApi.libraryApi
+                        .getLatestMedia(jellyfinApi.userId!!, parentId = parentId, limit = 16)
+                        .content
+                }
+            items.mapNotNull { it.toFindroidItem(this@JellyfinRepositoryImpl, database) }
         }
 
     override suspend fun getSeasons(seriesId: UUID, offline: Boolean): List<FindroidSeason> =
@@ -428,25 +447,44 @@ class JellyfinRepositoryImpl(
             FindroidTranscodeStream(url = url, subtitles = emptyList())
         }
 
-    override suspend fun getShowServerSize(seriesId: UUID): FindroidServerSize? =
+    override suspend fun getServerShowSizes(
+        onProgress: (counted: Int, total: Int) -> Unit
+    ): Map<UUID, FindroidServerSize>? =
         withContext(Dispatchers.IO) {
             try {
-                val episodes =
-                    jellyfinApi.showApi
-                        .getEpisodes(
-                            seriesId,
-                            jellyfinApi.userId!!,
-                            fields = listOf(ItemFields.MEDIA_SOURCES),
-                            isMissing = false,
-                            enableImages = false,
-                            enableUserData = false,
-                        )
-                        .content
-                        .items
-                // Every version of every episode, as that is what is stored on the server
-                val sources = episodes.flatMap { episode -> episode.mediaSources.orEmpty() }
-                val bytes = sources.distinctBy { it.id }.sumOf { it.size ?: 0L }
-                FindroidServerSize(episodeCount = episodes.size, bytes = bytes)
+                val episodeCounts = mutableMapOf<UUID, Int>()
+                val sizes = mutableMapOf<UUID, Long>()
+                var counted = 0
+                do {
+                    val page =
+                        jellyfinApi.libraryApi
+                            .getItems(
+                                jellyfinApi.userId!!,
+                                includeItemTypes = listOf(BaseItemKind.EPISODE),
+                                recursive = true,
+                                isMissing = false,
+                                fields = listOf(ItemFields.MEDIA_SOURCES),
+                                enableImages = false,
+                                enableUserData = false,
+                                startIndex = counted,
+                                limit = SERVER_SIZE_PAGE,
+                            )
+                            .content
+                    for (episode in page.items) {
+                        val seriesId = episode.seriesId ?: continue
+                        // Every version of the episode, as that is what is stored on the server
+                        val sources = episode.mediaSources.orEmpty().distinctBy { it.id }
+                        val bytes = sources.sumOf { it.size ?: 0L }
+                        episodeCounts[seriesId] = (episodeCounts[seriesId] ?: 0) + 1
+                        sizes[seriesId] = (sizes[seriesId] ?: 0L) + bytes
+                    }
+                    counted += page.items.size
+                    onProgress(counted, page.totalRecordCount)
+                } while (page.items.isNotEmpty() && counted < page.totalRecordCount)
+
+                episodeCounts.mapValues { (seriesId, count) ->
+                    FindroidServerSize(episodeCount = count, bytes = sizes[seriesId] ?: 0L)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -837,3 +875,6 @@ class JellyfinRepositoryImpl(
         return jellyfinApi.userId!!
     }
 }
+
+// Episodes asked for per request when adding up show sizes
+private const val SERVER_SIZE_PAGE = 200

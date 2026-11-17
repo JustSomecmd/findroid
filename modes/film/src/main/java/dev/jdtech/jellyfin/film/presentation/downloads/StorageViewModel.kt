@@ -15,7 +15,6 @@ import dev.jdtech.jellyfin.models.FindroidSourceType
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.utils.Downloader
 import java.io.File
-import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -24,23 +23,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import org.jellyfin.sdk.model.api.BaseItemKind
 import timber.log.Timber
 
-/** A show or movie with downloads, and the space they take. */
+/** A show or movie with downloads, and the space they take on this phone. */
 data class StorageEntry(
     /** The show or the movie. */
     val item: FindroidItem,
     /** The downloaded episodes, or the movie itself. */
     val downloads: List<FindroidItem>,
     val localBytes: Long,
-    /** Only for shows, once the server has answered. */
-    val serverSize: FindroidServerSize? = null,
-    val isLoadingServerSize: Boolean = false,
 )
 
+/** What is downloaded to this phone. */
 data class StorageState(
     val isLoading: Boolean = true,
     val entries: List<StorageEntry> = emptyList(),
@@ -49,6 +45,23 @@ data class StorageState(
     /** Size of the storage where downloads go, or 0 when unknown. */
     val deviceTotalBytes: Long = 0L,
     val deviceFreeBytes: Long = 0L,
+)
+
+/** A show on the server and the space its episodes take there. */
+data class ServerShowEntry(val show: FindroidShow, val size: FindroidServerSize)
+
+/** How much space the shows take on the server. */
+data class ServerStorageState(
+    val isLoading: Boolean = false,
+    val isLoaded: Boolean = false,
+    val failed: Boolean = false,
+    /** Episodes counted so far and how many there are, while loading. */
+    val counted: Int = 0,
+    val total: Int = 0,
+    /** Biggest first. */
+    val shows: List<ServerShowEntry> = emptyList(),
+    val totalBytes: Long = 0L,
+    val episodeCount: Int = 0,
 )
 
 @HiltViewModel
@@ -62,15 +75,17 @@ constructor(
     private val _state = MutableStateFlow(StorageState())
     val state = _state.asStateFlow()
 
-    private var serverSizesJob: Job? = null
+    private val _serverState = MutableStateFlow(ServerStorageState())
+    val serverState = _serverState.asStateFlow()
+
+    private var serverJob: Job? = null
 
     fun load() {
         viewModelScope.launch {
             val (entries, device) =
                 withContext(Dispatchers.IO) {
                     val downloads = repository.getDownloads()
-                    val episodes = repository.getDownloadedEpisodes()
-                    val episodesByShow = episodes.groupBy { it.seriesId }
+                    val episodesByShow = repository.getDownloadedEpisodes().groupBy { it.seriesId }
 
                     val shows =
                         downloads.filterIsInstance<FindroidShow>().mapNotNull { show ->
@@ -93,80 +108,63 @@ constructor(
                     (shows + movies).sortedByDescending { it.localBytes } to deviceSpace()
                 }
 
-            // Keeps server sizes that are already known
-            val known = _state.value.entries.associateBy { it.item.id }
-            val merged = entries.map { entry ->
-                known[entry.item.id]?.serverSize?.let { entry.copy(serverSize = it) } ?: entry
-            }
-
             _state.update {
                 it.copy(
                     isLoading = false,
-                    entries = merged,
-                    totalBytes = merged.sumOf { entry -> entry.localBytes },
+                    entries = entries,
+                    totalBytes = entries.sumOf { entry -> entry.localBytes },
                     deviceTotalBytes = device.first,
                     deviceFreeBytes = device.second,
                 )
             }
-
-            loadServerSizes()
         }
     }
 
-    /** Asks the server how big each show is, a few shows at a time. */
-    private fun loadServerSizes() {
-        serverSizesJob?.cancel()
-        val showIds =
-            _state.value.entries
-                .filter { it.item is FindroidShow && it.serverSize == null }
-                .map { it.item.id }
-        if (showIds.isEmpty()) return
+    /** Adds up every show on the server. Only runs once, unless [retry] is set after a failure. */
+    fun loadServer(retry: Boolean = false) {
+        val current = _serverState.value
+        if (current.isLoading || (current.isLoaded && !retry)) return
 
-        setLoadingServerSize(showIds, true)
-        serverSizesJob = viewModelScope.launch {
-            val permits = Semaphore(3)
-            showIds
-                .map { showId ->
-                    launch {
-                        val size = permits.withPermit {
-                            try {
-                                repository.getShowServerSize(showId)
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                Timber.e(e)
-                                null
-                            }
-                        }
-                        _state.update { state ->
-                            state.copy(
-                                entries =
-                                    state.entries.map {
-                                        if (it.item.id == showId) {
-                                            it.copy(
-                                                serverSize = size,
-                                                isLoadingServerSize = false,
-                                            )
-                                        } else {
-                                            it
-                                        }
-                                    }
-                            )
-                        }
-                    }
+        serverJob?.cancel()
+        _serverState.value = ServerStorageState(isLoading = true)
+        serverJob = viewModelScope.launch {
+            val sizes = repository.getServerShowSizes { counted, total ->
+                _serverState.update { it.copy(counted = counted, total = total) }
+            }
+            val shows =
+                try {
+                    repository
+                        .getItems(includeTypes = listOf(BaseItemKind.SERIES), recursive = true)
+                        .filterIsInstance<FindroidShow>()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.e(e)
+                    null
                 }
-                .forEach { it.join() }
-        }
-    }
 
-    private fun setLoadingServerSize(ids: List<UUID>, loading: Boolean) {
-        _state.update { state ->
-            state.copy(
-                entries =
-                    state.entries.map {
-                        if (it.item.id in ids) it.copy(isLoadingServerSize = loading) else it
+            if (sizes == null || shows == null) {
+                _serverState.value = ServerStorageState(failed = true)
+                return@launch
+            }
+
+            val entries =
+                shows
+                    .map { show ->
+                        ServerShowEntry(
+                            show = show,
+                            size = sizes[show.id] ?: FindroidServerSize(0, 0L),
+                        )
                     }
-            )
+                    .sortedByDescending { it.size.bytes }
+
+            _serverState.value =
+                ServerStorageState(
+                    isLoaded = true,
+                    shows = entries,
+                    totalBytes = entries.sumOf { it.size.bytes },
+                    episodeCount = entries.sumOf { it.size.episodeCount },
+                )
         }
     }
 

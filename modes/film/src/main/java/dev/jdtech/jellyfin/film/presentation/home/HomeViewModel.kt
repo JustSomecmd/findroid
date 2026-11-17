@@ -128,6 +128,8 @@ constructor(
 
     private suspend fun loadViews() {
         Timber.i("Loading views")
+        // Shows as their newest episode instead of their poster
+        val latestEpisodes = appPreferences.getValue(appPreferences.homeLatestEpisodes)
         val items =
             if (appPreferences.getValue(appPreferences.homeLatest)) {
                 repository
@@ -136,10 +138,10 @@ constructor(
                         CollectionType.fromString(view.collectionType?.serialName) in
                             CollectionType.supported
                     }
-                    .map { view -> view to repository.getLatestMedia(view.id) }
+                    .map { view -> view to repository.getLatestMedia(view.id, latestEpisodes) }
                     .filter { (_, latest) -> latest.isNotEmpty() }
                     .map { (view, latest) -> view.toView(latest) }
-                    .map { HomeItem.ViewItem(it) }
+                    .map { HomeItem.ViewItem(it, episodeThumbnails = latestEpisodes) }
             } else {
                 emptyList()
             }

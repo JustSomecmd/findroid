@@ -212,6 +212,17 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     nameStringResource = R.string.home_latest,
                                                     backendPreference = appPreferences.homeLatest,
                                                 ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.pref_latest_episodes,
+                                                    descriptionStringRes =
+                                                        R.string.pref_latest_episodes_summary,
+                                                    dependencies =
+                                                        listOf(appPreferences.homeLatest),
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.homeLatestEpisodes,
+                                                ),
                                             ),
                                     ),
                                     PreferenceGroup(
@@ -362,6 +373,14 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                         appPreferences.playerBackend,
                                                     options = R.array.player_backends,
                                                     optionValues = R.array.player_backends,
+                                                ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.pref_player_tunneling,
+                                                    descriptionStringRes =
+                                                        R.string.pref_player_tunneling_summary,
+                                                    backendPreference =
+                                                        appPreferences.playerTunneling,
                                                 ),
                                                 PreferenceCategory(
                                                     nameStringResource = R.string.mpv_options,
@@ -805,6 +824,22 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                             )
                                     )
                                 ),
+                        )
+                    )
+            ),
+            PreferenceGroup(
+                preferences =
+                    listOf(
+                        PreferenceCategory(
+                            nameStringResource = R.string.settings_category_storage,
+                            descriptionStringRes = R.string.settings_category_storage_summary,
+                            iconDrawableId = R.drawable.ic_hard_drive,
+                            supportedDeviceTypes = listOf(DeviceType.PHONE),
+                            onClick = {
+                                viewModelScope.launch {
+                                    eventsChannel.send(SettingsEvent.NavigateToStorage)
+                                }
+                            },
                         )
                     )
             ),

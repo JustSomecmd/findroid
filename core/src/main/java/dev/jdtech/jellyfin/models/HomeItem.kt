@@ -13,7 +13,11 @@ sealed class HomeItem {
         override val id = homeSection.id
     }
 
-    data class ViewItem(val view: View) : HomeItem() {
+    /**
+     * A library's newest items. With [episodeThumbnails], episodes are shown with their own
+     * thumbnail instead of their show's poster.
+     */
+    data class ViewItem(val view: View, val episodeThumbnails: Boolean = false) : HomeItem() {
         override val id = view.id
     }
 
