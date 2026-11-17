@@ -57,7 +57,13 @@ constructor(
                         }
                         ShowParts(show.await(), nextUp.await(), seasons.await(), episodes.await())
                     }
-                val actors = getActors(show)
+                // The cast & crew row can be turned off in the settings
+                val actors =
+                    if (appPreferences.getValue(appPreferences.showCastShows)) {
+                        getActors(show)
+                    } else {
+                        emptyList()
+                    }
                 val director = getDirector(show)
                 val writers = getWriters(show)
                 _state.emit(

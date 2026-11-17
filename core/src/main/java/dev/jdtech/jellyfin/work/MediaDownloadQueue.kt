@@ -89,6 +89,40 @@ object MediaDownloadQueue {
     }
 
     /**
+     * Starts the queued download of [itemId] right away with a fresh [url], taking it out of the
+     * queue. [interrupted] is the download it replaces, which must already be stopped: it goes back
+     * into the queue so it continues later. The queue is put in [order], the order the user chose,
+     * which can include both of them.
+     */
+    suspend fun startNow(
+        context: Context,
+        workManager: WorkManager,
+        itemId: UUID,
+        url: String,
+        networkType: NetworkType,
+        interrupted: Entry?,
+        order: List<UUID>,
+    ) {
+        mutex.withLock {
+            val queue = read(context)
+            val entry = queue.firstOrNull { it.itemId == itemId }
+            // The interrupted download's new entry replaces any old one
+            val all = (queue + listOfNotNull(interrupted)).filter { it.itemId != itemId }
+            val byId = all.associateBy { it.itemId }
+            val ordered = order.mapNotNull { byId[it] }
+            val unordered = all.filter { it.itemId !in order }.distinctBy { it.itemId }
+            write(context, ordered + unordered)
+            if (entry != null && isIdle(workManager)) {
+                startWork(
+                    workManager,
+                    entry.copy(url = url, networkType = networkType, paused = false),
+                )
+            }
+        }
+        _changes.update { it + 1 }
+    }
+
+    /**
      * Resumes a paused download with a fresh [url]. It starts right away if nothing else is
      * downloading, otherwise it waits in its place. Returns false when it isn't in the queue.
      */

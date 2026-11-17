@@ -160,23 +160,17 @@ private fun DownloadsScreenLayout(
                                     }
                                 }
                             }
-                            // Running first, then the queue (which can be reordered, with paused
-                            // downloads keeping their place), then the rest
-                            val queued = activeDownloads.filter { it.inQueue }
-                            activeDownloads
-                                .filter {
+                            // The running download and the queue can be reordered together (paused
+                            // downloads keep their place). Putting a waiting download above the
+                            // running one makes it start. The rest follows below.
+                            val reorderable = activeDownloads.filter {
+                                it.inQueue ||
                                     it.info.status == DownloadStatus.RUNNING ||
-                                        it.info.status == DownloadStatus.PENDING
-                                }
-                                .forEach { download ->
-                                    ActiveDownloadRow(
-                                        download = download,
-                                        onClick = { onActiveDownloadClick(download.item) },
-                                    )
-                                }
-                            if (queued.isNotEmpty()) {
+                                    it.info.status == DownloadStatus.PENDING
+                            }
+                            if (reorderable.isNotEmpty()) {
                                 ReorderableDownloadQueue(
-                                    downloads = queued,
+                                    downloads = reorderable,
                                     onReorder = onReorderQueue,
                                     onClick = { download -> onActiveDownloadClick(download.item) },
                                     scrollState = gridState,

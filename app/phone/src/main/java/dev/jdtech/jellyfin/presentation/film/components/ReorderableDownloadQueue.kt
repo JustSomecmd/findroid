@@ -9,8 +9,8 @@ import dev.jdtech.jellyfin.presentation.theme.spacings
 import java.util.UUID
 
 /**
- * Queued downloads in queue order. Holding one lifts it so it can be dragged to another place;
- * letting go saves the new order with [onReorder].
+ * The running download and the queue, in order. Holding one lifts it so it can be dragged to
+ * another place; letting go saves the new order with [onReorder].
  */
 @Composable
 fun ReorderableDownloadQueue(

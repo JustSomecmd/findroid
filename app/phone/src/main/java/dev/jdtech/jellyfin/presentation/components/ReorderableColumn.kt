@@ -162,7 +162,9 @@ fun <K : Any> ReorderableColumn(
             targetIndex = -1
             generation++
             settling = false
-            if (order != currentKeys) currentOnReorder(order)
+            // Reported even when it matches the saved order, so a drop that undoes an earlier
+            // move is seen as well
+            currentOnReorder(order)
         }
     }
 

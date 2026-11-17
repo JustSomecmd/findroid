@@ -270,6 +270,18 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     backendPreference =
                                                         appPreferences.episodeTitleFirst,
                                                 ),
+                                                PreferenceSwitch(
+                                                    nameStringResource = R.string.pref_cast_movies,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.showCastMovies,
+                                                ),
+                                                PreferenceSwitch(
+                                                    nameStringResource = R.string.pref_cast_shows,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.showCastShows,
+                                                ),
                                             )
                                     ),
                                 ),

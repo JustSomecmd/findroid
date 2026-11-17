@@ -22,6 +22,7 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -54,6 +55,7 @@ constructor(
     val activeDownloads = _activeDownloads.asStateFlow()
 
     private var activeDownloadsJob: Job? = null
+    private var startNowJob: Job? = null
 
     fun loadItems() {
         viewModelScope.launch {
@@ -106,9 +108,32 @@ constructor(
         }
     }
 
-    /** Saves the order the user dragged the queued downloads into. */
+    /**
+     * Saves the order the user dragged the downloads into. The list includes the running download.
+     * When a waiting download is put above it and stays there for two seconds, it starts, and the
+     * running one continues right after it.
+     */
     fun reorderQueue(itemIds: List<UUID>) {
-        viewModelScope.launch { downloader.reorderQueue(itemIds) }
+        startNowJob?.cancel()
+        val running =
+            _activeDownloads.value.filter {
+                it.info.status == DownloadStatus.RUNNING || it.info.status == DownloadStatus.PENDING
+            }
+        val runningIds = running.map { it.item.id }.toSet()
+        val first = itemIds.firstOrNull()
+
+        if (running.isEmpty() || first == null || first in runningIds) {
+            viewModelScope.launch { downloader.reorderQueue(itemIds.filter { it !in runningIds }) }
+            return
+        }
+
+        // Nothing is saved yet, so the list keeps showing the new order while waiting. Moving
+        // things again before the two seconds are up cancels this.
+        val next = _activeDownloads.value.firstOrNull { it.item.id == first }?.item ?: return
+        startNowJob = viewModelScope.launch {
+            delay(START_NOW_DELAY_MS)
+            downloader.startNow(next, interrupted = running.first().item, order = itemIds)
+        }
     }
 
     /** Follows the progress of every unfinished download, running ones first, then the queue. */
@@ -195,3 +220,6 @@ constructor(
         private const val EPISODE_SECTION_ID_START = 1000
     }
 }
+
+// How long a download must stay above the running one before it takes over
+private const val START_NOW_DELAY_MS = 2_000L

@@ -28,6 +28,13 @@ interface Downloader {
 
     /** Changes the order in which queued items download. */
     suspend fun reorderQueue(itemIds: List<UUID>)
+
+    /**
+     * Starts the queued download of [item] right away. [interrupted] is the download running now:
+     * it stops, keeps what it has, and continues later. [order] is the order the user put the
+     * downloads in, which decides where the interrupted one goes.
+     */
+    suspend fun startNow(item: FindroidItem, interrupted: FindroidItem?, order: List<UUID>)
 }
 
 enum class DownloadStatus {

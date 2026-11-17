@@ -271,18 +271,7 @@ class DownloaderImpl(
                 } ?: return@withContext UiText.StringResource(CoreR.string.downloading_error)
 
             // Ask the server for a fresh address, so an expired login doesn't block the download
-            val url =
-                try {
-                    jellyfinRepository
-                        .getMediaSources(item.id, true)
-                        .firstOrNull { it.type == FindroidSourceType.REMOTE && it.id == partial.id }
-                        ?.path
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.e(e)
-                    null
-                }
+            val url = freshUrl(item.id, partial.id)
             if (url.isNullOrBlank()) {
                 return@withContext UiText.StringResource(
                     CoreR.string.download_error_server_unreachable
@@ -372,6 +361,66 @@ class DownloaderImpl(
 
         changes.update { it + 1 }
         MediaDownloadQueue.startNext(context, workManager)
+    }
+
+    /** Asks the server for a current download address of a source, or null if that fails. */
+    private suspend fun freshUrl(itemId: UUID, sourceId: String): String? =
+        try {
+            jellyfinRepository
+                .getMediaSources(itemId, true)
+                .firstOrNull { it.type == FindroidSourceType.REMOTE && it.id == sourceId }
+                ?.path
+                ?.takeIf { it.isNotBlank() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e)
+            null
+        }
+
+    /** The partly downloaded source of an item, or null if it has none. */
+    private suspend fun partialSource(itemId: UUID) =
+        database.getSources(itemId).firstOrNull {
+            it.path.endsWith(MediaDownloadWorker.DOWNLOAD_SUFFIX)
+        }
+
+    override suspend fun startNow(
+        item: FindroidItem,
+        interrupted: FindroidItem?,
+        order: List<UUID>,
+    ) {
+        withContext(Dispatchers.IO) {
+            val partial = partialSource(item.id) ?: return@withContext
+            // Without an address for the new download, the running one keeps going
+            val url = freshUrl(item.id, partial.id) ?: return@withContext
+
+            // The running download goes back in the queue where the user put it, keeping what it
+            // already has. If no address can be found for it, it waits there as paused.
+            val interruptedEntry = interrupted?.let { running ->
+                val runningPartial = partialSource(running.id) ?: return@let null
+                val runningUrl = freshUrl(running.id, runningPartial.id)
+                MediaDownloadQueue.Entry(
+                    itemId = running.id,
+                    sourceId = runningPartial.id,
+                    url = runningUrl.orEmpty(),
+                    title = running.name,
+                    networkType = networkType(),
+                    paused = runningUrl == null,
+                )
+            }
+            if (interrupted != null) cancelMediaDownload(interrupted.id)
+
+            MediaDownloadQueue.startNow(
+                context,
+                workManager,
+                item.id,
+                url,
+                networkType(),
+                interruptedEntry,
+                order,
+            )
+            changes.update { it + 1 }
+        }
     }
 
     override fun queuedItemIds(): List<UUID> = MediaDownloadQueue.queuedItemIds(context)

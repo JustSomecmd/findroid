@@ -36,7 +36,13 @@ constructor(
             try {
                 val movie = repository.getMovie(movieId)
                 val videoMetadata = videoMetadataParser.parse(movie.sources.first())
-                val actors = getActors(movie)
+                // The cast & crew row can be turned off in the settings
+                val actors =
+                    if (appPreferences.getValue(appPreferences.showCastMovies)) {
+                        getActors(movie)
+                    } else {
+                        emptyList()
+                    }
                 val director = getDirector(movie)
                 val writers = getWriters(movie)
                 val displayExtraInfo = appPreferences.getValue(appPreferences.displayExtraInfo)

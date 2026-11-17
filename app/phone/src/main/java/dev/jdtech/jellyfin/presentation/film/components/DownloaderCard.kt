@@ -64,11 +64,11 @@ fun DownloaderCard(
             DownloadStatus.FAILED -> stringResource(CoreR.string.download_failed)
             else -> stringResource(CoreR.string.download_downloading)
         }
-    // Adds the current speed while downloading
+    // While downloading, the speed says enough on its own and leaves room in the small card
     val statusText =
         if (state.status == DownloadStatus.RUNNING && state.bytesPerSecond >= 0) {
             val speed = Formatter.formatShortFileSize(LocalContext.current, state.bytesPerSecond)
-            "$status · ${stringResource(CoreR.string.download_speed, speed)}"
+            stringResource(CoreR.string.download_speed, speed)
         } else {
             status
         }
