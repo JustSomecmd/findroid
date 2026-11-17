@@ -1,6 +1,7 @@
 package dev.jdtech.jellyfin.presentation.film
 
 import android.text.format.Formatter
+import androidx.annotation.PluralsRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,7 +44,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -152,7 +152,7 @@ private fun DownloadStorageLayout(
             text = {
                 Text(
                     if (entry.item is FindroidShow) {
-                        pluralStringResource(
+                        quantityString(
                             CoreR.plurals.storage_delete_show_message,
                             entry.downloads.size,
                             entry.downloads.size,
@@ -306,7 +306,7 @@ private fun StorageRow(entry: StorageEntry, onClick: () -> Unit, onDelete: () ->
                 Text(
                     text =
                         if (isShow) {
-                            pluralStringResource(
+                            quantityString(
                                 CoreR.plurals.storage_episodes_local,
                                 entry.downloads.size,
                                 entry.downloads.size,
@@ -328,7 +328,7 @@ private fun StorageRow(entry: StorageEntry, onClick: () -> Unit, onDelete: () ->
                     } else if (serverSize != null) {
                         Text(
                             text =
-                                pluralStringResource(
+                                quantityString(
                                     CoreR.plurals.storage_episodes_server,
                                     serverSize.episodeCount,
                                     serverSize.episodeCount,
@@ -363,3 +363,7 @@ private fun StorageRow(entry: StorageEntry, onClick: () -> Unit, onDelete: () ->
 @Composable
 private fun formatSize(bytes: Long): String =
     Formatter.formatShortFileSize(LocalContext.current, bytes)
+
+@Composable
+private fun quantityString(@PluralsRes id: Int, count: Int, vararg formatArgs: Any): String =
+    LocalContext.current.resources.getQuantityString(id, count, *formatArgs)

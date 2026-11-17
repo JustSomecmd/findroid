@@ -35,6 +35,7 @@ import dev.jdtech.jellyfin.models.toFindroidSource
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import java.io.File
 import java.util.UUID
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -442,19 +443,10 @@ class JellyfinRepositoryImpl(
                         )
                         .content
                         .items
-                FindroidServerSize(
-                    episodeCount = episodes.size,
-                    // Every version of every episode, as that is what is stored on the server
-                    bytes =
-                        episodes.sumOf { episode ->
-                            episode.mediaSources
-                                .orEmpty()
-                                .distinctBy { it.id }
-                                .sumOf {
-                                    it.size ?: 0L
-                                }
-                        },
-                )
+                // Every version of every episode, as that is what is stored on the server
+                val sources = episodes.flatMap { episode -> episode.mediaSources.orEmpty() }
+                val bytes = sources.distinctBy { it.id }.sumOf { it.size ?: 0L }
+                FindroidServerSize(episodeCount = episodes.size, bytes = bytes)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
