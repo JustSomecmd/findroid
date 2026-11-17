@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.util.Rational
+import android.view.Gravity
 import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
@@ -22,6 +23,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
 import androidx.activity.viewModels
@@ -34,6 +36,7 @@ import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerControlView
 import androidx.media3.ui.PlayerView
 import dagger.hilt.android.AndroidEntryPoint
+import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.databinding.ActivityPlayerBinding
 import dev.jdtech.jellyfin.player.local.presentation.PlayerEvents
 import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
@@ -64,6 +67,13 @@ class PlayerActivity : BasePlayerActivity() {
 
     override fun isBackgroundPlaybackEnabled(): Boolean =
         appPreferences.getValue(appPreferences.playerBackgroundPlayback)
+
+    // Switched with the rotate button; the player starts in landscape
+    private var portraitMode = false
+
+    private fun playerOrientation(): Int =
+        if (portraitMode) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 
     private var previewScrubListener: PreviewScrubListener? = null
     private var wasZoom: Boolean = false
@@ -149,6 +159,7 @@ class PlayerActivity : BasePlayerActivity() {
         val pipButton = binding.playerView.findViewById<ImageButton>(R.id.btn_pip)
         val lockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_lockview)
         val unlockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_unlock)
+        val rotateButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotate)
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -305,7 +316,7 @@ class PlayerActivity : BasePlayerActivity() {
         unlockButton.setOnClickListener {
             exoPlayerControlView.visibility = View.VISIBLE
             lockedLayout.visibility = View.GONE
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            requestedOrientation = playerOrientation()
             isControlsLocked = false
         }
 
@@ -318,6 +329,14 @@ class PlayerActivity : BasePlayerActivity() {
             SpeedSelectionDialogFragment(viewModel)
                 .show(supportFragmentManager, "speedselectiondialog")
         }
+
+        rotateButton.setOnClickListener {
+            portraitMode = !portraitMode
+            requestedOrientation = playerOrientation()
+        }
+        updateOrientationLayout(
+            resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+        )
 
         chaptersButton.setOnClickListener {
             ChapterSelectionDialogFragment(viewModel)
@@ -388,6 +407,48 @@ class PlayerActivity : BasePlayerActivity() {
             itemKind = itemKind ?: "",
             startFromBeginning = startFromBeginning,
         )
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateOrientationLayout(newConfig.orientation == Configuration.ORIENTATION_PORTRAIT)
+    }
+
+    /**
+     * In portrait the screen is too narrow for the title and all buttons in one row, so the buttons
+     * move to a second row with less space between them.
+     */
+    private fun updateOrientationLayout(portrait: Boolean) {
+        val topBar = binding.playerView.findViewById<LinearLayout>(R.id.top_bar) ?: return
+        val titleRow = binding.playerView.findViewById<View>(R.id.title_row)
+        val buttonsScroll = binding.playerView.findViewById<View>(R.id.extra_buttons_scroll)
+        val extraButtons = binding.playerView.findViewById<LinearLayout>(R.id.extra_buttons)
+
+        topBar.orientation = if (portrait) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        titleRow.layoutParams =
+            (titleRow.layoutParams as LinearLayout.LayoutParams).apply {
+                width = if (portrait) LinearLayout.LayoutParams.MATCH_PARENT else 0
+                weight = if (portrait) 0f else 1f
+            }
+        buttonsScroll.layoutParams =
+            (buttonsScroll.layoutParams as LinearLayout.LayoutParams).apply {
+                gravity = Gravity.END
+            }
+
+        val spaceWidth = ((if (portrait) 4 else 16) * resources.displayMetrics.density).toInt()
+        for (i in 0 until extraButtons.childCount) {
+            val child = extraButtons.getChildAt(i)
+            if (child is Space) {
+                child.layoutParams = child.layoutParams.apply { width = spaceWidth }
+            }
+        }
+
+        binding.playerView
+            .findViewById<ImageButton>(R.id.btn_rotate)
+            ?.setImageResource(
+                if (portrait) CoreR.drawable.ic_rotate_to_landscape
+                else CoreR.drawable.ic_rotate_to_portrait
+            )
     }
 
     override fun onUserLeaveHint() {

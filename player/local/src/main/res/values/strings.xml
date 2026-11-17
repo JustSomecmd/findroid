@@ -28,4 +28,5 @@
     <string name="quality_original">Original</string>
     <string name="quality_original_summary">Original (no conversion)</string>
     <string name="quality_failed">The server could not convert this video</string>
+    <string name="player_controls_rotate">Switch between portrait and landscape</string>
 </resources>

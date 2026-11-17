@@ -31,6 +31,7 @@ import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.utils.episodeTitle
+import dev.jdtech.jellyfin.presentation.utils.rememberFormattedText
 import dev.jdtech.jellyfin.utils.format
 
 @Composable
@@ -89,7 +90,7 @@ fun EpisodeCard(
                     }
                 }
                 Text(
-                    text = episode.overview,
+                    text = rememberFormattedText(episode.overview),
                     modifier = Modifier.alpha(0.7f),
                     maxLines = if (fullTitle) 2 else 5,
                     overflow = TextOverflow.Ellipsis,

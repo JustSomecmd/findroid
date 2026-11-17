@@ -16,6 +16,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import dev.jdtech.jellyfin.core.presentation.dummy.dummyMovie
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
+import dev.jdtech.jellyfin.presentation.utils.rememberFormattedText
 
 @Composable
 fun OverviewText(text: String, maxCollapsedLines: Int = Int.MAX_VALUE) {
@@ -24,7 +25,7 @@ fun OverviewText(text: String, maxCollapsedLines: Int = Int.MAX_VALUE) {
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = text,
+            text = rememberFormattedText(text),
             modifier =
                 Modifier.then(
                         if (showChevron)
