@@ -4,15 +4,20 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -28,6 +33,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaVideoAction
 import dev.jdtech.jellyfin.presentation.theme.spacings
@@ -46,16 +52,18 @@ fun TaVideoActionButtons(
         OutlinedButton(
             onClick = { onAction(TaVideoAction.REINDEX) },
             enabled = enabled,
+            contentPadding = TaActionPadding,
             modifier = Modifier.weight(1f),
         ) {
-            Text(stringResource(CoreR.string.ta_action_reindex), maxLines = 1)
+            TaActionLabel(stringResource(CoreR.string.ta_action_reindex))
         }
         OutlinedButton(
             onClick = { onAction(TaVideoAction.REDOWNLOAD) },
             enabled = enabled,
+            contentPadding = TaActionPadding,
             modifier = Modifier.weight(1f),
         ) {
-            Text(stringResource(CoreR.string.ta_action_redownload), maxLines = 1)
+            TaActionLabel(stringResource(CoreR.string.ta_action_redownload))
         }
         OutlinedButton(
             onClick = { onAction(TaVideoAction.DELETE) },
@@ -68,11 +76,32 @@ fun TaVideoActionButtons(
                     if (enabled) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.outlineVariant,
                 ),
+            contentPadding = TaActionPadding,
             modifier = Modifier.weight(1f),
         ) {
-            Text(stringResource(CoreR.string.ta_action_delete), maxLines = 1)
+            TaActionLabel(stringResource(CoreR.string.ta_action_delete))
         }
     }
+}
+
+// Less room around the labels than usual, so three buttons fit side by side on a phone
+private val TaActionPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+
+/** A button label that shrinks to fit on one line rather than being cut off. */
+@Composable
+private fun TaActionLabel(text: String) {
+    val style = LocalTextStyle.current
+    BasicText(
+        text = text,
+        style = style.copy(color = LocalContentColor.current),
+        maxLines = 1,
+        autoSize =
+            TextAutoSize.StepBased(
+                minFontSize = 10.sp,
+                maxFontSize = if (style.fontSize.isSp) style.fontSize else 14.sp,
+                stepSize = 0.5.sp,
+            ),
+    )
 }
 
 /**

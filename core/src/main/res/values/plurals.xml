@@ -32,4 +32,20 @@
         <item quantity="one">%d selected</item>
         <item quantity="other">%d selected</item>
     </plurals>
+    <plurals name="ta_confirm_playlist_download">
+        <item quantity="one">Download this playlist\'s %d video to the phone?</item>
+        <item quantity="other">Download this playlist\'s %d videos to the phone?</item>
+    </plurals>
+    <plurals name="ta_playlist_download_added">
+        <item quantity="one">Added %d video to the downloads.</item>
+        <item quantity="other">Added %d videos to the downloads.</item>
+    </plurals>
+    <plurals name="ta_playlist_download_already">
+        <item quantity="one">%d was already on the phone.</item>
+        <item quantity="other">%d were already on the phone.</item>
+    </plurals>
+    <plurals name="ta_playlist_download_failed">
+        <item quantity="one">%d couldn\'t be added; Jellyfin may not have it yet.</item>
+        <item quantity="other">%d couldn\'t be added; Jellyfin may not have them yet.</item>
+    </plurals>
 </resources>

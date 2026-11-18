@@ -16,9 +16,12 @@ import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
+import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.ItemFields
 import org.jellyfin.sdk.model.api.MediaStreamType
@@ -31,6 +34,7 @@ internal constructor(
     appPreferences: AppPreferences,
     private val taApi: TaApi,
     private val taJellyfinLookup: TaJellyfinLookup,
+    private val taOfflineStore: TaOfflineStore,
 ) {
     private var startItem: FindroidItem? = null
     private var items: List<FindroidItem> = emptyList()
@@ -71,7 +75,9 @@ internal constructor(
         }
         val id =
             try {
-                taJellyfinLookup.findEpisodeId(entry.videoId, entry.title, null, null)
+                // A video on the phone already knows its episode, also without a connection
+                withContext(Dispatchers.IO) { taOfflineStore.savedItemId(entry.videoId) }
+                    ?: taJellyfinLookup.findEpisodeId(entry.videoId, entry.title, null, null)
                     ?: taApi.getVideo(entry.videoId).let { video ->
                         taJellyfinLookup.findEpisodeId(
                             videoId = entry.videoId,
@@ -225,7 +231,8 @@ internal constructor(
         taQueue?.let { queue ->
             val videoId =
                 try {
-                    taJellyfinLookup.videoIdForItem(initialItem.id)
+                    taOfflineStore.videoIdForItem(initialItem.id)
+                        ?: taJellyfinLookup.videoIdForItem(initialItem.id)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

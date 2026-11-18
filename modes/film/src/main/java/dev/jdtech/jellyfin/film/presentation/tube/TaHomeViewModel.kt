@@ -9,18 +9,21 @@ import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSession
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 @HiltViewModel
@@ -33,6 +36,7 @@ constructor(
     private val database: ServerDatabaseDao,
     private val appPreferences: AppPreferences,
     private val playlistSessions: TaPlaylistSessions,
+    private val playlistCache: TaPlaylistCache,
 ) : ViewModel() {
     private val _servers = MutableStateFlow(TaServersInfo())
     /** The Jellyfin and TubeArchivist servers the app is connected to. */
@@ -184,8 +188,36 @@ constructor(
                 throw e
             } catch (e: Exception) {
                 Timber.w(e, "Could not load continue watching")
+                // Without a connection, playlists can still go on with what's on the phone
+                _continueWatching.value =
+                    playlistSessions.sessions.value.take(MAX_PLAYLISTS).mapNotNull {
+                        savedPlaylist(it)
+                    }
             }
         }
+    }
+
+    /**
+     * A playlist being watched through, from the copies saved on the phone. Only shown when the
+     * video it's at is on the phone, as nothing else can be played without a connection.
+     */
+    private suspend fun savedPlaylist(session: TaPlaylistSession): TaContinueItem.Playlist? {
+        val saved = playlistCache.loadPlaylist(session.playlistId) ?: return null
+        val entries = saved.playlist.entries.filter { it.downloaded }
+        val index = entries.indexOfFirst { it.youtubeId == session.videoId }
+        if (index < 0) return null
+        val video =
+            withContext(Dispatchers.IO) { taOfflineStore.savedVideo(session.videoId) }
+                ?: return null
+        return TaContinueItem.Playlist(
+            playlistId = saved.playlist.id,
+            name = saved.playlist.name.ifBlank { session.playlistName },
+            video = video,
+            number = index + 1,
+            count = entries.size,
+            lastVideoId = session.videoId,
+            saved = true,
+        )
     }
 
     /**
@@ -228,12 +260,13 @@ constructor(
             try {
                 val video = item.video
                 val episodeId =
-                    taJellyfinLookup.findEpisodeId(
-                        videoId = video.youtubeId,
-                        title = video.title,
-                        channelId = video.channel?.id,
-                        channelName = video.channel?.name,
-                    )
+                    withContext(Dispatchers.IO) { taOfflineStore.savedItemId(video.youtubeId) }
+                        ?: taJellyfinLookup.findEpisodeId(
+                            videoId = video.youtubeId,
+                            title = video.title,
+                            channelId = video.channel?.id,
+                            channelName = video.channel?.name,
+                        )
                 if (episodeId == null) {
                     _messages.send(TaMessages.NOT_IN_JELLYFIN)
                     return@launch
@@ -241,7 +274,7 @@ constructor(
                 _play.send(
                     TaPlayRequest(
                         episodeId = episodeId,
-                        positionSeconds = video.player?.position,
+                        positionSeconds = if (item.saved) null else video.player?.position,
                         playlistId = item.playlistId,
                     )
                 )
@@ -290,6 +323,8 @@ sealed interface TaContinueItem {
         val number: Int,
         val count: Int,
         val lastVideoId: String,
+        /** From the copy on the phone, whose position is older than the phone's own. */
+        val saved: Boolean = false,
     ) : TaContinueItem {
         override val key: String
             get() = "playlist:$playlistId"

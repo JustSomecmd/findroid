@@ -51,6 +51,24 @@ class TaOfflineStore(
             }
         }
 
+    /** The saved details of a video downloaded to the phone, if it was. */
+    fun savedVideo(videoId: String): TaVideo? = savedEntry(videoId)?.video
+
+    /** The Jellyfin item of a video downloaded to the phone, if it was. */
+    fun savedItemId(videoId: String): UUID? =
+        savedEntry(videoId)?.itemId?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+
+    private fun savedEntry(videoId: String): TaOfflineEntry? {
+        val file = file(videoId)
+        if (!file.exists()) return null
+        return try {
+            taApi.json.decodeFromString(TaOfflineEntry.serializer(), file.readText())
+        } catch (e: Exception) {
+            Timber.w(e, "Could not read saved TubeArchivist details")
+            null
+        }
+    }
+
     /**
      * Saves TubeArchivist's details of a downloaded Jellyfin item. Items that aren't from
      * TubeArchivist are remembered as such, so they aren't looked up again.

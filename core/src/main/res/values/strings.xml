@@ -348,6 +348,10 @@
     <string name="ta_deleted">Deleted from the server</string>
     <string name="ta_info_actions">Actions</string>
     <string name="ta_playlist_position">%1$d of %2$d</string>
+    <string name="ta_playlist_download">Download to phone</string>
+    <string name="ta_playlist_downloading">Adding %1$d of %2$d…</string>
+    <string name="ta_confirm_playlist_download_text">They go into the phone\'s download queue, after anything already in it. Videos already on the phone are skipped.</string>
+    <string name="ta_playlist_saved_copy">Saved copy: TubeArchivist can\'t be reached</string>
     <string name="ta_channel_videos">Videos on the server</string>
     <string name="ta_channel_videos_hint">Tap videos to select them, then reindex, redownload or delete them.</string>
     <string name="ta_select_all">Select all</string>

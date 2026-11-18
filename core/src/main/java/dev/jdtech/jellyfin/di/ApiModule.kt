@@ -12,6 +12,7 @@ import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
 import javax.inject.Singleton
 import kotlinx.coroutines.runBlocking
@@ -76,4 +77,11 @@ object ApiModule {
     @Provides
     fun provideTaPlaylistSessions(@ApplicationContext application: Context): TaPlaylistSessions =
         TaPlaylistSessions(application)
+
+    @Singleton
+    @Provides
+    fun provideTaPlaylistCache(
+        @ApplicationContext application: Context,
+        taApi: TaApi,
+    ): TaPlaylistCache = TaPlaylistCache(application, taApi)
 }

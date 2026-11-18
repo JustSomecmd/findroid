@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.channels.Channel
@@ -21,7 +22,9 @@ enum class TaChannelsTab {
 }
 
 @HiltViewModel
-class TaChannelsViewModel @Inject constructor(private val taApi: TaApi) : ViewModel() {
+class TaChannelsViewModel
+@Inject
+constructor(private val taApi: TaApi, private val playlistCache: TaPlaylistCache) : ViewModel() {
     private val _tab = MutableStateFlow(TaChannelsTab.SUBSCRIBED)
     val tab = _tab.asStateFlow()
 
@@ -36,6 +39,23 @@ class TaChannelsViewModel @Inject constructor(private val taApi: TaApi) : ViewMo
 
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages = _messages.receiveAsFlow()
+
+    /**
+     * Loads the next page of playlists, and keeps the list for when TubeArchivist can't be reached.
+     * Without a connection the list saved before shows instead.
+     */
+    private suspend fun loadMorePlaylists() {
+        _playlists.loadNextPage(key = { it.id }) { page -> taApi.getPlaylists(page = page) }
+        val state = _playlists.value
+        if (state.error == null) {
+            playlistCache.savePlaylists(state.items)
+        } else if (state.items.isEmpty()) {
+            val saved = playlistCache.loadPlaylists()
+            if (saved.isNotEmpty()) {
+                _playlists.value = TaListState(items = saved, page = 0, hasMore = false)
+            }
+        }
+    }
 
     /** Remembers the shown tab. Each tab's list loads its pages as it scrolls. */
     fun selectTab(tab: TaChannelsTab) {
@@ -52,10 +72,7 @@ class TaChannelsViewModel @Inject constructor(private val taApi: TaApi) : ViewMo
                     }
                 TaChannelsTab.ALL ->
                     _all.loadNextPage(key = { it.id }) { page -> taApi.getChannels(page = page) }
-                TaChannelsTab.PLAYLISTS ->
-                    _playlists.loadNextPage(key = { it.id }) { page ->
-                        taApi.getPlaylists(page = page)
-                    }
+                TaChannelsTab.PLAYLISTS -> loadMorePlaylists()
             }
         }
     }

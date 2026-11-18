@@ -16,10 +16,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
@@ -131,15 +134,8 @@ fun TaChannelScreen(
             modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
             topBar = {
                 TopAppBar(
-                    title = {
-                        TaSideTitle(
-                            title = channel?.name.orEmpty(),
-                            onServer = sides.onServerSide,
-                            onToggle = { sides.switchSide(scope) },
-                            localIcon = CoreR.drawable.ic_users,
-                            localLabel = stringResource(CoreR.string.ta_side_channel),
-                        )
-                    },
+                    // The name is already shown on the page, so the switch stands alone
+                    title = {},
                     navigationIcon = {
                         IconButton(onClick = navigateBack) {
                             Icon(
@@ -149,6 +145,12 @@ fun TaChannelScreen(
                         }
                     },
                     actions = {
+                        TaSideSwitch(
+                            onServer = sides.onServerSide,
+                            onToggle = { sides.switchSide(scope) },
+                            localIcon = CoreR.drawable.ic_users,
+                            localLabel = stringResource(CoreR.string.ta_side_channel),
+                        )
                         TaOpenInWebButton(path = "/channel/$channelId")
                         if (channel != null) {
                             Box {
@@ -532,6 +534,7 @@ private fun TaChannelServerPage(
 
     val listState = rememberLazyListState()
     LoadMoreEffect(listState) { viewModel.loadMoreServerVideos() }
+    val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -543,7 +546,9 @@ private fun TaChannelServerPage(
                     top = MaterialTheme.spacings.medium,
                     end = MaterialTheme.spacings.medium,
                     // Room for the bar with the actions, so the last videos can be reached
-                    bottom = if (selected.isEmpty()) MaterialTheme.spacings.medium else 160.dp,
+                    bottom =
+                        if (selected.isEmpty()) MaterialTheme.spacings.medium
+                        else 160.dp + navigationBarHeight,
                 ),
         ) {
             item(key = "server") {
@@ -609,7 +614,11 @@ private fun TaChannelServerPage(
                 shape = MaterialTheme.shapes.large,
                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
                 shadowElevation = 6.dp,
-                modifier = Modifier.fillMaxWidth().padding(MaterialTheme.spacings.medium),
+                // Clear of the phone's own navigation bar
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(MaterialTheme.spacings.medium),
             ) {
                 Column(modifier = Modifier.padding(MaterialTheme.spacings.medium)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

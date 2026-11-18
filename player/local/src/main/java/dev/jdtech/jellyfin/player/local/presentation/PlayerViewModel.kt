@@ -35,6 +35,7 @@ import dev.jdtech.jellyfin.settings.domain.Constants
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import java.util.UUID
@@ -69,6 +70,7 @@ constructor(
     private val taJellyfinLookup: TaJellyfinLookup,
     private val taOfflineStore: TaOfflineStore,
     private val taPlaylistSessions: TaPlaylistSessions,
+    private val taPlaylistCache: TaPlaylistCache,
 ) : ViewModel(), Player.Listener {
     val player: Player
 
@@ -255,7 +257,17 @@ constructor(
             playlistManager.setTubeArchivistQueue(null)
             if (taPlaylistId != null) {
                 try {
-                    val playlist = taApi.getPlaylist(taPlaylistId)
+                    // The copy saved on the phone when TubeArchivist can't be reached
+                    val playlist =
+                        try {
+                            taApi.getPlaylist(taPlaylistId).also {
+                                taPlaylistCache.updatePlaylist(it)
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            taPlaylistCache.loadPlaylist(taPlaylistId)?.playlist ?: throw e
+                        }
                     playlistManager.setTubeArchivistQueue(
                         playlist.entries
                             .filter { it.downloaded }
