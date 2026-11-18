@@ -20,7 +20,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -86,7 +86,10 @@ import dev.jdtech.jellyfin.presentation.tube.TaPlaylistScreen
 import dev.jdtech.jellyfin.presentation.tube.TaQueueScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSearchScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSettingsScreen
+import dev.jdtech.jellyfin.presentation.tube.TaSidePager
 import dev.jdtech.jellyfin.presentation.tube.TaVideoScreen
+import dev.jdtech.jellyfin.presentation.tube.rememberSidePagerState
+import dev.jdtech.jellyfin.presentation.tube.switchSide
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionAction
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionViewModel
@@ -523,19 +526,26 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         )
     }
     entry<DownloadsRoute> {
-        // With TubeArchivist, the title switches between the downloads on this phone and the
-        // download queue on the server
-        val tubeArchivistMode = LocalTubeArchivistMode.current
-        var onServer by rememberSaveable { mutableStateOf(false) }
-        ServerSideTheme(onServer = tubeArchivistMode && onServer) {
-            if (tubeArchivistMode && onServer) {
-                TaQueueScreen(onSwitchSide = { onServer = false })
-            } else {
-                DownloadsScreen(
-                    onItemClick = resumedAction { item -> navigateToItem(navigator, item) },
-                    onSwitchSide = if (tubeArchivistMode) ({ onServer = true }) else null,
+        // With TubeArchivist, the downloads on this phone and the download queue on the server are
+        // two sides to swipe between, or to switch with the title
+        val onItemClick = resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) }
+        if (LocalTubeArchivistMode.current) {
+            val scope = rememberCoroutineScope()
+            val sides = rememberSidePagerState()
+            ServerSideTheme(pagerState = sides) {
+                TaSidePager(
+                    state = sides,
+                    phone = {
+                        DownloadsScreen(
+                            onItemClick = onItemClick,
+                            onSwitchSide = { sides.switchSide(scope) },
+                        )
+                    },
+                    server = { TaQueueScreen(onSwitchSide = { sides.switchSide(scope) }) },
                 )
             }
+        } else {
+            DownloadsScreen(onItemClick = onItemClick)
         }
     }
     entry<DownloadStorageRoute> {
@@ -737,6 +747,7 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
     entry<TaHomeRoute> {
         TaHomeScreen(
             onVideoClick = resumedAction<String> { openVideo(it) },
+            onChannelClick = resumedAction<String> { openChannel(it) },
             onSearchClick = dropUnlessResumed { navigator.navigate(TaSearchRoute) },
             onSettingsClick =
                 dropUnlessResumed {

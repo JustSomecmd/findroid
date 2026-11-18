@@ -24,14 +24,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarColors
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,7 +74,9 @@ import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 /** Whether TubeArchivist is the main interface right now. */
 val LocalTubeArchivistMode = staticCompositionLocalOf { false }
@@ -559,6 +567,43 @@ private fun TaSideSegment(@DrawableRes icon: Int, label: String, selected: Boole
             Spacer(Modifier.width(4.dp))
             Text(text = label, style = MaterialTheme.typography.labelMedium, color = content)
         }
+    }
+}
+
+/** Top bar colors with the bar's background always shown, not only once the page scrolls. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun alwaysShownTopAppBarColors(): TopAppBarColors =
+    TopAppBarDefaults.topAppBarColors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+    )
+
+/** Pages of something shown on the phone side (the first page) and the server side (the second). */
+@Composable fun rememberSidePagerState(): PagerState = rememberPagerState { 2 }
+
+/** Whether the server side is the page mostly in view. */
+val PagerState.onServerSide: Boolean
+    get() = currentPage == 1
+
+/** Slides a side pager over to its other side. */
+fun PagerState.switchSide(scope: CoroutineScope) {
+    scope.launch { animateScrollToPage(1 - currentPage) }
+}
+
+/**
+ * The phone side and the server side of something, side by side, so a swipe moves between them like
+ * the tabs on the Channels page.
+ */
+@Composable
+fun TaSidePager(
+    state: PagerState,
+    phone: @Composable () -> Unit,
+    server: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    HorizontalPager(state = state, modifier = modifier, key = { page -> page }) { page ->
+        if (page == 0) phone() else server()
     }
 }
 

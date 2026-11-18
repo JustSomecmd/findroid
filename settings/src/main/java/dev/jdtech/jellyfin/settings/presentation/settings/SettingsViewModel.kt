@@ -398,6 +398,16 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                         }
                                                     },
                                                 ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.pref_player_accent_controls,
+                                                    descriptionStringRes =
+                                                        R.string
+                                                            .pref_player_accent_controls_summary,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference =
+                                                        appPreferences.playerAccentControls,
+                                                ),
                                                 PreferenceSelect(
                                                     nameStringResource =
                                                         R.string.pref_player_backend,

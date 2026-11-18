@@ -27,6 +27,8 @@
     <string name="pref_player_mpv_hwdec">Hardware decoding</string>
     <string name="pref_player_mpv_vo">Video output</string>
     <string name="pref_player_mpv_ao">Audio output</string>
+    <string name="pref_player_accent_controls">Accent colored controls</string>
+    <string name="pref_player_accent_controls_summary">A grey play button with the arrow in the accent color, and the other buttons in the accent color too</string>
     <string name="pref_player_trickplay">Trickplay</string>
     <string name="pref_player_trickplay_summary">Display preview images while scrubbing</string>
     <string name="pref_player_chapter_markers">Chapter markers</string>

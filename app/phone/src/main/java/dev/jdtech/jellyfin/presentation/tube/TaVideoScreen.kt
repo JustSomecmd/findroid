@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -119,9 +120,11 @@ fun TaVideoScreen(
         }
     }
 
-    var serverSide by rememberSaveable { mutableStateOf(false) }
+    // The video and its file and details on the server, to swipe between
+    val scope = rememberCoroutineScope()
+    val sides = rememberSidePagerState()
 
-    ServerSideTheme(onServer = serverSide) {
+    ServerSideTheme(pagerState = sides) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
@@ -138,8 +141,8 @@ fun TaVideoScreen(
                     actions = {
                         // The title is already shown on the page, so the switch stands alone
                         TaSideSwitch(
-                            onServer = serverSide,
-                            onToggle = { serverSide = !serverSide },
+                            onServer = sides.onServerSide,
+                            onToggle = { sides.switchSide(scope) },
                             localIcon = CoreR.drawable.ic_play,
                             localLabel = stringResource(CoreR.string.ta_side_video),
                         )
@@ -162,23 +165,29 @@ fun TaVideoScreen(
                                     .padding(MaterialTheme.spacings.default),
                         )
                     video == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                    serverSide ->
-                        TaVideoServerSide(
-                            video = video,
-                            offline = state.offline,
-                            onRefresh = { viewModel.refreshMetadata() },
-                        )
                     else ->
-                        TaVideoContent(
-                            video = video,
-                            state = state,
-                            downloaderState = downloaderState,
-                            onPlay = play,
-                            onToggleWatched = { viewModel.toggleWatched() },
-                            onToggleFavorite = { viewModel.toggleFavorite() },
-                            onDownloaderAction = { downloaderViewModel.onAction(it) },
-                            onVideoClick = onVideoClick,
-                            onChannelClick = onChannelClick,
+                        TaSidePager(
+                            state = sides,
+                            phone = {
+                                TaVideoContent(
+                                    video = video,
+                                    state = state,
+                                    downloaderState = downloaderState,
+                                    onPlay = play,
+                                    onToggleWatched = { viewModel.toggleWatched() },
+                                    onToggleFavorite = { viewModel.toggleFavorite() },
+                                    onDownloaderAction = { downloaderViewModel.onAction(it) },
+                                    onVideoClick = onVideoClick,
+                                    onChannelClick = onChannelClick,
+                                )
+                            },
+                            server = {
+                                TaVideoServerSide(
+                                    video = video,
+                                    offline = state.offline,
+                                    onRefresh = { viewModel.refreshMetadata() },
+                                )
+                            },
                         )
                 }
             }

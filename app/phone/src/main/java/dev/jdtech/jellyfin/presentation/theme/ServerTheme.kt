@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin.presentation.theme
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -21,20 +22,35 @@ import androidx.core.graphics.ColorUtils
  */
 @Composable
 fun ServerSideTheme(onServer: Boolean, content: @Composable () -> Unit) {
-    val base = MaterialTheme.colorScheme
-    val dark = base.background.luminance() < 0.5f
-    val server = remember(base, dark) { base.serverSide(dark) }
     val progress by
         animateFloatAsState(
             targetValue = if (onServer) 1f else 0f,
             animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
             label = "server colors",
         )
+    ServerSideColors(fraction = progress, content = content)
+}
+
+/**
+ * Follows a pager with the phone side as its first page and the server side as its second, so the
+ * colors move along with a swipe.
+ */
+@Composable
+fun ServerSideTheme(pagerState: PagerState, content: @Composable () -> Unit) {
+    val fraction = (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
+    ServerSideColors(fraction = fraction, content = content)
+}
+
+@Composable
+private fun ServerSideColors(fraction: Float, content: @Composable () -> Unit) {
+    val base = MaterialTheme.colorScheme
+    val dark = base.background.luminance() < 0.5f
+    val server = remember(base, dark) { base.serverSide(dark) }
     val scheme =
-        when (progress) {
+        when (fraction) {
             0f -> base
             1f -> server
-            else -> base.blendTo(server, progress)
+            else -> base.blendTo(server, fraction)
         }
     MaterialTheme(
         colorScheme = scheme,

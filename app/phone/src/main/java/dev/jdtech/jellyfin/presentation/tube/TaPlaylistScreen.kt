@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,11 +14,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,8 +35,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -62,7 +67,6 @@ fun TaPlaylistScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val videos by viewModel.videos.collectAsStateWithLifecycle()
     var descriptionExpanded by rememberSaveable { mutableStateOf(false) }
-    var serverSide by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
     ObserveAsEvents(viewModel.messages) { message ->
@@ -76,7 +80,11 @@ fun TaPlaylistScreen(
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
-    ServerSideTheme(onServer = serverSide) {
+    // The playlist and its settings on the server, to swipe between
+    val scope = rememberCoroutineScope()
+    val sides = rememberSidePagerState()
+
+    ServerSideTheme(pagerState = sides) {
         Scaffold(
             modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
             topBar = {
@@ -84,8 +92,8 @@ fun TaPlaylistScreen(
                     title = {
                         TaSideTitle(
                             title = playlist?.name.orEmpty(),
-                            onServer = serverSide,
-                            onToggle = { serverSide = !serverSide },
+                            onServer = sides.onServerSide,
+                            onToggle = { sides.switchSide(scope) },
                             localIcon = CoreR.drawable.ic_list_video,
                             localLabel = stringResource(CoreR.string.ta_side_playlist),
                         )
@@ -105,80 +113,104 @@ fun TaPlaylistScreen(
             },
             contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
         ) { innerPadding ->
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = TA_CARD_MIN_WIDTH),
-                state = gridState,
+            TaSidePager(
+                state = sides,
                 modifier = Modifier.padding(innerPadding).fillMaxSize(),
-                contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-            ) {
-                val current = playlist
-                if (serverSide && current != null) {
-                    item(span = { GridItemSpan(maxLineSpan) }, key = "server") {
-                        TaPlaylistServerSide(
-                            playlist = current,
-                            onSubscribedChange = viewModel::setSubscribed,
-                            onReversedChange = viewModel::setReversed,
-                            onRefresh = viewModel::refresh,
-                        )
-                    }
-                    return@LazyVerticalGrid
-                }
-                item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
-                    Column {
-                        error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
-                        playlist?.let { playlist ->
-                            playlist.channelName?.let { channelName ->
-                                Text(
-                                    text = channelName,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier =
-                                        Modifier.clickable(enabled = playlist.channelId != null) {
-                                            playlist.channelId?.let(onChannelClick)
-                                        },
-                                )
-                            }
-                            Text(
-                                text =
-                                    stringResource(
-                                        CoreR.string.ta_video_count,
-                                        playlist.entries.size,
-                                    ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            playlist.description
-                                ?.takeIf { it.isNotBlank() }
-                                ?.let { description ->
-                                    Text(
-                                        text = rememberLinkedText(description),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        maxLines = if (descriptionExpanded) Int.MAX_VALUE else 3,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier =
-                                            Modifier.padding(top = MaterialTheme.spacings.small)
-                                                .animateContentSize()
-                                                .clickable {
-                                                    descriptionExpanded = !descriptionExpanded
-                                                },
-                                    )
+                phone = {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = TA_CARD_MIN_WIDTH),
+                        state = gridState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+                    ) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+                            Column {
+                                error?.let {
+                                    Text(text = it, color = MaterialTheme.colorScheme.error)
                                 }
+                                playlist?.let { playlist ->
+                                    playlist.channelName?.let { channelName ->
+                                        Text(
+                                            text = channelName,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier =
+                                                Modifier.clickable(
+                                                    enabled = playlist.channelId != null
+                                                ) {
+                                                    playlist.channelId?.let(onChannelClick)
+                                                },
+                                        )
+                                    }
+                                    Text(
+                                        text =
+                                            stringResource(
+                                                CoreR.string.ta_video_count,
+                                                playlist.entries.size,
+                                            ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    playlist.description
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let { description ->
+                                            Text(
+                                                text = rememberLinkedText(description),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                maxLines =
+                                                    if (descriptionExpanded) Int.MAX_VALUE else 3,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier =
+                                                    Modifier.padding(
+                                                            top = MaterialTheme.spacings.small
+                                                        )
+                                                        .animateContentSize()
+                                                        .clickable {
+                                                            descriptionExpanded =
+                                                                !descriptionExpanded
+                                                        },
+                                            )
+                                        }
+                                }
+                            }
+                        }
+                        items(videos.items, key = { it.youtubeId }) { video ->
+                            TaVideoCard(video = video, onClick = { onVideoClick(video.youtubeId) })
+                        }
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
+                            TaListFooter(
+                                state = videos,
+                                onRetry = { viewModel.loadMore() },
+                                emptyText = stringResource(CoreR.string.ta_no_videos),
+                            )
                         }
                     }
-                }
-                items(videos.items, key = { it.youtubeId }) { video ->
-                    TaVideoCard(video = video, onClick = { onVideoClick(video.youtubeId) })
-                }
-                item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
-                    TaListFooter(
-                        state = videos,
-                        onRetry = { viewModel.loadMore() },
-                        emptyText = stringResource(CoreR.string.ta_no_videos),
-                    )
-                }
-            }
+                },
+                server = {
+                    val current = playlist
+                    if (current == null) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+                        ) {
+                            item(key = "server") {
+                                TaPlaylistServerSide(
+                                    playlist = current,
+                                    onSubscribedChange = viewModel::setSubscribed,
+                                    onReversedChange = viewModel::setReversed,
+                                    onRefresh = viewModel::refresh,
+                                )
+                            }
+                        }
+                    }
+                },
+            )
         }
     }
 }

@@ -51,6 +51,7 @@ import dev.jdtech.jellyfin.presentation.film.components.ReorderableDownloadQueue
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.TaSideTitle
+import dev.jdtech.jellyfin.presentation.tube.alwaysShownTopAppBarColors
 import dev.jdtech.jellyfin.utils.DownloadStatus
 import java.util.UUID
 
@@ -114,6 +115,7 @@ private fun DownloadsScreenLayout(
                 },
                 windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
                 scrollBehavior = scrollBehavior,
+                colors = alwaysShownTopAppBarColors(),
             )
         },
         contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),

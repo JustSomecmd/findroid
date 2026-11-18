@@ -166,6 +166,7 @@ fun TaQueueScreen(
                 },
                 windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
                 scrollBehavior = scrollBehavior,
+                colors = alwaysShownTopAppBarColors(),
             )
         },
         contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),

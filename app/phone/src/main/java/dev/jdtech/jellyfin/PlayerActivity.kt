@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Rect
@@ -34,7 +35,10 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.viewModels
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
+import androidx.core.view.children
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -53,6 +57,7 @@ import dev.jdtech.jellyfin.presentation.player.ChapterSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.QualitySelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.SpeedSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.TrackSelectionDialogFragment
+import dev.jdtech.jellyfin.presentation.theme.darkAppColorScheme
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.PlayerButton
 import dev.jdtech.jellyfin.settings.domain.PlayerButtonLayout
@@ -191,6 +196,7 @@ class PlayerActivity : BasePlayerActivity() {
                 PlayerButton.ROTATE to rotateButton,
             )
         )
+        applyAccentControls()
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -652,6 +658,45 @@ class PlayerActivity : BasePlayerActivity() {
         return builder.build()
     }
 
+    /**
+     * Gives the buttons the app's accent color, with a grey play button whose arrow takes the
+     * accent, when that's turned on in the player settings. The progress bar follows the accent
+     * too.
+     */
+    private fun applyAccentControls() {
+        if (!appPreferences.getValue(appPreferences.playerAccentControls)) return
+        val scheme =
+            darkAppColorScheme(
+                context = this,
+                dynamicColor = appPreferences.getValue(appPreferences.dynamicColors),
+                accent = appPreferences.getValue(appPreferences.accentColor),
+            )
+        val accent = scheme.primary.toArgb()
+        val icons =
+            ColorStateList(
+                arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+                intArrayOf(ColorUtils.setAlphaComponent(accent, DISABLED_ICON_ALPHA), accent),
+            )
+        listOf(R.id.player_controls, R.id.locked_player_view).forEach { id ->
+            binding.playerView.findViewById<ViewGroup>(id)?.let { tintImageButtons(it, icons) }
+        }
+        binding.playerView.findViewById<ImageButton>(R.id.exo_play_pause)?.backgroundTintList =
+            ColorStateList.valueOf(scheme.surfaceContainerHighest.toArgb())
+        binding.playerView.findViewById<DefaultTimeBar>(R.id.exo_progress)?.apply {
+            setPlayedColor(accent)
+            setScrubberColor(accent)
+        }
+    }
+
+    private fun tintImageButtons(group: ViewGroup, tint: ColorStateList) {
+        for (child in group.children) {
+            when (child) {
+                is ImageButton -> child.imageTintList = tint
+                is ViewGroup -> tintImageButtons(child, tint)
+            }
+        }
+    }
+
     private fun pipActions(isPlaying: Boolean): List<RemoteAction> {
         val playPause =
             if (isPlaying) {
@@ -768,3 +813,6 @@ private const val PIP_CONTROL_PAUSE = 2
 private const val PIP_CONTROL_BACKGROUND = 3
 private const val CONTROLS_FADE_IN_MS = 150L
 private const val CONTROLS_FADE_OUT_MS = 250L
+
+// About 38%, as Material uses for disabled icons
+private const val DISABLED_ICON_ALPHA = 97

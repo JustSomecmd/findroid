@@ -101,6 +101,8 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
         get() = Preference("pref_player_media_segments_next_episode_threshold", 5_000L)
 
     // Player - trickplay
+    /** Gives the player's buttons the accent color, with a grey play button. */
+    val playerAccentControls = Preference("pref_player_accent_controls", true)
     val playerTrickplay = Preference("pref_player_trickplay", true)
 
     // Player - PiP

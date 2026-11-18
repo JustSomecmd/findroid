@@ -1,6 +1,9 @@
 package dev.jdtech.jellyfin.presentation.theme
 
+import android.content.Context
+import android.os.Build
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.ColorUtils
@@ -64,4 +67,15 @@ fun ColorScheme.withAccent(accent: String, dark: Boolean): ColorScheme {
             surfaceTint = tone(0.36f),
         )
     }
+}
+
+/** The app's dark colors for screens drawn without Compose, such as the player's controls. */
+fun darkAppColorScheme(context: Context, dynamicColor: Boolean, accent: String): ColorScheme {
+    val base =
+        if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            dynamicDarkColorScheme(context)
+        } else {
+            darkScheme
+        }
+    return base.withAccent(accent, dark = true)
 }

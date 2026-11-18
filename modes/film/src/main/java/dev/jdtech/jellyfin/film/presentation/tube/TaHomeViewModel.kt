@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaApi
+import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
@@ -37,6 +38,10 @@ constructor(
     private val _latest = MutableStateFlow(TaListState<TaVideo>())
     val latest = _latest.asStateFlow()
 
+    private val _featured = MutableStateFlow<List<TaChannel>>(emptyList())
+    /** A few channels picked at random for the carousel at the top. */
+    val featured = _featured.asStateFlow()
+
     private var lastLoad = 0L
 
     /** Loads the page the first time, and refreshes it when coming back after a while. */
@@ -49,6 +54,7 @@ constructor(
             lastLoad = now
             loadMore()
             loadContinueWatching()
+            loadFeatured()
         } else if (now - lastLoad > STALE_AFTER_MS) {
             refresh()
         } else {
@@ -62,6 +68,34 @@ constructor(
         _latest.value = TaListState()
         loadMore()
         loadContinueWatching()
+        loadFeatured()
+    }
+
+    /**
+     * Picks channels at random for the carousel. TubeArchivist can't sort at random, so this takes
+     * the channels of the first page and of one other page, and shuffles them.
+     */
+    private fun loadFeatured() {
+        viewModelScope.launch {
+            try {
+                val first = taApi.getChannels(page = 1)
+                val lastPage = first.paginate?.lastPage ?: 1
+                val other =
+                    if (lastPage > 1) taApi.getChannels(page = (2..lastPage).random()).data
+                    else emptyList()
+                _featured.value =
+                    (first.data + other)
+                        .distinctBy { it.id }
+                        .filter { it.tvArtUrl != null || it.bannerUrl != null }
+                        .shuffled()
+                        .take(FEATURED_COUNT)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The carousel is left out when TubeArchivist can't be reached
+                Timber.w(e, "Couldn't load channels for the carousel")
+            }
+        }
     }
 
     fun loadMore() {
@@ -127,6 +161,7 @@ constructor(
 
     companion object {
         private const val STALE_AFTER_MS = 60_000L
+        private const val FEATURED_COUNT = 8
     }
 }
 

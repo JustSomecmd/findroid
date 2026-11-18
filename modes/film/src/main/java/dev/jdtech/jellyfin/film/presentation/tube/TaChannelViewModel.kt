@@ -108,8 +108,11 @@ class TaChannelViewModel @Inject constructor(private val taApi: TaApi) : ViewMod
         loadMore()
     }
 
-    fun toggleServerSide() {
-        val serverSide = !_state.value.serverSide
+    /**
+     * Notes which side of the channel is shown, loading the global settings for the server side.
+     */
+    fun setServerSide(serverSide: Boolean) {
+        if (_state.value.serverSide == serverSide) return
         _state.update { it.copy(serverSide = serverSide) }
         if (serverSide) loadGlobalConfig()
     }

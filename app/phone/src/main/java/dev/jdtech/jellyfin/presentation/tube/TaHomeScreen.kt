@@ -58,6 +58,7 @@ import dev.jdtech.jellyfin.presentation.theme.spacings
 @Composable
 fun TaHomeScreen(
     onVideoClick: (videoId: String) -> Unit,
+    onChannelClick: (channelId: String) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onManageServers: () -> Unit,
@@ -69,6 +70,7 @@ fun TaHomeScreen(
     var showJellyfinServers by rememberSaveable { mutableStateOf(false) }
     val continueWatching by viewModel.continueWatching.collectAsStateWithLifecycle()
     val latest by viewModel.latest.collectAsStateWithLifecycle()
+    val featured by viewModel.featured.collectAsStateWithLifecycle()
 
     LifecycleResumeEffect(Unit) {
         viewModel.onShown()
@@ -125,6 +127,15 @@ fun TaHomeScreen(
             ) {
                 // Keeps the page at the top when continue watching loads after the rest
                 item(span = { GridItemSpan(maxLineSpan) }, key = "top") { Spacer(Modifier) }
+                if (featured.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "featured") {
+                        TaChannelCarousel(
+                            channels = featured,
+                            onChannelClick = onChannelClick,
+                            modifier = Modifier.padding(bottom = MaterialTheme.spacings.small),
+                        )
+                    }
+                }
                 if (continueWatching.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
                         Column {
