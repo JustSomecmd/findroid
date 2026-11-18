@@ -339,9 +339,7 @@ private fun TaQueueItem(
     var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier =
-            modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable {
-                menuOpen = true
-            },
+            modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable { menuOpen = true },
         verticalAlignment = Alignment.Top,
     ) {
         Box(modifier = Modifier.width(144.dp).aspectRatio(16f / 9f)) {

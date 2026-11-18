@@ -105,9 +105,7 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
 
     /** Downloads this one before everything else. */
     fun downloadNow(item: TaDownloadItem) =
-        updateItem(item) {
-            taApi.setDownloadStatus(item.youtubeId, "priority")
-        }
+        updateItem(item) { taApi.setDownloadStatus(item.youtubeId, "priority") }
 
     fun ignore(item: TaDownloadItem) =
         updateItem(item, removeFromList = true) {
@@ -121,9 +119,7 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
         }
 
     fun remove(item: TaDownloadItem) =
-        updateItem(item, removeFromList = true) {
-            taApi.deleteDownload(item.youtubeId)
-        }
+        updateItem(item, removeFromList = true) { taApi.deleteDownload(item.youtubeId) }
 
     /** Removes everything in the current list from the queue. */
     fun clearAll() {

@@ -284,9 +284,7 @@ class TaApi(private val appPreferences: AppPreferences) {
         val body =
             post(
                 "api/appsettings/config/",
-                buildJsonObject {
-                    put(section, buildJsonObject { put(key, value) })
-                },
+                buildJsonObject { put(section, buildJsonObject { put(key, value) }) },
             )
         return json.parseToJsonElement(body) as JsonObject
     }

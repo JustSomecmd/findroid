@@ -58,9 +58,7 @@ fun TaSearchScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) {
-        if (state.query.isEmpty()) focusRequester.requestFocus()
-    }
+    LaunchedEffect(Unit) { if (state.query.isEmpty()) focusRequester.requestFocus() }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),

@@ -97,9 +97,7 @@ fun TaPlaylistScreen(
         ) {
             item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
                 Column {
-                    error?.let {
-                        Text(text = it, color = MaterialTheme.colorScheme.error)
-                    }
+                    error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
                     playlist?.let { playlist ->
                         playlist.channelName?.let { channelName ->
                             Text(
