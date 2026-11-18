@@ -104,9 +104,15 @@ fun TaVideoScreen(
             intent.putExtra("itemId", episode.id.toString())
             intent.putExtra("itemKind", BaseItemKind.EPISODE.serialName)
             intent.putExtra("startFromBeginning", startFromBeginning)
-            // Resume where TubeArchivist says, which may be newer than Jellyfin
+            // Resume where TubeArchivist says, which may be newer than Jellyfin. A saved copy's
+            // position is from when it was downloaded, so then the phone's own position is used.
             val position = state.video?.player?.position
-            if (!startFromBeginning && position != null && state.video?.player?.watched != true) {
+            if (
+                !startFromBeginning &&
+                    !state.offline &&
+                    position != null &&
+                    state.video?.player?.watched != true
+            ) {
                 intent.putExtra("position", (position * 1000).toLong())
             }
             context.startActivity(intent)

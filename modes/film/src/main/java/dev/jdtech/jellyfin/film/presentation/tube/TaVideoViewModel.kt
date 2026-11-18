@@ -62,6 +62,8 @@ constructor(
             if (appPreferences.getValue(appPreferences.offlineMode) && loadSaved(videoId)) {
                 return@launch
             }
+            // Progress made offline goes first, so the position below is the newest
+            taOfflineStore.flushPendingProgress()
             val video =
                 try {
                     taApi.getVideo(videoId)

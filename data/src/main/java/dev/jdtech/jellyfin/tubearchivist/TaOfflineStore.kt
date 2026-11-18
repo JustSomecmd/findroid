@@ -101,8 +101,17 @@ class TaOfflineStore(
      * this existed. Does nothing when TubeArchivist can't be reached.
      */
     suspend fun sync() {
-        if (!taApi.isConfigured) return
-        flushLock.withLock {
+        if (!flushPendingProgress()) return
+        saveEarlierDownloads()
+    }
+
+    /**
+     * Sends progress that was kept while offline, so TubeArchivist has the newest position. Returns
+     * false when TubeArchivist can't be reached.
+     */
+    suspend fun flushPendingProgress(): Boolean {
+        if (!taApi.isConfigured) return false
+        return flushLock.withLock {
             withContext(Dispatchers.IO) {
                 val pending =
                     prefs.all
@@ -123,27 +132,32 @@ class TaOfflineStore(
                         if (e.code == 404) clearPendingProgress(videoId)
                     } catch (e: IOException) {
                         Timber.w(e, "TubeArchivist can't be reached, sending progress later")
-                        return@withContext
+                        return@withContext false
                     }
                 }
+                true
+            }
+        }
+    }
 
-                val unknown =
-                    database
-                        .getEpisodes()
-                        .filter { !prefs.contains(itemKey(it.id)) }
-                        .take(BACKFILL_LIMIT)
-                for (episode in unknown) {
-                    try {
-                        saveForDownload(episode.id)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: TaApiException) {
-                        // Not in TubeArchivist (any more), so not looked up again
-                        prefs.edit().putString(itemKey(episode.id), "").apply()
-                    } catch (e: Exception) {
-                        Timber.w(e, "Could not save TubeArchivist details of a download")
-                        return@withContext
-                    }
+    private suspend fun saveEarlierDownloads() {
+        withContext(Dispatchers.IO) {
+            val unknown =
+                database
+                    .getEpisodes()
+                    .filter { !prefs.contains(itemKey(it.id)) }
+                    .take(BACKFILL_LIMIT)
+            for (episode in unknown) {
+                try {
+                    saveForDownload(episode.id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: TaApiException) {
+                    // Not in TubeArchivist (any more), so not looked up again
+                    prefs.edit().putString(itemKey(episode.id), "").apply()
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not save TubeArchivist details of a download")
+                    return@withContext
                 }
             }
         }
