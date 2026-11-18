@@ -60,6 +60,7 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderAction
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderEvent
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderViewModel
+import dev.jdtech.jellyfin.film.presentation.tube.TaVideoAction
 import dev.jdtech.jellyfin.film.presentation.tube.TaVideoViewModel
 import dev.jdtech.jellyfin.presentation.film.components.ItemButtonsBar
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
@@ -124,6 +125,11 @@ fun TaVideoScreen(
     val scope = rememberCoroutineScope()
     val sides = rememberSidePagerState()
 
+    // An action on the server waiting to be confirmed
+    var confirming by rememberSaveable { mutableStateOf<TaVideoAction?>(null) }
+    // A deleted video has no page left to show
+    ObserveAsEvents(viewModel.deleted) { navigateBack() }
+
     ServerSideTheme(pagerState = sides) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -185,13 +191,25 @@ fun TaVideoScreen(
                                 TaVideoServerSide(
                                     video = video,
                                     offline = state.offline,
-                                    onRefresh = { viewModel.refreshMetadata() },
+                                    onAction = { confirming = it },
                                 )
                             },
                         )
                 }
             }
         }
+    }
+
+    confirming?.let { action ->
+        TaVideoActionDialog(
+            action = action,
+            count = 1,
+            onConfirm = { ignore ->
+                confirming = null
+                viewModel.runAction(action, ignore)
+            },
+            onDismiss = { confirming = null },
+        )
     }
 }
 
@@ -544,7 +562,11 @@ private const val TICKS_PER_SECOND = 10_000_000.0
 
 /** The video's side on the server: its file, streams, subtitles and other details. */
 @Composable
-private fun TaVideoServerSide(video: TaVideo, offline: Boolean, onRefresh: () -> Unit) {
+private fun TaVideoServerSide(
+    video: TaVideo,
+    offline: Boolean,
+    onAction: (TaVideoAction) -> Unit,
+) {
     val context = LocalContext.current
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -681,14 +703,15 @@ private fun TaVideoServerSide(video: TaVideo, offline: Boolean, onRefresh: () ->
             }
         }
         item(key = "actions") {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-                modifier = Modifier.padding(top = MaterialTheme.spacings.medium),
-            ) {
-                OutlinedButton(onClick = onRefresh, enabled = !offline) {
-                    Text(stringResource(CoreR.string.ta_refresh))
-                }
+            Column {
+                TaSectionHeading(stringResource(CoreR.string.ta_info_actions))
+                TaVideoActionButtons(
+                    onAction = onAction,
+                    enabled = !offline,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 OutlinedButton(
+                    modifier = Modifier.padding(top = MaterialTheme.spacings.small),
                     onClick = {
                         val url = "https://www.youtube.com/watch?v=${video.youtubeId}"
                         try {
@@ -696,7 +719,7 @@ private fun TaVideoServerSide(video: TaVideo, offline: Boolean, onRefresh: () ->
                         } catch (_: android.content.ActivityNotFoundException) {
                             Toast.makeText(context, url, Toast.LENGTH_LONG).show()
                         }
-                    }
+                    },
                 ) {
                     Text(stringResource(CoreR.string.ta_open_on_youtube))
                 }

@@ -58,6 +58,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.Dp
@@ -446,6 +447,8 @@ fun taMessageText(context: Context, message: String): String =
         TaMessages.PLAYLIST_SUBSCRIBE_STARTED ->
             context.getString(CoreR.string.ta_playlist_subscribe_started)
         TaMessages.ADDED_TO_QUEUE -> context.getString(CoreR.string.ta_added_to_queue)
+        TaMessages.REDOWNLOAD_STARTED -> context.getString(CoreR.string.ta_redownload_started)
+        TaMessages.DELETED -> context.getString(CoreR.string.ta_deleted)
         TaMessages.TASK_STARTED -> context.getString(CoreR.string.ta_task_started)
         TaMessages.SAVED -> context.getString(CoreR.string.ta_saved)
         TaMessages.REFRESH_STARTED -> context.getString(CoreR.string.ta_refresh_started)
@@ -631,6 +634,7 @@ fun TaInfoHeading(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.primary,
         modifier = modifier.padding(top = MaterialTheme.spacings.medium, bottom = 4.dp),
     )

@@ -20,7 +20,6 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -76,20 +75,17 @@ import dev.jdtech.jellyfin.presentation.setup.permission.PermissionScreen
 import dev.jdtech.jellyfin.presentation.setup.servers.ServersScreen
 import dev.jdtech.jellyfin.presentation.setup.users.UsersScreen
 import dev.jdtech.jellyfin.presentation.setup.welcome.WelcomeScreen
-import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.tube.LocalTaBaseUrl
 import dev.jdtech.jellyfin.presentation.tube.LocalTubeArchivistMode
 import dev.jdtech.jellyfin.presentation.tube.TaChannelScreen
 import dev.jdtech.jellyfin.presentation.tube.TaChannelsScreen
+import dev.jdtech.jellyfin.presentation.tube.TaDownloadsScreen
 import dev.jdtech.jellyfin.presentation.tube.TaHomeScreen
 import dev.jdtech.jellyfin.presentation.tube.TaPlaylistScreen
 import dev.jdtech.jellyfin.presentation.tube.TaQueueScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSearchScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSettingsScreen
-import dev.jdtech.jellyfin.presentation.tube.TaSidePager
 import dev.jdtech.jellyfin.presentation.tube.TaVideoScreen
-import dev.jdtech.jellyfin.presentation.tube.rememberSidePagerState
-import dev.jdtech.jellyfin.presentation.tube.switchSide
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionAction
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionViewModel
@@ -526,24 +522,11 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         )
     }
     entry<DownloadsRoute> {
+        val onItemClick = resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) }
         // With TubeArchivist, the downloads on this phone and the download queue on the server are
         // two sides to swipe between, or to switch with the title
-        val onItemClick = resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) }
         if (LocalTubeArchivistMode.current) {
-            val scope = rememberCoroutineScope()
-            val sides = rememberSidePagerState()
-            ServerSideTheme(pagerState = sides) {
-                TaSidePager(
-                    state = sides,
-                    phone = {
-                        DownloadsScreen(
-                            onItemClick = onItemClick,
-                            onSwitchSide = { sides.switchSide(scope) },
-                        )
-                    },
-                    server = { TaQueueScreen(onSwitchSide = { sides.switchSide(scope) }) },
-                )
-            }
+            TaDownloadsScreen(onItemClick = onItemClick)
         } else {
             DownloadsScreen(onItemClick = onItemClick)
         }

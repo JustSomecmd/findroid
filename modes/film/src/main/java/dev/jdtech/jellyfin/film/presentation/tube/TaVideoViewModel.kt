@@ -121,12 +121,20 @@ constructor(
     }
 
     /** Asks TubeArchivist to look the video up on YouTube again. */
-    fun refreshMetadata() {
+    /** Tells the page the video was deleted, so it can close. */
+    private val _deleted = Channel<Unit>(Channel.CONFLATED)
+    val deleted = _deleted.receiveAsFlow()
+
+    /**
+     * Reindexes, downloads again or deletes the video on the server. With [ignore], a deleted video
+     * isn't downloaded again.
+     */
+    fun runAction(action: TaVideoAction, ignore: Boolean = false) {
         val videoId = videoId ?: return
         viewModelScope.launch {
             try {
-                taApi.refresh("video", videoId)
-                _messages.send(TaMessages.REFRESH_STARTED)
+                _messages.send(taApi.runVideoAction(action, listOf(videoId), ignore))
+                if (action == TaVideoAction.DELETE) _deleted.send(Unit)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

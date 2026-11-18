@@ -65,6 +65,18 @@ class TaChannelViewModel @Inject constructor(private val taApi: TaApi) : ViewMod
     private val _globalConfig = MutableStateFlow<JsonObject?>(null)
     val globalConfig = _globalConfig.asStateFlow()
 
+    /** All the channel's videos on the server side, newest first, to pick some to act on. */
+    private val _serverVideos = MutableStateFlow(TaListState<TaVideo>())
+    val serverVideos = _serverVideos.asStateFlow()
+
+    /** IDs of the videos picked on the server side. */
+    private val _selected = MutableStateFlow<Set<String>>(emptySet())
+    val selected = _selected.asStateFlow()
+
+    /** True while an action on the picked videos is being sent. */
+    private val _working = MutableStateFlow(false)
+    val working = _working.asStateFlow()
+
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages = _messages.receiveAsFlow()
 
@@ -197,6 +209,63 @@ class TaChannelViewModel @Inject constructor(private val taApi: TaApi) : ViewMod
             } catch (e: Exception) {
                 _state.update { it.copy(channel = channel) }
                 _messages.send(e.errorText())
+            }
+        }
+    }
+
+    fun loadMoreServerVideos() {
+        val channelId = channelId ?: return
+        viewModelScope.launch {
+            _serverVideos.loadNextPage(key = { it.youtubeId }) { page ->
+                taApi.getVideos(
+                    page = page,
+                    channel = channelId,
+                    sort = "published",
+                    order = "desc",
+                )
+            }
+        }
+    }
+
+    fun toggleSelected(videoId: String) {
+        _selected.update { if (videoId in it) it - videoId else it + videoId }
+    }
+
+    /** Picks every video loaded so far, or none if they all are picked already. */
+    fun toggleSelectAll() {
+        val loaded = _serverVideos.value.items.map { it.youtubeId }.toSet()
+        _selected.update { if (it.containsAll(loaded)) emptySet() else loaded }
+    }
+
+    fun clearSelection() {
+        _selected.value = emptySet()
+    }
+
+    /**
+     * Reindexes, downloads again or deletes the picked videos. With [ignore], deleted videos are
+     * not downloaded again.
+     */
+    fun runOnSelected(action: TaVideoAction, ignore: Boolean = false) {
+        val ids = _selected.value
+        if (ids.isEmpty() || _working.value) return
+        _working.value = true
+        viewModelScope.launch {
+            try {
+                _messages.send(taApi.runVideoAction(action, ids, ignore))
+                _selected.value = emptySet()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            } finally {
+                _working.value = false
+                if (action == TaVideoAction.DELETE) {
+                    // What's gone leaves both lists, including any deleted before an error
+                    _serverVideos.value = TaListState()
+                    loadMoreServerVideos()
+                    _videos.value = TaListState()
+                    if (_state.value.tab != TaChannelTab.PLAYLISTS) loadMore()
+                }
             }
         }
     }

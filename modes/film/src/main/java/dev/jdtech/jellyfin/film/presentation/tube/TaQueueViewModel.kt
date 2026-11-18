@@ -62,7 +62,7 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
     fun selectFilter(filter: TaQueueFilter) {
         if (filter == _filter.value) return
         _filter.value = filter
-        refresh()
+        reset()
     }
 
     /** Switches between the queue and the videos that were set aside. */
@@ -81,9 +81,28 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
         }
     }
 
-    fun refresh() {
+    /** Starts the list over, for a different list. */
+    private fun reset() {
         _items.value = TaListState()
         loadMore()
+    }
+
+    /**
+     * Brings the list up to date in place, so videos that finished or were added slide out or in
+     * instead of the whole list loading again.
+     */
+    fun refresh() {
+        if (_items.value.page == 0) {
+            loadMore()
+            return
+        }
+        val filter = _filter.value
+        viewModelScope.launch {
+            _items.reloadInPlace(key = { it.youtubeId }, isCurrent = { _filter.value == filter }) {
+                page ->
+                taApi.getDownloads(page = page, filter = filter.apiValue)
+            }
+        }
     }
 
     /** Follows the server's tasks while the queue is on screen. */

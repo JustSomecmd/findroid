@@ -99,4 +99,6 @@ object TaMessages {
     const val TASK_STARTED = "ta:task_started"
     const val SAVED = "ta:saved"
     const val REFRESH_STARTED = "ta:refresh_started"
+    const val REDOWNLOAD_STARTED = "ta:redownload_started"
+    const val DELETED = "ta:deleted"
 }

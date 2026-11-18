@@ -79,8 +79,11 @@ import dev.jdtech.jellyfin.utils.ObserveAsEvents
 @Composable
 fun TaQueueScreen(
     viewModel: TaQueueViewModel = hiltViewModel(),
-    /** Switches to the downloads on this phone; the switch isn't shown without it. */
-    onSwitchSide: (() -> Unit)? = null,
+    /**
+     * Shown inside a page that has the top bar, next to the downloads on this phone, so this leaves
+     * out its own bar and the space for the status bar. The bar shows [TaQueueActions] instead.
+     */
+    embedded: Boolean = false,
 ) {
     val context = LocalContext.current
     val filter by viewModel.filter.collectAsStateWithLifecycle()
@@ -90,8 +93,6 @@ fun TaQueueScreen(
     val showIgnored = filter == TaQueueFilter.IGNORED
 
     var adding by rememberSaveable { mutableStateOf(false) }
-    var showClearDialog by rememberSaveable { mutableStateOf(false) }
-    var menuOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.loadMore() }
 
@@ -110,66 +111,27 @@ fun TaQueueScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     Scaffold(
+        // Insets worked out from where this is on screen would change while it slides in a pager
         modifier =
-            Modifier.fillMaxSize()
-                .recalculateWindowInsets()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            if (embedded) Modifier.fillMaxSize()
+            else
+                Modifier.fillMaxSize()
+                    .recalculateWindowInsets()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = {
-                    if (onSwitchSide != null) {
-                        TaSideTitle(
-                            title = stringResource(CoreR.string.title_download),
-                            onServer = true,
-                            onToggle = onSwitchSide,
-                        )
-                    } else {
-                        Text(stringResource(CoreR.string.ta_queue))
-                    }
-                },
-                actions = {
-                    TaOpenInWebButton(path = "/downloads/")
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(
-                                painter = painterResource(CoreR.drawable.ic_more_vertical),
-                                contentDescription = null,
-                            )
-                        }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(CoreR.string.ta_show_ignored)) },
-                                trailingIcon = {
-                                    Checkbox(checked = showIgnored, onCheckedChange = null)
-                                },
-                                onClick = {
-                                    menuOpen = false
-                                    viewModel.toggleIgnored()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        stringResource(
-                                            if (showIgnored) CoreR.string.ta_clear_ignored
-                                            else CoreR.string.ta_clear_pending
-                                        )
-                                    )
-                                },
-                                onClick = {
-                                    menuOpen = false
-                                    showClearDialog = true
-                                },
-                            )
-                        }
-                    }
-                },
-                windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-                scrollBehavior = scrollBehavior,
-                colors = alwaysShownTopAppBarColors(),
-            )
+            if (!embedded) {
+                TopAppBar(
+                    title = { Text(stringResource(CoreR.string.ta_queue)) },
+                    actions = { TaQueueActions(viewModel) },
+                    windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+                    scrollBehavior = scrollBehavior,
+                    colors = alwaysShownTopAppBarColors(),
+                )
+            }
         },
-        contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+        contentWindowInsets =
+            if (embedded) WindowInsets(0, 0, 0, 0)
+            else WindowInsets.statusBars.union(WindowInsets.displayCutout),
     ) { innerPadding ->
         PullToRefreshBox(
             isRefreshing = false,
@@ -231,10 +193,13 @@ fun TaQueueScreen(
                         TaDownloadingCard(
                             download = download,
                             onStop = { viewModel.stopDownloading() },
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
-                items(tasks, key = { "task" + it.id }) { task -> TaTaskCard(task) }
+                items(tasks, key = { "task" + it.id }) { task ->
+                    TaTaskCard(task, modifier = Modifier.animateItem())
+                }
                 item(key = "count") {
                     val total = items.total
                     Text(
@@ -272,6 +237,52 @@ fun TaQueueScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The queue's buttons for the top bar: its web page, and a menu to show the ignored videos or clear
+ * the list.
+ */
+@Composable
+fun TaQueueActions(viewModel: TaQueueViewModel = hiltViewModel()) {
+    val filter by viewModel.filter.collectAsStateWithLifecycle()
+    val showIgnored = filter == TaQueueFilter.IGNORED
+    var showClearDialog by rememberSaveable { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+
+    TaOpenInWebButton(path = "/downloads/")
+    Box {
+        IconButton(onClick = { menuOpen = true }) {
+            Icon(
+                painter = painterResource(CoreR.drawable.ic_more_vertical),
+                contentDescription = null,
+            )
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(CoreR.string.ta_show_ignored)) },
+                trailingIcon = { Checkbox(checked = showIgnored, onCheckedChange = null) },
+                onClick = {
+                    menuOpen = false
+                    viewModel.toggleIgnored()
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        stringResource(
+                            if (showIgnored) CoreR.string.ta_clear_ignored
+                            else CoreR.string.ta_clear_pending
+                        )
+                    )
+                },
+                onClick = {
+                    menuOpen = false
+                    showClearDialog = true
+                },
+            )
         }
     }
 
@@ -410,9 +421,13 @@ private fun TaSwitchRow(label: String, checked: Boolean, onCheckedChange: (Boole
 
 /** The video TubeArchivist is downloading, with its progress. */
 @Composable
-private fun TaDownloadingCard(download: TaDownloading, onStop: () -> Unit) {
+private fun TaDownloadingCard(
+    download: TaDownloading,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         colors =
             CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -477,8 +492,8 @@ private fun TaDownloadingCard(download: TaDownloading, onStop: () -> Unit) {
 }
 
 @Composable
-private fun TaTaskCard(task: TaNotification) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+private fun TaTaskCard(task: TaNotification, modifier: Modifier = Modifier) {
+    Card(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(MaterialTheme.spacings.medium)) {
             Text(
                 text = task.title,

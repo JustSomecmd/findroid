@@ -16,4 +16,20 @@
         <item quantity="one">%1$d new episode or movie</item>
         <item quantity="other">%1$d new episodes and movies</item>
     </plurals>
+    <plurals name="ta_confirm_reindex">
+        <item quantity="one">Reindex this video?</item>
+        <item quantity="other">Reindex %d videos?</item>
+    </plurals>
+    <plurals name="ta_confirm_redownload">
+        <item quantity="one">Download this video again?</item>
+        <item quantity="other">Download %d videos again?</item>
+    </plurals>
+    <plurals name="ta_confirm_delete">
+        <item quantity="one">Delete this video?</item>
+        <item quantity="other">Delete %d videos?</item>
+    </plurals>
+    <plurals name="ta_selected_count">
+        <item quantity="one">%d selected</item>
+        <item quantity="other">%d selected</item>
+    </plurals>
 </resources>

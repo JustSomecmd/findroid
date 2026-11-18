@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name" translatable="false">Findroid</string>
+    <string name="app_name" translatable="false">Tubedroid</string>
     <string name="app_description">Third-party native Jellyfin app</string>
     <string name="jellyfin_banner">Jellyfin banner</string>
     <string name="remove">Remove</string>
@@ -333,9 +333,24 @@
     <string name="ta_info_available">Available</string>
     <string name="ta_info_removed">Removed</string>
     <string name="ta_info_last_refreshed">Last refreshed</string>
-    <string name="ta_refresh">Refresh</string>
-    <string name="ta_refresh_with_videos">Refresh with videos</string>
-    <string name="ta_refresh_started">TubeArchivist is refreshing it</string>
+    <string name="ta_refresh">Reindex</string>
+    <string name="ta_refresh_with_videos">Reindex with videos</string>
+    <string name="ta_refresh_started">Queued for reindexing on TubeArchivist</string>
+    <string name="ta_action_reindex">Reindex</string>
+    <string name="ta_action_redownload">Redownload</string>
+    <string name="ta_action_delete">Delete</string>
+    <string name="ta_confirm_reindex_text">TubeArchivist looks up the title, description, counts, subtitles, thumbnail and comments on YouTube again. The file stays as it is.</string>
+    <string name="ta_confirm_redownload_text">This goes to the top of the download queue and downloads right away, with the current format settings. The new file replaces the one on the server.</string>
+    <string name="ta_confirm_delete_text">The file and everything TubeArchivist saved about it are removed from the server. This can\'t be undone. Jellyfin drops it at its next library scan.</string>
+    <string name="ta_delete_ignore">Don\'t download again</string>
+    <string name="ta_delete_ignore_summary">Puts it on the ignore list, so a rescan doesn\'t add it back</string>
+    <string name="ta_redownload_started">Added to the top of the download queue</string>
+    <string name="ta_deleted">Deleted from the server</string>
+    <string name="ta_info_actions">Actions</string>
+    <string name="ta_channel_videos">Videos on the server</string>
+    <string name="ta_channel_videos_hint">Tap videos to select them, then reindex, redownload or delete them.</string>
+    <string name="ta_select_all">Select all</string>
+    <string name="ta_select_none">Select none</string>
     <string name="ta_channel_settings">Channel settings</string>
     <string name="ta_info_type">Type</string>
     <string name="ta_info_custom_playlist">Your own playlist</string>

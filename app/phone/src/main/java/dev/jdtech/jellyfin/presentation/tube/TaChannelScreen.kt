@@ -1,7 +1,13 @@
 package dev.jdtech.jellyfin.presentation.tube
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,7 +30,10 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -36,8 +45,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -51,9 +62,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,9 +76,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelTab
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelViewModel
+import dev.jdtech.jellyfin.film.presentation.tube.TaVideoAction
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
+import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -330,20 +346,12 @@ fun TaChannelScreen(
                                 }
                             },
                             server = {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-                                ) {
-                                    item(key = "server") {
-                                        TaChannelServerSide(
-                                            channel = channel,
-                                            globalConfig = globalConfig,
-                                            onEdit = { editing = it },
-                                            onChange = viewModel::setOverwrite,
-                                            onRefresh = viewModel::refresh,
-                                        )
-                                    }
-                                }
+                                TaChannelServerPage(
+                                    channel = channel,
+                                    globalConfig = globalConfig,
+                                    viewModel = viewModel,
+                                    onEdit = { editing = it },
+                                )
                             },
                         )
                 }
@@ -506,6 +514,190 @@ private fun TaChannelSettings(
 }
 
 /** The channel's side on the server: its details, refreshing it, and its own settings. */
+/**
+ * The channel's side on the server: its details and settings, then all its videos, which can be
+ * picked to reindex, download again or delete.
+ */
+@Composable
+private fun TaChannelServerPage(
+    channel: TaChannel,
+    globalConfig: JsonObject?,
+    viewModel: TaChannelViewModel,
+    onEdit: (TaChannelSetting) -> Unit,
+) {
+    val videos by viewModel.serverVideos.collectAsStateWithLifecycle()
+    val selected by viewModel.selected.collectAsStateWithLifecycle()
+    val working by viewModel.working.collectAsStateWithLifecycle()
+    var confirming by rememberSaveable { mutableStateOf<TaVideoAction?>(null) }
+
+    val listState = rememberLazyListState()
+    LoadMoreEffect(listState) { viewModel.loadMoreServerVideos() }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding =
+                PaddingValues(
+                    start = MaterialTheme.spacings.medium,
+                    top = MaterialTheme.spacings.medium,
+                    end = MaterialTheme.spacings.medium,
+                    // Room for the bar with the actions, so the last videos can be reached
+                    bottom = if (selected.isEmpty()) MaterialTheme.spacings.medium else 160.dp,
+                ),
+        ) {
+            item(key = "server") {
+                TaChannelServerSide(
+                    channel = channel,
+                    globalConfig = globalConfig,
+                    onEdit = onEdit,
+                    onChange = viewModel::setOverwrite,
+                    onRefresh = viewModel::refresh,
+                )
+            }
+            item(key = "videos_heading") {
+                Column {
+                    TaSectionHeading(
+                        listOfNotNull(
+                                stringResource(CoreR.string.ta_channel_videos),
+                                videos.total?.toString(),
+                            )
+                            .joinToString(" · ")
+                    )
+                    Text(
+                        text = stringResource(CoreR.string.ta_channel_videos_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (videos.items.isNotEmpty()) {
+                        val allSelected = videos.items.all { it.youtubeId in selected }
+                        TextButton(onClick = viewModel::toggleSelectAll) {
+                            Text(
+                                stringResource(
+                                    if (allSelected) CoreR.string.ta_select_none
+                                    else CoreR.string.ta_select_all
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            items(videos.items, key = { "video" + it.youtubeId }) { video ->
+                TaSelectableVideoRow(
+                    video = video,
+                    selected = video.youtubeId in selected,
+                    onToggle = { viewModel.toggleSelected(video.youtubeId) },
+                    modifier = Modifier.animateItem(),
+                )
+            }
+            item(key = "videos_footer") {
+                TaListFooter(
+                    state = videos,
+                    onRetry = { viewModel.loadMoreServerVideos() },
+                    emptyText = stringResource(CoreR.string.ta_no_videos),
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = selected.isNotEmpty(),
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth().padding(MaterialTheme.spacings.medium),
+            ) {
+                Column(modifier = Modifier.padding(MaterialTheme.spacings.medium)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text =
+                                pluralStringResource(
+                                    CoreR.plurals.ta_selected_count,
+                                    selected.size,
+                                    selected.size,
+                                ),
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = viewModel::clearSelection) {
+                            Text(stringResource(CoreR.string.cancel))
+                        }
+                    }
+                    TaVideoActionButtons(
+                        onAction = { confirming = it },
+                        enabled = !working,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+
+    confirming?.let { action ->
+        TaVideoActionDialog(
+            action = action,
+            count = selected.size,
+            onConfirm = { ignore ->
+                confirming = null
+                viewModel.runOnSelected(action, ignore)
+            },
+            onDismiss = { confirming = null },
+        )
+    }
+}
+
+/** A video on the channel's server side, with a box to pick it. Tapping anywhere picks it. */
+@Composable
+private fun TaSelectableVideoRow(
+    video: TaVideo,
+    selected: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .background(
+                    if (selected) MaterialTheme.colorScheme.secondaryContainer
+                    else Color.Transparent
+                )
+                .clickable(onClick = onToggle)
+                .padding(vertical = 4.dp),
+    ) {
+        Checkbox(checked = selected, onCheckedChange = { onToggle() })
+        TaVideoThumbnail(video = video, modifier = Modifier.width(112.dp))
+        Spacer(Modifier.width(MaterialTheme.spacings.small))
+        Column(modifier = Modifier.weight(1f).padding(end = MaterialTheme.spacings.small)) {
+            Text(
+                text = video.title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val details =
+                listOfNotNull(
+                    formatTaDate(video.published),
+                    video.mediaSize?.let { formatBytes(it) },
+                )
+            if (details.isNotEmpty()) {
+                Text(
+                    text = details.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun TaChannelServerSide(
     channel: TaChannel,
@@ -548,7 +740,7 @@ private fun TaChannelServerSide(
                 Text(stringResource(CoreR.string.ta_refresh_with_videos))
             }
         }
-        TaInfoHeading(stringResource(CoreR.string.ta_channel_settings))
+        TaSectionHeading(stringResource(CoreR.string.ta_channel_settings))
         TaChannelSettings(
             overwrites = channel.overwrites ?: JsonObject(emptyMap()),
             globalConfig = globalConfig,

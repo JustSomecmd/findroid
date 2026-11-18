@@ -291,6 +291,11 @@ class TaApi(private val appPreferences: AppPreferences) {
         }
     }
 
+    /** Removes a video and its file from the server. */
+    suspend fun deleteVideo(videoId: String) {
+        send("DELETE", url("api/video/$videoId/") {}, null)
+    }
+
     /** Status is pending, ignore or priority (download it right away). */
     suspend fun setDownloadStatus(videoId: String, status: String) {
         post("api/download/$videoId/", buildJsonObject { put("status", status) })
@@ -311,10 +316,16 @@ class TaApi(private val appPreferences: AppPreferences) {
      * Asks TubeArchivist to look a video, channel or playlist up on YouTube again. [type] is video,
      * channel or playlist; [withVideos] also refreshes the videos of a channel or playlist.
      */
-    suspend fun refresh(type: String, id: String, withVideos: Boolean = false) {
+    suspend fun refresh(type: String, id: String, withVideos: Boolean = false) =
+        refresh(type, listOf(id), withVideos)
+
+    /** Asks TubeArchivist to look several videos, channels or playlists of one [type] up again. */
+    suspend fun refresh(type: String, ids: List<String>, withVideos: Boolean = false) {
         post(
             "api/refresh/",
-            buildJsonObject { put(type, buildJsonArray { add(JsonPrimitive(id)) }) },
+            buildJsonObject {
+                put(type, buildJsonArray { ids.forEach { add(JsonPrimitive(it)) } })
+            },
         ) {
             if (withVideos) addQueryParameter("extract_videos", "true")
         }

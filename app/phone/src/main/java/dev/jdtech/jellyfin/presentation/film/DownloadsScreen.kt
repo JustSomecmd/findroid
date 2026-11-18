@@ -50,7 +50,6 @@ import dev.jdtech.jellyfin.presentation.film.components.CollectionGrid
 import dev.jdtech.jellyfin.presentation.film.components.ReorderableDownloadQueue
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
-import dev.jdtech.jellyfin.presentation.tube.TaSideTitle
 import dev.jdtech.jellyfin.presentation.tube.alwaysShownTopAppBarColors
 import dev.jdtech.jellyfin.utils.DownloadStatus
 import java.util.UUID
@@ -59,8 +58,11 @@ import java.util.UUID
 fun DownloadsScreen(
     onItemClick: (item: FindroidItem) -> Unit,
     viewModel: DownloadsViewModel = hiltViewModel(),
-    /** Switches to the downloads on the TubeArchivist server; the switch isn't shown without it. */
-    onSwitchSide: (() -> Unit)? = null,
+    /**
+     * Shown inside a page that has the top bar, such as next to the TubeArchivist download queue,
+     * so this leaves out its own bar and the space for the status bar.
+     */
+    embedded: Boolean = false,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activeDownloads by viewModel.activeDownloads.collectAsStateWithLifecycle()
@@ -72,7 +74,7 @@ fun DownloadsScreen(
         activeDownloads = activeDownloads,
         onActiveDownloadClick = { item -> onItemClick(item) },
         onReorderQueue = { itemIds -> viewModel.reorderQueue(itemIds) },
-        onSwitchSide = onSwitchSide,
+        embedded = embedded,
         onAction = { action ->
             when (action) {
                 is CollectionAction.OnItemClick -> onItemClick(action.item)
@@ -90,35 +92,32 @@ private fun DownloadsScreenLayout(
     activeDownloads: List<ActiveDownload> = emptyList(),
     onActiveDownloadClick: (FindroidItem) -> Unit = {},
     onReorderQueue: (List<UUID>) -> Unit = {},
-    onSwitchSide: (() -> Unit)? = null,
+    embedded: Boolean = false,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val gridState = rememberLazyGridState()
 
     Scaffold(
+        // Insets worked out from where this is on screen would change while it slides in a pager
         modifier =
-            Modifier.fillMaxSize()
-                .recalculateWindowInsets()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            if (embedded) Modifier.fillMaxSize()
+            else
+                Modifier.fillMaxSize()
+                    .recalculateWindowInsets()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = {
-                    if (onSwitchSide != null) {
-                        TaSideTitle(
-                            title = stringResource(CoreR.string.title_download),
-                            onServer = false,
-                            onToggle = onSwitchSide,
-                        )
-                    } else {
-                        Text(text = stringResource(CoreR.string.title_download))
-                    }
-                },
-                windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-                scrollBehavior = scrollBehavior,
-                colors = alwaysShownTopAppBarColors(),
-            )
+            if (!embedded) {
+                TopAppBar(
+                    title = { Text(text = stringResource(CoreR.string.title_download)) },
+                    windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+                    scrollBehavior = scrollBehavior,
+                    colors = alwaysShownTopAppBarColors(),
+                )
+            }
         },
-        contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+        contentWindowInsets =
+            if (embedded) WindowInsets(0, 0, 0, 0)
+            else WindowInsets.statusBars.union(WindowInsets.displayCutout),
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
             if (state.sections.isEmpty() && activeDownloads.isEmpty()) {
