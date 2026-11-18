@@ -120,6 +120,21 @@ constructor(
         }
     }
 
+    /** Asks TubeArchivist to look the video up on YouTube again. */
+    fun refreshMetadata() {
+        val videoId = videoId ?: return
+        viewModelScope.launch {
+            try {
+                taApi.refresh("video", videoId)
+                _messages.send(TaMessages.REFRESH_STARTED)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
     /** Favorites only exist in Jellyfin. */
     fun toggleFavorite() {
         val episode = _state.value.episode ?: return

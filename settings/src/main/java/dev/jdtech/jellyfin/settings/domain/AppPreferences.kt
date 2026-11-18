@@ -12,6 +12,9 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     // Server
     val currentServer = Preference<String?>("pref_current_server", null)
 
+    // Accent color of the app: default, or one of the presets in accent_colors_values
+    val accentColor = Preference("pref_accent_color", "default")
+
     // TubeArchivist
     val tubeArchivistUrl = Preference<String?>("pref_ta_url", null)
     val tubeArchivistToken = Preference<String?>("pref_ta_token", null)

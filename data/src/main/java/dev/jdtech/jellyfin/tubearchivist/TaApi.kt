@@ -197,6 +197,18 @@ class TaApi(private val appPreferences: AppPreferences) {
 
     // Playlists
 
+    suspend fun setPlaylistSubscribed(playlistId: String, subscribed: Boolean) {
+        post(
+            "api/playlist/$playlistId/",
+            buildJsonObject { put("playlist_subscribed", subscribed) },
+        )
+    }
+
+    /** top or bottom */
+    suspend fun setPlaylistSortOrder(playlistId: String, sortOrder: String) {
+        post("api/playlist/$playlistId/", buildJsonObject { put("playlist_sort_order", sortOrder) })
+    }
+
     suspend fun getPlaylists(page: Int = 1, channel: String? = null): TaPage<TaPlaylist> =
         decode(
             get("api/playlist/") {
@@ -272,6 +284,24 @@ class TaApi(private val appPreferences: AppPreferences) {
     }
 
     // Tasks
+
+    /**
+     * Asks TubeArchivist to look a video, channel or playlist up on YouTube again. [type] is video,
+     * channel or playlist; [withVideos] also refreshes the videos of a channel or playlist.
+     */
+    suspend fun refresh(type: String, id: String, withVideos: Boolean = false) {
+        post(
+            "api/refresh/",
+            buildJsonObject { put(type, buildJsonArray { add(JsonPrimitive(id)) }) },
+        ) {
+            if (withVideos) addQueryParameter("extract_videos", "true")
+        }
+    }
+
+    /** Stops a running task, such as the downloads. */
+    suspend fun stopTask(taskId: String) {
+        post("api/task/by-id/$taskId/", buildJsonObject { put("command", "stop") })
+    }
 
     /** Starts a task by name, such as update_subscribed or download_pending. */
     suspend fun startTask(name: String) {

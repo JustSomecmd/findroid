@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -64,6 +65,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.film.presentation.tube.TaDownloading
 import dev.jdtech.jellyfin.film.presentation.tube.TaQueueFilter
 import dev.jdtech.jellyfin.film.presentation.tube.TaQueueViewModel
 import dev.jdtech.jellyfin.presentation.theme.spacings
@@ -73,11 +75,16 @@ import dev.jdtech.jellyfin.utils.ObserveAsEvents
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TaQueueScreen(viewModel: TaQueueViewModel = hiltViewModel()) {
+fun TaQueueScreen(
+    viewModel: TaQueueViewModel = hiltViewModel(),
+    /** Switches to the downloads on this phone; the switch isn't shown without it. */
+    onSwitchSide: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val items by viewModel.items.collectAsStateWithLifecycle()
     val tasks by viewModel.tasks.collectAsStateWithLifecycle()
+    val downloading by viewModel.downloading.collectAsStateWithLifecycle()
     val showIgnored = filter == TaQueueFilter.IGNORED
 
     var adding by rememberSaveable { mutableStateOf(false) }
@@ -107,7 +114,17 @@ fun TaQueueScreen(viewModel: TaQueueViewModel = hiltViewModel()) {
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(CoreR.string.ta_queue)) },
+                title = {
+                    if (onSwitchSide != null) {
+                        TaSideTitle(
+                            title = stringResource(CoreR.string.title_download),
+                            onServer = true,
+                            onToggle = onSwitchSide,
+                        )
+                    } else {
+                        Text(stringResource(CoreR.string.ta_queue))
+                    }
+                },
                 actions = {
                     TaOpenInWebButton(path = "/downloads/")
                     Box {
@@ -204,6 +221,14 @@ fun TaQueueScreen(viewModel: TaQueueViewModel = hiltViewModel()) {
                         )
                     }
                 }
+                downloading?.let { download ->
+                    item(key = "downloading") {
+                        TaDownloadingCard(
+                            download = download,
+                            onStop = { viewModel.stopDownloading() },
+                        )
+                    }
+                }
                 items(tasks, key = { "task" + it.id }) { task -> TaTaskCard(task) }
                 item(key = "count") {
                     val total = items.total
@@ -221,7 +246,9 @@ fun TaQueueScreen(viewModel: TaQueueViewModel = hiltViewModel()) {
                         modifier = Modifier.padding(top = MaterialTheme.spacings.small),
                     )
                 }
-                items(items.items, key = { it.youtubeId }) { item ->
+                // The video being downloaded is shown above instead
+                val waiting = items.items.filter { it.youtubeId != downloading?.item?.youtubeId }
+                items(waiting, key = { it.youtubeId }) { item ->
                     TaQueueItem(
                         item = item,
                         ignored = showIgnored,
@@ -372,6 +399,74 @@ private fun TaSwitchRow(label: String, checked: Boolean, onCheckedChange: (Boole
             modifier = Modifier.weight(1f),
         )
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/** The video TubeArchivist is downloading, with its progress. */
+@Composable
+private fun TaDownloadingCard(download: TaDownloading, onStop: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ),
+    ) {
+        Column(modifier = Modifier.padding(MaterialTheme.spacings.medium)) {
+            Text(
+                text = stringResource(CoreR.string.ta_now_downloading),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(MaterialTheme.spacings.small))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                download.item?.let { item ->
+                    TaImage(
+                        path = item.thumbUrl,
+                        modifier =
+                            Modifier.width(112.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(MaterialTheme.shapes.small),
+                    )
+                    Spacer(Modifier.width(MaterialTheme.spacings.small))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = download.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    download.item?.channelName?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                TextButton(onClick = onStop) { Text(stringResource(CoreR.string.ta_stop)) }
+            }
+            Spacer(Modifier.height(MaterialTheme.spacings.small))
+            val progress = download.progress
+            if (progress != null) {
+                LinearProgressIndicator(
+                    progress = { progress.toFloat().coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            download.detail?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = MaterialTheme.spacings.extraSmall),
+                )
+            }
+        }
     }
 }
 

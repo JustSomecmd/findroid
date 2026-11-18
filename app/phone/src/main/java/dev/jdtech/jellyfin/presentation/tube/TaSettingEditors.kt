@@ -64,25 +64,16 @@ private fun TaBuilderDialog(
         title = { Text(title) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                if (byHand) {
-                    OutlinedTextField(
-                        value = handText,
-                        onValueChange = { handText = it },
-                        label = { Text(stringResource(CoreR.string.ta_value_by_hand)) },
-                        textStyle =
-                            MaterialTheme.typography.bodyMedium.copy(
-                                fontFamily = FontFamily.Monospace
-                            ),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                } else {
-                    content()
-                }
-                Spacer(Modifier.height(MaterialTheme.spacings.medium))
-                TaBuiltValue(value = value, noneLabel = noneLabel)
+                // What will be sent, at the top, changing as options are picked below
+                TaBuiltValue(value = value, noneLabel = noneLabel, large = true)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(top = MaterialTheme.spacings.small),
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .padding(
+                                top = MaterialTheme.spacings.small,
+                                bottom = MaterialTheme.spacings.small,
+                            ),
                 ) {
                     Text(
                         text = stringResource(CoreR.string.ta_edit_by_hand),
@@ -97,6 +88,20 @@ private fun TaBuilderDialog(
                         },
                     )
                 }
+                if (byHand) {
+                    OutlinedTextField(
+                        value = handText,
+                        onValueChange = { handText = it },
+                        label = { Text(stringResource(CoreR.string.ta_value_by_hand)) },
+                        textStyle =
+                            MaterialTheme.typography.bodyMedium.copy(
+                                fontFamily = FontFamily.Monospace
+                            ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    content()
+                }
             }
         },
         confirmButton = {
@@ -110,26 +115,29 @@ private fun TaBuilderDialog(
 
 /** The value as it will be sent to TubeArchivist. */
 @Composable
-fun TaBuiltValue(value: String?, noneLabel: String) {
+fun TaBuiltValue(value: String?, noneLabel: String, large: Boolean = false) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
         shape = MaterialTheme.shapes.small,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.padding(MaterialTheme.spacings.small)) {
+        Column(
+            modifier =
+                Modifier.padding(
+                    if (large) MaterialTheme.spacings.medium else MaterialTheme.spacings.small
+                )
+        ) {
             Text(
                 text = stringResource(CoreR.string.ta_sent_to_server),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            val base =
+                if (large) MaterialTheme.typography.titleMedium
+                else MaterialTheme.typography.bodyMedium
             Text(
                 text = value ?: noneLabel,
-                style =
-                    if (value != null) {
-                        MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
-                    } else {
-                        MaterialTheme.typography.bodyMedium
-                    },
+                style = if (value != null) base.copy(fontFamily = FontFamily.Monospace) else base,
                 color =
                     if (value != null) MaterialTheme.colorScheme.onSurface
                     else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -204,34 +212,37 @@ private fun buildFormat(choice: FormatChoice): String? {
     }
 }
 
-/** The choices a format was built from, or null if it was written another way. */
-private fun parseFormat(value: String?): FormatChoice? {
+/**
+ * The choices found in a format, also one written by hand, so they show as picked. Null when
+ * nothing in it is one of the options.
+ */
+private fun readFormat(value: String?): FormatChoice? {
     if (value.isNullOrBlank()) return FormatChoice()
-    val match =
-        Regex(
-                """^bestvideo(?:\[height<=(\d+)\])?(\[vcodec[^\]]*\])?\+bestaudio(\[acodec[^\]]*\])?"""
-            )
-            .find(value) ?: return null
-    val choice =
-        FormatChoice(
-            height = match.groupValues[1].toIntOrNull(),
-            video =
-                match.groupValues[2]
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { filter ->
-                        videoCodecFilters.entries.firstOrNull { it.value == filter }?.key
-                            ?: return null
-                    },
-            audio =
-                match.groupValues[3]
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { filter ->
-                        audioCodecFilters.entries.firstOrNull { it.value == filter }?.key
-                            ?: return null
-                    },
-            fallback = match.range.last < value.length - 1,
-        )
-    return choice.takeIf { buildFormat(it) == value }
+    val height = Regex("""height\s*<=\??\s*(\d+)""").find(value)?.groupValues?.get(1)?.toIntOrNull()
+    val video =
+        Regex("""vcodec[^\]]*?(avc1|avc|h264|vp0\?9|vp0?9|av01|av1)""")
+            .find(value)
+            ?.groupValues
+            ?.get(1)
+            ?.let { codec ->
+                when {
+                    codec.startsWith("av0") || codec == "av1" -> "av01"
+                    codec.startsWith("vp") -> "vp9"
+                    else -> "avc1"
+                }
+            }
+    val audio =
+        Regex("""acodec[^\]]*?(mp4a|aac|m4a|opus)""").find(value)?.groupValues?.get(1)?.let { codec
+            ->
+            if (codec == "opus") "opus" else "mp4a"
+        }
+    if (height == null && video == null && audio == null) return null
+    return FormatChoice(
+        height = height,
+        video = video,
+        audio = audio,
+        fallback = value.contains("/"),
+    )
 }
 
 /** Builds a yt-dlp format such as bestvideo[height<=1080][vcodec*=avc1]+bestaudio. */
@@ -243,11 +254,12 @@ fun TaFormatDialog(
     onSave: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val parsed = remember(current) { parseFormat(current) }
+    val parsed = remember(current) { readFormat(current) }
     var choice by remember { mutableStateOf(parsed ?: FormatChoice()) }
     TaBuilderDialog(
         title = title,
-        built = if (parsed == null && choice == FormatChoice()) current else buildFormat(choice),
+        // The current value stays as it is until something is changed
+        built = if (choice == (parsed ?: FormatChoice())) current else buildFormat(choice),
         noneLabel = noneLabel,
         onSave = onSave,
         onDismiss = onDismiss,
@@ -318,28 +330,42 @@ private fun buildSort(choice: SortChoice): String? =
         .joinToString(",")
         .ifEmpty { null }
 
-private fun parseSort(value: String?): SortChoice? {
+/** The choices found in a format sort, so they show as picked. Null when none are options. */
+private fun readSort(value: String?): SortChoice? {
     if (value.isNullOrBlank()) return SortChoice()
     var choice = SortChoice()
+    var found = false
     value
         .split(",")
         .map { it.trim() }
         .forEach { token ->
-            choice =
-                when {
-                    token.startsWith("res:") ->
-                        choice.copy(res = token.removePrefix("res:").toIntOrNull() ?: return null)
-                    token.startsWith("fps:") ->
-                        choice.copy(fps = token.removePrefix("fps:").toIntOrNull() ?: return null)
-                    token.startsWith("vcodec:") ->
-                        choice.copy(video = token.removePrefix("vcodec:"))
-                    token.startsWith("acodec:") ->
-                        choice.copy(audio = token.removePrefix("acodec:"))
-                    token == "+size" -> choice.copy(smaller = true)
-                    else -> return null
-                }
+            val (field, setting) = token.split(":", limit = 2).let { it[0] to it.getOrNull(1) }
+            when (field) {
+                "res" -> setting?.toIntOrNull()?.let { choice = choice.copy(res = it) }
+                "fps" -> setting?.toIntOrNull()?.let { choice = choice.copy(fps = it) }
+                "vcodec",
+                "codec" ->
+                    setting?.substringBefore(":")?.let { codec ->
+                        choice =
+                            choice.copy(
+                                video =
+                                    when {
+                                        codec.startsWith("av0") || codec == "av1" -> "av01"
+                                        codec.startsWith("vp") -> "vp9"
+                                        else -> "h264"
+                                    }
+                            )
+                    }
+                "acodec" ->
+                    setting?.let { codec ->
+                        choice = choice.copy(audio = if (codec == "opus") "opus" else "aac")
+                    }
+                "+size" -> choice = choice.copy(smaller = true)
+                else -> return@forEach
+            }
+            found = true
         }
-    return choice.takeIf { buildSort(it) == value }
+    return choice.takeIf { found }
 }
 
 /** Builds a yt-dlp format sort such as res:1080,vcodec:h264. */
@@ -351,11 +377,12 @@ fun TaFormatSortDialog(
     onSave: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val parsed = remember(current) { parseSort(current) }
+    val parsed = remember(current) { readSort(current) }
     var choice by remember { mutableStateOf(parsed ?: SortChoice()) }
     TaBuilderDialog(
         title = title,
-        built = if (parsed == null && choice == SortChoice()) current else buildSort(choice),
+        // The current value stays as it is until something is changed
+        built = if (choice == (parsed ?: SortChoice())) current else buildSort(choice),
         noneLabel = noneLabel,
         onSave = onSave,
         onDismiss = onDismiss,
@@ -562,14 +589,20 @@ fun TaCommentsDialog(
     }
     var enabled by remember { mutableStateOf(!current.isNullOrBlank()) }
     // Null is all
-    val values = remember {
-        commentParts.indices
-            .map { index -> parsed?.getOrNull(index)?.toLongOrNull() }
-            .toMutableStateList()
+    val initialValues = remember {
+        commentParts.indices.map { index -> parsed?.getOrNull(index)?.toLongOrNull() }
     }
+    val values = remember { initialValues.toMutableStateList() }
+    val unchanged = enabled == !current.isNullOrBlank() && values.toList() == initialValues
     TaBuilderDialog(
         title = title,
-        built = if (!enabled) null else values.joinToString(",") { it?.toString() ?: "all" },
+        // The current value stays as it is until something is changed
+        built =
+            when {
+                unchanged -> current
+                !enabled -> null
+                else -> values.joinToString(",") { it?.toString() ?: "all" }
+            },
         noneLabel = noneLabel,
         onSave = onSave,
         onDismiss = onDismiss,
@@ -686,7 +719,7 @@ fun TaScheduleDialog(
         else choice.copy(hour = timeState.hour, minute = timeState.minute)
     TaBuilderDialog(
         title = title,
-        built = buildSchedule(withTime),
+        built = if (withTime == parsed) current else buildSchedule(withTime),
         noneLabel = stringResource(CoreR.string.ta_not_scheduled),
         onSave = onSave,
         onDismiss = onDismiss,

@@ -5,10 +5,15 @@ import android.content.Context
 import android.content.Intent
 import android.text.format.DateUtils
 import android.widget.Toast
+import androidx.annotation.DrawableRes
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -65,6 +70,9 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlinx.coroutines.flow.distinctUntilChanged
 
+/** Whether TubeArchivist is the main interface right now. */
+val LocalTubeArchivistMode = staticCompositionLocalOf { false }
+
 /** Address of the TubeArchivist server, for the images it serves. */
 val LocalTaBaseUrl = staticCompositionLocalOf<String?> { null }
 
@@ -106,7 +114,8 @@ fun TaVideoCard(
 ) {
     Column(modifier = modifier.clip(MaterialTheme.shapes.medium).clickable(onClick = onClick)) {
         TaVideoThumbnail(video = video, modifier = Modifier.fillMaxWidth())
-        Column(modifier = Modifier.padding(vertical = MaterialTheme.spacings.small)) {
+        // Kept clear of the rounded corners, which would cut off the first letters
+        Column(modifier = Modifier.padding(TaCardTextPadding)) {
             Text(
                 text = video.title,
                 style = MaterialTheme.typography.titleSmall,
@@ -132,22 +141,32 @@ fun TaVideoSmallCard(video: TaVideo, onClick: () -> Unit, modifier: Modifier = M
             modifier.width(240.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = onClick)
     ) {
         TaVideoThumbnail(video = video, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
-        Text(
-            text = video.title,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = video.channel?.name.orEmpty(),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(modifier = Modifier.padding(TaCardTextPadding)) {
+            Text(
+                text = video.title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = video.channel?.name.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
+
+/** Padding of the text under a card's thumbnail, clear of the card's rounded corners. */
+private val TaCardTextPadding =
+    PaddingValues(
+        start = 6.dp,
+        end = 6.dp,
+        top = 6.dp,
+        bottom = 10.dp,
+    )
 
 @Composable
 fun TaVideoThumbnail(video: TaVideo, modifier: Modifier = Modifier) {
@@ -253,7 +272,8 @@ fun TaPlaylistCard(playlist: TaPlaylist, onClick: () -> Unit, modifier: Modifier
                 )
             }
         }
-        Column(modifier = Modifier.padding(vertical = MaterialTheme.spacings.small)) {
+        // Kept clear of the rounded corners, which would cut off the first letters
+        Column(modifier = Modifier.padding(TaCardTextPadding)) {
             Text(
                 text = playlist.name,
                 style = MaterialTheme.typography.titleSmall,
@@ -418,6 +438,7 @@ fun taMessageText(context: Context, message: String): String =
         TaMessages.ADDED_TO_QUEUE -> context.getString(CoreR.string.ta_added_to_queue)
         TaMessages.TASK_STARTED -> context.getString(CoreR.string.ta_task_started)
         TaMessages.SAVED -> context.getString(CoreR.string.ta_saved)
+        TaMessages.REFRESH_STARTED -> context.getString(CoreR.string.ta_refresh_started)
         else -> message
     }
 
@@ -443,3 +464,132 @@ fun TaOpenInWebButton(path: String) {
         }
     }
 }
+
+/**
+ * A page title that switches between the side of something the app shows (such as the downloads on
+ * this phone) and its side on the TubeArchivist server. Tapping the title or the switch flips it.
+ */
+@Composable
+fun TaSideTitle(
+    title: String,
+    onServer: Boolean,
+    onToggle: () -> Unit,
+    @DrawableRes localIcon: Int = CoreR.drawable.ic_smartphone,
+    localLabel: String = stringResource(CoreR.string.ta_side_phone),
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier.clip(MaterialTheme.shapes.small)
+                .clickable(onClick = onToggle)
+                .padding(vertical = 4.dp, horizontal = 4.dp),
+    ) {
+        Text(
+            text = title,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.width(MaterialTheme.spacings.small))
+        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+            Row(modifier = Modifier.padding(2.dp)) {
+                TaSideSegment(
+                    icon = localIcon,
+                    label = localLabel,
+                    selected = !onServer,
+                )
+                TaSideSegment(
+                    icon = CoreR.drawable.ic_server,
+                    label = stringResource(CoreR.string.ta_side_server),
+                    selected = onServer,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaSideSegment(@DrawableRes icon: Int, label: String, selected: Boolean) {
+    val background by
+        animateColorAsState(
+            if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+            label = "side background",
+        )
+    val content by
+        animateColorAsState(
+            if (selected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            label = "side content",
+        )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier.clip(CircleShape)
+                .background(background)
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .animateContentSize(),
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = label,
+            tint = content,
+            modifier = Modifier.size(16.dp),
+        )
+        // Only the side that is shown is named, so the switch stays small
+        if (selected) {
+            Spacer(Modifier.width(4.dp))
+            Text(text = label, style = MaterialTheme.typography.labelMedium, color = content)
+        }
+    }
+}
+
+/** A label and its value on a server page, such as "Size" and "1.2 GB". */
+@Composable
+fun TaInfoRow(label: String, value: String, modifier: Modifier = Modifier) {
+    Row(modifier = modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(140.dp),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/** A heading on a server page. */
+@Composable
+fun TaInfoHeading(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = modifier.padding(top = MaterialTheme.spacings.medium, bottom = 4.dp),
+    )
+}
+
+/** 1536 as 1.5 KB. */
+fun formatBytes(bytes: Long): String {
+    val units = listOf("B", "KB", "MB", "GB", "TB")
+    var value = bytes.toDouble()
+    var unit = 0
+    while (value >= 1024 && unit < units.lastIndex) {
+        value /= 1024
+        unit++
+    }
+    return if (unit == 0) "$bytes B"
+    else String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
+}
+
+/** "18 Nov 2026, 14:03" for seconds since 1970. */
+fun formatEpochSeconds(seconds: Long): String =
+    java.time.Instant.ofEpochSecond(seconds)
+        .atZone(java.time.ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT))
+
+/** A date TubeArchivist sends, in the phone's format, or as it is when it can't be read. */
+fun formatTaDate(value: String?): String? = value?.let { fullDate(it) ?: it }

@@ -16,6 +16,7 @@ import dev.jdtech.jellyfin.core.presentation.theme.Spacings
 fun FindroidTheme(
     darkTheme: Boolean? = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
+    accentColor: String = "default",
     content: @Composable () -> Unit,
 ) {
     val darkTheme = darkTheme ?: isSystemInDarkTheme()
@@ -27,7 +28,7 @@ fun FindroidTheme(
             }
             darkTheme -> darkScheme
             else -> lightScheme
-        }
+        }.withAccent(accentColor, darkTheme)
 
     MaterialTheme(colorScheme = colorScheme, shapes = shapes) {
         CompositionLocalProvider(

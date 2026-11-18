@@ -20,6 +20,8 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -75,6 +77,7 @@ import dev.jdtech.jellyfin.presentation.setup.servers.ServersScreen
 import dev.jdtech.jellyfin.presentation.setup.users.UsersScreen
 import dev.jdtech.jellyfin.presentation.setup.welcome.WelcomeScreen
 import dev.jdtech.jellyfin.presentation.tube.LocalTaBaseUrl
+import dev.jdtech.jellyfin.presentation.tube.LocalTubeArchivistMode
 import dev.jdtech.jellyfin.presentation.tube.TaChannelScreen
 import dev.jdtech.jellyfin.presentation.tube.TaChannelsScreen
 import dev.jdtech.jellyfin.presentation.tube.TaHomeScreen
@@ -140,13 +143,6 @@ val taChannelsTab =
         title = CoreR.string.ta_channels,
         icon = CoreR.drawable.ic_users,
         route = TaChannelsRoute,
-    )
-
-val taQueueTab =
-    TabBarItem(
-        title = CoreR.string.ta_queue,
-        icon = CoreR.drawable.ic_list_plus,
-        route = TaQueueRoute,
     )
 
 @Composable
@@ -229,7 +225,10 @@ fun NavigationRoot(
                 onBackPressed = { permissionViewModel.onAction(PermissionAction.OnDismiss) },
             )
         } else {
-            CompositionLocalProvider(LocalTaBaseUrl provides taBaseUrl) {
+            CompositionLocalProvider(
+                LocalTaBaseUrl provides taBaseUrl,
+                LocalTubeArchivistMode provides tubeArchivistMode,
+            ) {
                 MainNavigation(
                     navigationState = navigationState,
                     navigator = navigator,
@@ -272,7 +271,7 @@ private fun MainNavigation(
     val navigationItems =
         when {
             isOfflineMode -> listOf(homeTab, downloadsTab)
-            tubeArchivistMode -> listOf(taHomeTab, taChannelsTab, taQueueTab, downloadsTab)
+            tubeArchivistMode -> listOf(taHomeTab, taChannelsTab, downloadsTab)
             else -> listOf(homeTab, mediaTab, downloadsTab, playlistsTab)
         }
     val tabRoutes = navigationItems.map { it.route }
@@ -523,15 +522,24 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         )
     }
     entry<DownloadsRoute> {
-        DownloadsScreen(
-            onItemClick =
-                resumedAction { item ->
-                    navigateToItem(
-                        navigator,
-                        item,
-                    )
-                }
-        )
+        // With TubeArchivist, the title switches between the downloads on this phone and the
+        // download queue on the server
+        val tubeArchivistMode = LocalTubeArchivistMode.current
+        var onServer by rememberSaveable { mutableStateOf(false) }
+        if (tubeArchivistMode && onServer) {
+            TaQueueScreen(onSwitchSide = { onServer = false })
+        } else {
+            DownloadsScreen(
+                onItemClick =
+                    resumedAction { item ->
+                        navigateToItem(
+                            navigator,
+                            item,
+                        )
+                    },
+                onSwitchSide = if (tubeArchivistMode) ({ onServer = true }) else null,
+            )
+        }
     }
     entry<DownloadStorageRoute> {
         DownloadStorageScreen(
@@ -737,6 +745,8 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
                 dropUnlessResumed {
                     navigator.navigate(SettingsRoute(indexes = listOf(CoreR.string.title_settings)))
                 },
+            onManageServers = dropUnlessResumed { navigator.navigate(ServersRoute) },
+            onTubeArchivistSettings = dropUnlessResumed { navigator.navigate(TaSettingsRoute) },
         )
     }
     entry<TaChannelsRoute> {

@@ -43,6 +43,9 @@ class MainActivity : AppCompatActivity() {
             var episodeTitleFirst by remember {
                 mutableStateOf(appPreferences.getValue(appPreferences.episodeTitleFirst))
             }
+            var accentColor by remember {
+                mutableStateOf(appPreferences.getValue(appPreferences.accentColor))
+            }
             DisposableEffect(Unit) {
                 val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
                     when (key) {
@@ -52,6 +55,8 @@ class MainActivity : AppCompatActivity() {
                         appPreferences.episodeTitleFirst.backendName ->
                             episodeTitleFirst =
                                 appPreferences.getValue(appPreferences.episodeTitleFirst)
+                        appPreferences.accentColor.backendName ->
+                            accentColor = appPreferences.getValue(appPreferences.accentColor)
                     }
                 }
                 appPreferences.sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
@@ -62,7 +67,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            FindroidTheme(dynamicColor = state.isDynamicColors) {
+            FindroidTheme(dynamicColor = state.isDynamicColors, accentColor = accentColor) {
                 if (!state.isLoading) {
                     CompositionLocalProvider(
                         LocalOfflineMode provides state.isOfflineMode,

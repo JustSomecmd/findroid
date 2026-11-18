@@ -30,6 +30,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,6 +50,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -116,11 +118,21 @@ fun TaVideoScreen(
         }
     }
 
+    var serverSide by rememberSaveable { mutableStateOf(false) }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = {},
+                title = {
+                    TaSideTitle(
+                        title = state.video?.title.orEmpty(),
+                        onServer = serverSide,
+                        onToggle = { serverSide = !serverSide },
+                        localIcon = CoreR.drawable.ic_play,
+                        localLabel = stringResource(CoreR.string.ta_side_video),
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = navigateBack) {
                         Icon(
@@ -147,6 +159,12 @@ fun TaVideoScreen(
                                 .padding(MaterialTheme.spacings.default),
                     )
                 video == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                serverSide ->
+                    TaVideoServerSide(
+                        video = video,
+                        offline = state.offline,
+                        onRefresh = { viewModel.refreshMetadata() },
+                    )
                 else ->
                     TaVideoContent(
                         video = video,
@@ -510,3 +528,189 @@ private fun videoDetails(video: TaVideo): String {
 }
 
 private const val TICKS_PER_SECOND = 10_000_000.0
+
+/** The video's side on the server: its file, streams, subtitles and other details. */
+@Composable
+private fun TaVideoServerSide(video: TaVideo, offline: Boolean, onRefresh: () -> Unit) {
+    val context = LocalContext.current
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding =
+            PaddingValues(
+                start = MaterialTheme.spacings.medium,
+                end = MaterialTheme.spacings.medium,
+                bottom = MaterialTheme.spacings.large,
+            ),
+    ) {
+        if (offline) {
+            item(key = "offline") {
+                Text(
+                    text = stringResource(CoreR.string.ta_offline_copy),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
+        }
+        item(key = "file") {
+            Column {
+                TaInfoHeading(stringResource(CoreR.string.ta_info_file))
+                video.mediaUrl?.let { TaInfoRow(stringResource(CoreR.string.ta_info_path), it) }
+                video.mediaSize?.let {
+                    TaInfoRow(stringResource(CoreR.string.ta_info_size), formatBytes(it))
+                }
+                video.dateDownloaded?.let {
+                    TaInfoRow(
+                        stringResource(CoreR.string.ta_info_downloaded),
+                        formatEpochSeconds(it),
+                    )
+                }
+                video.type?.let { TaInfoRow(stringResource(CoreR.string.ta_info_type), it) }
+                video.player
+                    ?.takeIf { it.duration > 0 }
+                    ?.let {
+                        TaInfoRow(
+                            stringResource(CoreR.string.ta_info_duration),
+                            formatDuration(it.duration),
+                        )
+                    }
+            }
+        }
+        if (video.streams.isNotEmpty()) {
+            item(key = "streams") {
+                Column {
+                    TaInfoHeading(stringResource(CoreR.string.ta_info_streams))
+                    video.streams.forEach { stream ->
+                        val parts = mutableListOf(codecName(stream.codec))
+                        if (stream.width != null && stream.height != null) {
+                            parts.add("${stream.width}×${stream.height}")
+                        }
+                        stream.bitrate?.takeIf { it > 0 }?.let { parts.add(formatBitrate(it)) }
+                        TaInfoRow(
+                            stringResource(
+                                if (stream.type == "audio") CoreR.string.ta_info_audio
+                                else CoreR.string.ta_info_video
+                            ),
+                            parts.joinToString(" · "),
+                        )
+                    }
+                }
+            }
+        }
+        if (video.subtitles.isNotEmpty()) {
+            item(key = "subtitles") {
+                Column {
+                    TaInfoHeading(stringResource(CoreR.string.ta_info_subtitles))
+                    video.subtitles.forEach { subtitle ->
+                        TaInfoRow(
+                            subtitle.name ?: subtitle.lang,
+                            stringResource(
+                                if (subtitle.source == "auto") CoreR.string.ta_info_subtitle_auto
+                                else CoreR.string.ta_info_subtitle_user
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        item(key = "details") {
+            Column {
+                TaInfoHeading(stringResource(CoreR.string.ta_info_details))
+                TaInfoRow(stringResource(CoreR.string.ta_info_video_id), video.youtubeId)
+                fullDate(video.published)?.let {
+                    TaInfoRow(stringResource(CoreR.string.ta_info_published), it)
+                }
+                formatTaDate(video.lastRefresh)?.let {
+                    TaInfoRow(stringResource(CoreR.string.ta_info_last_refreshed), it)
+                }
+                video.active?.let { active ->
+                    TaInfoRow(
+                        stringResource(CoreR.string.ta_info_on_youtube),
+                        stringResource(
+                            if (active) CoreR.string.ta_info_available
+                            else CoreR.string.ta_info_removed
+                        ),
+                    )
+                }
+                if (video.category.isNotEmpty()) {
+                    TaInfoRow(
+                        stringResource(CoreR.string.ta_info_category),
+                        video.category.joinToString(", "),
+                    )
+                }
+                video.commentCount?.let {
+                    TaInfoRow(stringResource(CoreR.string.ta_info_comments_saved), it.toString())
+                }
+                video.sponsorblock?.let { sponsorBlock ->
+                    TaInfoRow(
+                        stringResource(CoreR.string.ta_sponsorblock),
+                        if (sponsorBlock.isEnabled) {
+                            stringResource(
+                                CoreR.string.ta_info_segments,
+                                sponsorBlock.segments.size,
+                            )
+                        } else {
+                            stringResource(CoreR.string.ta_off)
+                        },
+                    )
+                }
+                if (video.playlist.isNotEmpty()) {
+                    TaInfoRow(
+                        stringResource(CoreR.string.ta_playlists),
+                        video.playlist.size.toString(),
+                    )
+                }
+                if (video.tags.isNotEmpty()) {
+                    TaInfoRow(
+                        stringResource(CoreR.string.ta_info_tags),
+                        video.tags.joinToString(", "),
+                    )
+                }
+            }
+        }
+        item(key = "actions") {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+                modifier = Modifier.padding(top = MaterialTheme.spacings.medium),
+            ) {
+                OutlinedButton(onClick = onRefresh, enabled = !offline) {
+                    Text(stringResource(CoreR.string.ta_refresh))
+                }
+                OutlinedButton(
+                    onClick = {
+                        val url = "https://www.youtube.com/watch?v=${video.youtubeId}"
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            Toast.makeText(context, url, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                ) {
+                    Text(stringResource(CoreR.string.ta_open_on_youtube))
+                }
+            }
+        }
+    }
+}
+
+/** avc1.640028 as H.264 (avc1.640028). */
+private fun codecName(codec: String): String {
+    val name =
+        when {
+            codec.startsWith("avc") -> "H.264"
+            codec.startsWith("hev") || codec.startsWith("hvc") -> "H.265"
+            codec.startsWith("vp09") || codec.startsWith("vp9") -> "VP9"
+            codec.startsWith("av01") -> "AV1"
+            codec.startsWith("mp4a") -> "AAC"
+            codec.startsWith("opus") -> "Opus"
+            else -> return codec
+        }
+    return "$name ($codec)"
+}
+
+/** Bits per second as 4.5 Mbit/s or 128 kbit/s. */
+private fun formatBitrate(bitsPerSecond: Long): String =
+    if (bitsPerSecond >= 1_000_000) {
+        String.format(java.util.Locale.getDefault(), "%.1f Mbit/s", bitsPerSecond / 1_000_000.0)
+    } else {
+        "${bitsPerSecond / 1000} kbit/s"
+    }

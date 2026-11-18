@@ -33,6 +33,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -59,6 +60,7 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelTab
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelViewModel
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -102,10 +104,12 @@ fun TaChannelScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = channel?.name.orEmpty(),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    TaSideTitle(
+                        title = channel?.name.orEmpty(),
+                        onServer = state.serverSide,
+                        onToggle = { viewModel.toggleServerSide() },
+                        localIcon = CoreR.drawable.ic_users,
+                        localLabel = stringResource(CoreR.string.ta_side_channel),
                     )
                 },
                 navigationIcon = {
@@ -167,6 +171,18 @@ fun TaChannelScreen(
                         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
                         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
                     ) {
+                        if (state.serverSide) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "server") {
+                                TaChannelServerSide(
+                                    channel = channel,
+                                    globalConfig = globalConfig,
+                                    onEdit = { editing = it },
+                                    onChange = viewModel::setOverwrite,
+                                    onRefresh = viewModel::refresh,
+                                )
+                            }
+                            return@LazyVerticalGrid
+                        }
                         item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
                             Column {
                                 if (channel.bannerUrl != null) {
@@ -251,16 +267,7 @@ fun TaChannelScreen(
                                 }
                             }
                         }
-                        if (state.tab == TaChannelTab.SETTINGS) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "settings") {
-                                TaChannelSettings(
-                                    overwrites = channel.overwrites ?: JsonObject(emptyMap()),
-                                    globalConfig = globalConfig,
-                                    onEdit = { editing = it },
-                                    onChange = viewModel::setOverwrite,
-                                )
-                            }
-                        } else if (state.tab == TaChannelTab.PLAYLISTS) {
+                        if (state.tab == TaChannelTab.PLAYLISTS) {
                             items(playlists.items, key = { "p" + it.id }) { playlist ->
                                 TaPlaylistCard(
                                     playlist = playlist,
@@ -315,7 +322,6 @@ private fun TaChannelTab.label(): Int =
         TaChannelTab.SHORTS -> CoreR.string.ta_shorts
         TaChannelTab.STREAMS -> CoreR.string.ta_streams
         TaChannelTab.PLAYLISTS -> CoreR.string.ta_playlists
-        TaChannelTab.SETTINGS -> CoreR.string.title_settings
     }
 
 /**
@@ -446,6 +452,59 @@ private fun TaChannelSettings(
                     },
                 )
             },
+        )
+    }
+}
+
+/** The channel's side on the server: its details, refreshing it, and its own settings. */
+@Composable
+private fun TaChannelServerSide(
+    channel: TaChannel,
+    globalConfig: JsonObject?,
+    onEdit: (TaChannelSetting) -> Unit,
+    onChange: (key: String, value: JsonElement) -> Unit,
+    onRefresh: (withVideos: Boolean) -> Unit,
+) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TaAvatar(path = channel.thumbUrl, size = 48.dp)
+            Spacer(Modifier.width(MaterialTheme.spacings.medium))
+            Text(text = channel.name, style = MaterialTheme.typography.titleLarge)
+        }
+        TaInfoHeading(stringResource(CoreR.string.ta_info_details))
+        TaInfoRow(stringResource(CoreR.string.ta_info_channel_id), channel.id)
+        TaInfoRow(
+            stringResource(CoreR.string.ta_subscribed),
+            stringResource(if (channel.subscribed) CoreR.string.ta_yes else CoreR.string.ta_no),
+        )
+        channel.active?.let { active ->
+            TaInfoRow(
+                stringResource(CoreR.string.ta_info_on_youtube),
+                stringResource(
+                    if (active) CoreR.string.ta_info_available else CoreR.string.ta_info_removed
+                ),
+            )
+        }
+        formatTaDate(channel.lastRefresh)?.let {
+            TaInfoRow(stringResource(CoreR.string.ta_info_last_refreshed), it)
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+            modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+        ) {
+            OutlinedButton(onClick = { onRefresh(false) }) {
+                Text(stringResource(CoreR.string.ta_refresh))
+            }
+            OutlinedButton(onClick = { onRefresh(true) }) {
+                Text(stringResource(CoreR.string.ta_refresh_with_videos))
+            }
+        }
+        TaInfoHeading(stringResource(CoreR.string.ta_channel_settings))
+        TaChannelSettings(
+            overwrites = channel.overwrites ?: JsonObject(emptyMap()),
+            globalConfig = globalConfig,
+            onEdit = onEdit,
+            onChange = onChange,
         )
     }
 }

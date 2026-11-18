@@ -75,6 +75,17 @@
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
     <string name="dynamic_colors">Dynamic colors</string>
+    <string name="accent_color">Accent color</string>
+    <string name="accent_color_summary">Color of buttons, highlights and the selected tab</string>
+    <string name="accent_default">Findroid</string>
+    <string name="accent_tubearchivist">TubeArchivist teal</string>
+    <string name="accent_jellyfin_blue">Jellyfin blue</string>
+    <string name="accent_jellyfin_purple">Jellyfin purple</string>
+    <string name="accent_red">Red</string>
+    <string name="accent_orange">Orange</string>
+    <string name="accent_amber">Amber</string>
+    <string name="accent_green">Green</string>
+    <string name="accent_pink">Pink</string>
     <string name="dynamic_colors_summary">Use Material You Dynamic colors (only available on Android 12+)</string>
     <string name="extra_info">Display Extra Info</string>
     <string name="extra_info_summary">Displays detailed information about Audio, Video and Subtitles</string>

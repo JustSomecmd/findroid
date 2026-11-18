@@ -187,6 +187,16 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     backendPreference =
                                                         appPreferences.dynamicColors,
                                                 ),
+                                                PreferenceSelect(
+                                                    nameStringResource = R.string.accent_color,
+                                                    descriptionStringRes =
+                                                        R.string.accent_color_summary,
+                                                    supportedDeviceTypes = listOf(DeviceType.PHONE),
+                                                    backendPreference = appPreferences.accentColor,
+                                                    options = R.array.accent_colors,
+                                                    optionValues = R.array.accent_colors_values,
+                                                    optionColors = R.array.accent_colors_swatches,
+                                                ),
                                             ),
                                     ),
                                     PreferenceGroup(

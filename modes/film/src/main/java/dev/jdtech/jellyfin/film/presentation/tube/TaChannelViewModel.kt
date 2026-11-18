@@ -27,8 +27,6 @@ enum class TaChannelTab(val videoType: String?) {
     SHORTS("shorts"),
     STREAMS("streams"),
     PLAYLISTS(null),
-    /** The channel's own settings. */
-    SETTINGS(null),
 }
 
 data class TaChannelState(
@@ -36,17 +34,18 @@ data class TaChannelState(
     val nav: TaChannelNav? = null,
     val tab: TaChannelTab = TaChannelTab.VIDEOS,
     val error: String? = null,
+    /** Showing the channel's side on the server: its settings and details. */
+    val serverSide: Boolean = false,
 ) {
     /** The tabs this channel has anything in. */
     val tabs: List<TaChannelTab>
         get() {
-            val nav = nav ?: return listOf(TaChannelTab.VIDEOS, TaChannelTab.SETTINGS)
+            val nav = nav ?: return listOf(TaChannelTab.VIDEOS)
             return buildList {
                 if (nav.hasVideos || (!nav.hasShorts && !nav.hasStreams)) add(TaChannelTab.VIDEOS)
                 if (nav.hasShorts) add(TaChannelTab.SHORTS)
                 if (nav.hasStreams) add(TaChannelTab.STREAMS)
                 if (nav.hasPlaylists) add(TaChannelTab.PLAYLISTS)
-                add(TaChannelTab.SETTINGS)
             }
         }
 }
@@ -105,12 +104,29 @@ class TaChannelViewModel @Inject constructor(private val taApi: TaApi) : ViewMod
     fun selectTab(tab: TaChannelTab) {
         if (tab == _state.value.tab) return
         _state.update { it.copy(tab = tab) }
-        if (tab == TaChannelTab.SETTINGS) {
-            loadGlobalConfig()
-            return
-        }
         if (tab.videoType != null) _videos.value = TaListState()
         loadMore()
+    }
+
+    fun toggleServerSide() {
+        val serverSide = !_state.value.serverSide
+        _state.update { it.copy(serverSide = serverSide) }
+        if (serverSide) loadGlobalConfig()
+    }
+
+    /** Asks TubeArchivist to look the channel up again, and its videos too with [withVideos]. */
+    fun refresh(withVideos: Boolean) {
+        val channelId = channelId ?: return
+        viewModelScope.launch {
+            try {
+                taApi.refresh("channel", channelId, withVideos)
+                _messages.send(TaMessages.REFRESH_STARTED)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            }
+        }
     }
 
     private fun loadGlobalConfig() {
@@ -148,7 +164,6 @@ class TaChannelViewModel @Inject constructor(private val taApi: TaApi) : ViewMod
     fun loadMore() {
         val channelId = channelId ?: return
         val tab = _state.value.tab
-        if (tab == TaChannelTab.SETTINGS) return
         viewModelScope.launch {
             if (tab == TaChannelTab.PLAYLISTS) {
                 _playlists.loadNextPage(key = { it.id }) { page ->

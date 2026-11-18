@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin.settings.presentation.models
 
+import androidx.annotation.ArrayRes
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import dev.jdtech.jellyfin.settings.domain.models.Preference as PreferenceBackend
@@ -17,5 +18,7 @@ data class PreferenceSelect(
     val options: Int,
     val optionValues: Int,
     val optionsIncludeNull: Boolean = false,
+    /** Optional array of colors (#RRGGBB, or empty) shown next to each option. */
+    @param:ArrayRes val optionColors: Int? = null,
     val value: String? = null,
 ) : Preference

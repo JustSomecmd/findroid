@@ -88,4 +88,5 @@ object TaMessages {
     const val ADDED_TO_QUEUE = "ta:added_to_queue"
     const val TASK_STARTED = "ta:task_started"
     const val SAVED = "ta:saved"
+    const val REFRESH_STARTED = "ta:refresh_started"
 }

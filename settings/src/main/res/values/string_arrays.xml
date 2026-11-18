@@ -10,6 +10,40 @@
         <item>light</item>
         <item>dark</item>
     </string-array>
+    <string-array name="accent_colors">
+        <item>@string/accent_default</item>
+        <item>@string/accent_tubearchivist</item>
+        <item>@string/accent_jellyfin_blue</item>
+        <item>@string/accent_jellyfin_purple</item>
+        <item>@string/accent_red</item>
+        <item>@string/accent_orange</item>
+        <item>@string/accent_amber</item>
+        <item>@string/accent_green</item>
+        <item>@string/accent_pink</item>
+    </string-array>
+    <string-array name="accent_colors_values">
+        <item>default</item>
+        <item>tubearchivist</item>
+        <item>jellyfin_blue</item>
+        <item>jellyfin_purple</item>
+        <item>red</item>
+        <item>orange</item>
+        <item>amber</item>
+        <item>green</item>
+        <item>pink</item>
+    </string-array>
+    <!-- Swatch of each accent color, empty for the app's own -->
+    <string-array name="accent_colors_swatches">
+        <item></item>
+        <item>#259485</item>
+        <item>#00A4DC</item>
+        <item>#AA5CC3</item>
+        <item>#E53935</item>
+        <item>#F4511E</item>
+        <item>#FFB300</item>
+        <item>#43A047</item>
+        <item>#D81B60</item>
+    </string-array>
     <string-array name="stream_quality">
         <item>Original (no conversion)</item>
         <item>1080p · 8 Mbps</item>

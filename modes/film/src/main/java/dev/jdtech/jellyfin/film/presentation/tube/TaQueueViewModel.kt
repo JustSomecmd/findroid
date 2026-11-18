@@ -19,6 +19,17 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
+/** The video TubeArchivist is downloading right now. */
+data class TaDownloading(
+    val taskId: String,
+    val title: String,
+    /** Such as "45.3% of 120MiB at 5MiB/s - time left: 00:20". */
+    val detail: String?,
+    val progress: Double?,
+    /** The video in the queue, when it could be matched by its title. */
+    val item: TaDownloadItem?,
+)
+
 enum class TaQueueFilter(val apiValue: String) {
     PENDING("pending"),
     IGNORED("ignore"),
@@ -36,6 +47,12 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
     /** Tasks running on the server, such as a rescan or downloads, with their progress. */
     private val _tasks = MutableStateFlow<List<TaNotification>>(emptyList())
     val tasks = _tasks.asStateFlow()
+
+    private val _downloading = MutableStateFlow<TaDownloading?>(null)
+    val downloading = _downloading.asStateFlow()
+
+    // Everything the server reported last time, the downloads included
+    private var lastNotifications: List<TaNotification> = emptyList()
 
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages = _messages.receiveAsFlow()
@@ -74,7 +91,7 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
         if (pollJob?.isActive == true) return
         pollJob = viewModelScope.launch {
             while (isActive) {
-                val before = _tasks.value
+                val before = lastNotifications
                 val now =
                     try {
                         taApi.getNotifications()
@@ -84,9 +101,18 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
                         Timber.w(e, "Could not load TubeArchivist tasks")
                         before
                     }
-                _tasks.value = now
-                // A task finished, so the queue has probably changed
-                if (before.isNotEmpty() && now.size < before.size) refresh()
+                lastNotifications = now
+                val downloadBefore = _downloading.value
+                val download = now.firstOrNull { it.group == DOWNLOAD_GROUP }?.toDownloading()
+                _downloading.value = download
+                // The downloads are shown on their own, not with the other tasks
+                _tasks.value = now.filter { it.group != DOWNLOAD_GROUP }
+                when {
+                    // A task finished, so the queue has probably changed
+                    before.isNotEmpty() && now.size < before.size -> refresh()
+                    // The next video started, so the last one is done and leaves the queue
+                    downloadBefore != null && download?.title != downloadBefore.title -> refresh()
+                }
                 delay(if (now.isEmpty()) IDLE_POLL_MS else ACTIVE_POLL_MS)
             }
         }
@@ -107,6 +133,33 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
         runAction(TaMessages.ADDED_TO_QUEUE) {
             taApi.addToQueue(urls, autostart = downloadNow, flat = fastAdd, force = redownload)
         }
+    }
+
+    /** Stops downloading after the current step. */
+    fun stopDownloading() {
+        val taskId = _downloading.value?.taskId ?: return
+        viewModelScope.launch {
+            try {
+                taApi.stopTask(taskId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
+    private fun TaNotification.toDownloading(): TaDownloading? {
+        val first = messages.firstOrNull() ?: return null
+        // Named by the video's title, and "Processing Video: title" once it is downloaded
+        val title = first.replace(Regex("""^Processing \w+: """), "")
+        return TaDownloading(
+            taskId = id,
+            title = title,
+            detail = messages.getOrNull(1),
+            progress = progress?.takeIf { it > 0 },
+            item = _items.value.items.firstOrNull { it.title == title },
+        )
     }
 
     fun startDownloading() =
@@ -186,6 +239,7 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
     }
 
     companion object {
+        private const val DOWNLOAD_GROUP = "download:run"
         private const val ACTIVE_POLL_MS = 2_000L
         private const val IDLE_POLL_MS = 10_000L
     }

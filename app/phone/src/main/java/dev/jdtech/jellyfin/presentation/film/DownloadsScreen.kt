@@ -50,6 +50,7 @@ import dev.jdtech.jellyfin.presentation.film.components.CollectionGrid
 import dev.jdtech.jellyfin.presentation.film.components.ReorderableDownloadQueue
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.tube.TaSideTitle
 import dev.jdtech.jellyfin.utils.DownloadStatus
 import java.util.UUID
 
@@ -57,6 +58,8 @@ import java.util.UUID
 fun DownloadsScreen(
     onItemClick: (item: FindroidItem) -> Unit,
     viewModel: DownloadsViewModel = hiltViewModel(),
+    /** Switches to the downloads on the TubeArchivist server; the switch isn't shown without it. */
+    onSwitchSide: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activeDownloads by viewModel.activeDownloads.collectAsStateWithLifecycle()
@@ -68,6 +71,7 @@ fun DownloadsScreen(
         activeDownloads = activeDownloads,
         onActiveDownloadClick = { item -> onItemClick(item) },
         onReorderQueue = { itemIds -> viewModel.reorderQueue(itemIds) },
+        onSwitchSide = onSwitchSide,
         onAction = { action ->
             when (action) {
                 is CollectionAction.OnItemClick -> onItemClick(action.item)
@@ -85,6 +89,7 @@ private fun DownloadsScreenLayout(
     activeDownloads: List<ActiveDownload> = emptyList(),
     onActiveDownloadClick: (FindroidItem) -> Unit = {},
     onReorderQueue: (List<UUID>) -> Unit = {},
+    onSwitchSide: (() -> Unit)? = null,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val gridState = rememberLazyGridState()
@@ -96,7 +101,17 @@ private fun DownloadsScreenLayout(
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
-                title = { Text(text = stringResource(CoreR.string.title_download)) },
+                title = {
+                    if (onSwitchSide != null) {
+                        TaSideTitle(
+                            title = stringResource(CoreR.string.title_download),
+                            onServer = false,
+                            onToggle = onSwitchSide,
+                        )
+                    } else {
+                        Text(text = stringResource(CoreR.string.title_download))
+                    }
+                },
                 windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
                 scrollBehavior = scrollBehavior,
             )

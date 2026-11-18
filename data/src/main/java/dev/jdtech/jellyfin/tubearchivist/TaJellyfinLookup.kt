@@ -8,6 +8,8 @@ import kotlinx.coroutines.withContext
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.ItemFields
+import org.jellyfin.sdk.model.api.ItemSortBy
+import org.jellyfin.sdk.model.api.SortOrder
 
 /** Name the TubeArchivist Jellyfin plugin stores its IDs under. */
 private const val PROVIDER_NAME = "TubeArchivist"
@@ -154,6 +156,31 @@ class TaJellyfinLookup(private val jellyfinApi: JellyfinApi) {
                     .items
             rememberSeries(allSeries)
             seriesIds[channelId]
+        }
+
+    /**
+     * TubeArchivist video IDs of the episodes last played in Jellyfin, most recent first.
+     * TubeArchivist doesn't keep when something was watched, but Jellyfin does.
+     */
+    suspend fun recentlyPlayedVideoIds(limit: Int = 100): List<String> =
+        withContext(Dispatchers.IO) {
+            val userId = jellyfinApi.userId ?: return@withContext emptyList()
+            val items =
+                jellyfinApi.libraryApi
+                    .getItems(
+                        userId = userId,
+                        includeItemTypes = listOf(BaseItemKind.EPISODE),
+                        recursive = true,
+                        sortBy = listOf(ItemSortBy.DATE_PLAYED),
+                        sortOrder = listOf(SortOrder.DESCENDING),
+                        fields = LOOKUP_FIELDS,
+                        limit = limit,
+                        enableImages = false,
+                    )
+                    .content
+                    .items
+            remember(items)
+            items.mapNotNull { it.tubeArchivistId() }
         }
 
     /** The TubeArchivist video ID of a Jellyfin item, or null if it isn't from TubeArchivist. */

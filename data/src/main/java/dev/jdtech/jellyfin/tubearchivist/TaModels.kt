@@ -36,6 +36,36 @@ data class TaVideo(
     val stats: TaStats? = null,
     val sponsorblock: TaSponsorBlock? = null,
     val tags: List<String> = emptyList(),
+    val category: List<String> = emptyList(),
+    /** Where the file is on the server, such as /media/UC.../abc.mp4. */
+    @SerialName("media_url") val mediaUrl: String? = null,
+    val streams: List<TaStream> = emptyList(),
+    val subtitles: List<TaSubtitle> = emptyList(),
+    @SerialName("vid_last_refresh") val lastRefresh: String? = null,
+    /** False when the video is gone from YouTube. */
+    val active: Boolean? = null,
+    /** IDs of the playlists the video is in. */
+    val playlist: List<String> = emptyList(),
+)
+
+/** A video or audio stream in the downloaded file. */
+@Serializable
+data class TaStream(
+    val type: String = "",
+    val codec: String = "",
+    val bitrate: Long? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val index: Int? = null,
+)
+
+@Serializable
+data class TaSubtitle(
+    val lang: String = "",
+    val name: String? = null,
+    /** user for subtitles from the uploader, auto for automatic ones */
+    val source: String? = null,
+    val ext: String? = null,
 )
 
 @Serializable
@@ -77,6 +107,9 @@ data class TaChannel(
     @SerialName("channel_thumb_url") val thumbUrl: String? = null,
     @SerialName("channel_banner_url") val bannerUrl: String? = null,
     @SerialName("channel_tvart_url") val tvArtUrl: String? = null,
+    @SerialName("channel_last_refresh") val lastRefresh: String? = null,
+    /** False when the channel is gone from YouTube. */
+    @SerialName("channel_active") val active: Boolean? = null,
     /**
      * Settings of this channel that replace the global ones, such as download_format. A missing key
      * means the global setting is used.
@@ -105,6 +138,10 @@ data class TaPlaylist(
     @SerialName("playlist_subscribed") val subscribed: Boolean = false,
     @SerialName("playlist_type") val type: String? = null,
     @SerialName("playlist_entries") val entries: List<TaPlaylistEntry> = emptyList(),
+    @SerialName("playlist_last_refresh") val lastRefresh: String? = null,
+    @SerialName("playlist_active") val active: Boolean? = null,
+    /** top or bottom: where new videos are added */
+    @SerialName("playlist_sort_order") val sortOrder: String? = null,
 )
 
 @Serializable
