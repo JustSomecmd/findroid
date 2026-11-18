@@ -34,6 +34,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.ContextCompat
@@ -175,6 +176,28 @@ class PlayerActivity : BasePlayerActivity() {
         val lockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_lockview)
         val unlockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_unlock)
         val rotateButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotate)
+        val autoplayButton = binding.playerView.findViewById<ImageButton>(R.id.btn_autoplay)
+        val upNextCard = binding.playerView.findViewById<View>(R.id.up_next_card)
+        val upNextLabel = binding.playerView.findViewById<TextView>(R.id.up_next_label)
+        val upNextTitle = binding.playerView.findViewById<TextView>(R.id.up_next_title)
+
+        autoplayButton.setOnClickListener {
+            val enabled = !viewModel.uiState.value.autoplay
+            viewModel.setAutoplay(enabled)
+            Toast.makeText(
+                    this,
+                    if (enabled) PlayerR.string.player_autoplay_on
+                    else PlayerR.string.player_autoplay_off,
+                    Toast.LENGTH_SHORT,
+                )
+                .show()
+        }
+        binding.playerView.findViewById<View>(R.id.up_next_play).setOnClickListener {
+            viewModel.playNextNow()
+        }
+        binding.playerView.findViewById<View>(R.id.up_next_cancel).setOnClickListener {
+            viewModel.cancelUpNext()
+        }
 
         // Sits between the picture and the controls
         val audioOnlyOverlay =
@@ -186,6 +209,7 @@ class PlayerActivity : BasePlayerActivity() {
 
         applyButtonLayout(
             mapOf(
+                PlayerButton.AUTOPLAY to autoplayButton,
                 PlayerButton.LOCK to lockButton,
                 PlayerButton.PIP to pipButton,
                 PlayerButton.CHAPTERS to chaptersButton,
@@ -228,6 +252,25 @@ class PlayerActivity : BasePlayerActivity() {
                                 }
                             } ?: run { skipSegmentButton.isVisible = false }
                             hasCurrentSegment = currentSegment != null
+
+                            // Autoplay: the switch, and the next video near the end of this one
+                            autoplayButton.setImageResource(
+                                if (autoplay) CoreR.drawable.ic_autoplay_on
+                                else CoreR.drawable.ic_autoplay_off
+                            )
+                            autoplayButton.contentDescription =
+                                getString(
+                                    if (autoplay) PlayerR.string.player_autoplay_on
+                                    else PlayerR.string.player_autoplay_off
+                                )
+                            upNextCard.isVisible = upNext != null && !isInPictureInPictureMode
+                            upNext?.let { next ->
+                                upNextLabel.text =
+                                    getString(PlayerR.string.player_up_next_in, next.secondsLeft)
+                                upNextTitle.text = next.title
+                                // Playing the next one now does what the skip button would
+                                skipSegmentButton.isVisible = false
+                            }
 
                             // Trickplay
                             previewScrubListener?.let { it.currentTrickplay = currentTrickplay }
@@ -413,6 +456,7 @@ class PlayerActivity : BasePlayerActivity() {
             itemKind = itemKind ?: "",
             startFromBeginning = startFromBeginning,
             startPositionMs = intent.extras?.getLong("position", 0L),
+            taPlaylistId = intent.extras?.getString("taPlaylistId"),
         )
         hideSystemUI()
     }
@@ -423,6 +467,14 @@ class PlayerActivity : BasePlayerActivity() {
             while (true) {
                 viewModel.updatePlaybackProgress()
                 delay(5000L)
+            }
+        }
+
+        // Shows the next video, and counts down to it, near the end of each one
+        scope.launch {
+            while (true) {
+                viewModel.updateUpNext()
+                delay(500L)
             }
         }
 
@@ -452,6 +504,7 @@ class PlayerActivity : BasePlayerActivity() {
             itemKind = itemKind ?: "",
             startFromBeginning = startFromBeginning,
             startPositionMs = intent.extras?.getLong("position", 0L),
+            taPlaylistId = intent.extras?.getString("taPlaylistId"),
         )
     }
 
@@ -685,6 +738,10 @@ class PlayerActivity : BasePlayerActivity() {
         binding.playerView.findViewById<DefaultTimeBar>(R.id.exo_progress)?.apply {
             setPlayedColor(accent)
             setScrubberColor(accent)
+        }
+        binding.playerView.findViewById<Button>(R.id.up_next_play)?.apply {
+            backgroundTintList = ColorStateList.valueOf(accent)
+            setTextColor(scheme.onPrimary.toArgb())
         }
     }
 

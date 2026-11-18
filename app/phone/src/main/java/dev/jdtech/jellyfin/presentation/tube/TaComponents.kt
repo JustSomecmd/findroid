@@ -449,6 +449,7 @@ fun taMessageText(context: Context, message: String): String =
         TaMessages.ADDED_TO_QUEUE -> context.getString(CoreR.string.ta_added_to_queue)
         TaMessages.REDOWNLOAD_STARTED -> context.getString(CoreR.string.ta_redownload_started)
         TaMessages.DELETED -> context.getString(CoreR.string.ta_deleted)
+        TaMessages.NOT_IN_JELLYFIN -> context.getString(CoreR.string.ta_not_in_jellyfin)
         TaMessages.TASK_STARTED -> context.getString(CoreR.string.ta_task_started)
         TaMessages.SAVED -> context.getString(CoreR.string.ta_saved)
         TaMessages.REFRESH_STARTED -> context.getString(CoreR.string.ta_refresh_started)

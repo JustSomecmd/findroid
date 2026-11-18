@@ -761,6 +761,7 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
     entry<TaVideoRoute> { key ->
         TaVideoScreen(
             videoId = key.videoId,
+            playlistId = key.playlistId,
             onVideoClick = resumedAction<String> { openVideo(it) },
             onChannelClick = resumedAction<String> { openChannel(it) },
             navigateBack = dropUnlessResumed { navigator.goBack() },
@@ -777,7 +778,9 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
     entry<TaPlaylistRoute> { key ->
         TaPlaylistScreen(
             playlistId = key.playlistId,
-            onVideoClick = resumedAction<String> { openVideo(it) },
+            // Played from here, the playlist's next videos follow
+            onVideoClick =
+                resumedAction<String> { navigator.navigate(TaVideoRoute(it, key.playlistId)) },
             onChannelClick = resumedAction<String> { openChannel(it) },
             navigateBack = dropUnlessResumed { navigator.goBack() },
         )

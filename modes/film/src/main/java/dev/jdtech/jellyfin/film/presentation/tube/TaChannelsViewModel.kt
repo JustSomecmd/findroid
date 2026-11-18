@@ -101,4 +101,5 @@ object TaMessages {
     const val REFRESH_STARTED = "ta:refresh_started"
     const val REDOWNLOAD_STARTED = "ta:redownload_started"
     const val DELETED = "ta:deleted"
+    const val NOT_IN_JELLYFIN = "ta:not_in_jellyfin"
 }

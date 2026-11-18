@@ -27,6 +27,8 @@
     <string name="pref_player_mpv_hwdec">Hardware decoding</string>
     <string name="pref_player_mpv_vo">Video output</string>
     <string name="pref_player_mpv_ao">Audio output</string>
+    <string name="pref_player_autoplay">Autoplay</string>
+    <string name="pref_player_autoplay_summary">Play the next video when one ends. Can also be switched in the player.</string>
     <string name="pref_player_accent_controls">Accent colored controls</string>
     <string name="pref_player_accent_controls_summary">A grey play button with the arrow in the accent color, and the other buttons in the accent color too</string>
     <string name="pref_player_trickplay">Trickplay</string>
@@ -155,6 +157,7 @@
     <string name="player_button_placement_top">Top bar</string>
     <string name="player_button_placement_bottom">Bottom bar</string>
     <string name="player_button_placement_hidden">Hidden</string>
+    <string name="player_button_autoplay">Autoplay</string>
     <string name="player_button_lock">Lock controls</string>
     <string name="player_button_pip">Picture-in-picture</string>
     <string name="player_button_chapters">Chapters</string>

@@ -1,6 +1,10 @@
 package dev.jdtech.jellyfin.presentation.tube
 
+import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -39,7 +43,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,11 +54,13 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.film.presentation.tube.TaContinueItem
 import dev.jdtech.jellyfin.film.presentation.tube.TaHomeViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.TaServersInfo
 import dev.jdtech.jellyfin.presentation.film.components.HomeHeader
 import dev.jdtech.jellyfin.presentation.film.components.ServerSelectionBottomSheet
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.utils.ObserveAsEvents
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,6 +77,21 @@ fun TaHomeScreen(
     var showServers by rememberSaveable { mutableStateOf(false) }
     var showJellyfinServers by rememberSaveable { mutableStateOf(false) }
     val continueWatching by viewModel.continueWatching.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // Carrying on with a playlist starts the player straight away
+    ObserveAsEvents(viewModel.play) { request ->
+        startTaPlayback(
+            context = context,
+            episodeId = request.episodeId,
+            startFromBeginning = false,
+            positionSeconds = request.positionSeconds,
+            playlistId = request.playlistId,
+        )
+    }
+    ObserveAsEvents(viewModel.messages) { message ->
+        Toast.makeText(context, taMessageText(context, message), Toast.LENGTH_LONG).show()
+    }
     val latest by viewModel.latest.collectAsStateWithLifecycle()
     val featured by viewModel.featured.collectAsStateWithLifecycle()
 
@@ -144,11 +167,19 @@ fun TaHomeScreen(
                                 horizontalArrangement =
                                     Arrangement.spacedBy(MaterialTheme.spacings.medium)
                             ) {
-                                items(continueWatching, key = { it.youtubeId }) { video ->
-                                    TaVideoSmallCard(
-                                        video = video,
-                                        onClick = { onVideoClick(video.youtubeId) },
-                                    )
+                                items(continueWatching, key = { it.key }) { item ->
+                                    when (item) {
+                                        is TaContinueItem.Video ->
+                                            TaVideoSmallCard(
+                                                video = item.video,
+                                                onClick = { onVideoClick(item.video.youtubeId) },
+                                            )
+                                        is TaContinueItem.Playlist ->
+                                            TaPlaylistResumeCard(
+                                                item = item,
+                                                onClick = { viewModel.resumePlaylist(item) },
+                                            )
+                                    }
                                 }
                             }
                         }
@@ -332,6 +363,60 @@ private fun TaServerCard(
                 }
             }
             TextButton(onClick = onButtonClick) { Text(buttonText) }
+        }
+    }
+}
+
+/**
+ * A playlist being watched through, on Continue watching: the video it's at, with the playlist's
+ * name and how far into it that is. Tapping it carries on playing the playlist from there.
+ */
+@Composable
+private fun TaPlaylistResumeCard(item: TaContinueItem.Playlist, onClick: () -> Unit) {
+    Column(
+        modifier =
+            Modifier.width(240.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = onClick)
+    ) {
+        Box {
+            TaVideoThumbnail(video = item.video, modifier = Modifier.fillMaxWidth())
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier =
+                    Modifier.align(Alignment.TopStart)
+                        .padding(MaterialTheme.spacings.small)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Icon(
+                    painter = painterResource(CoreR.drawable.ic_list_video),
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text =
+                        stringResource(CoreR.string.ta_playlist_position, item.number, item.count),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                )
+            }
+        }
+        Column(modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 10.dp)) {
+            Text(
+                text = item.name,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = item.video.title,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

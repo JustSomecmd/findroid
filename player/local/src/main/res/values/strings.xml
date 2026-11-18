@@ -38,5 +38,11 @@
     <string name="player_controls_rotate">Switch between portrait and landscape</string>
     <string name="player_pip_background">Listen in background</string>
     <string name="player_pip_play">Play</string>
+    <string name="player_autoplay">Autoplay</string>
+    <string name="player_autoplay_on">Autoplay on</string>
+    <string name="player_autoplay_off">Autoplay off</string>
+    <string name="player_up_next_in">Up next in %1$d</string>
+    <string name="player_up_next_play">Play now</string>
+    <string name="player_up_next_cancel">Cancel</string>
     <string name="player_pip_pause">Pause</string>
 </resources>

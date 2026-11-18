@@ -2,6 +2,7 @@ package dev.jdtech.jellyfin.settings.domain
 
 /** The player's optional buttons, which the user can move between bars or hide. */
 enum class PlayerButton(val key: String, val defaultPlacement: PlayerButtonPlacement) {
+    AUTOPLAY("autoplay", PlayerButtonPlacement.TOP),
     LOCK("lock", PlayerButtonPlacement.TOP),
     PIP("pip", PlayerButtonPlacement.TOP),
     CHAPTERS("chapters", PlayerButtonPlacement.TOP),

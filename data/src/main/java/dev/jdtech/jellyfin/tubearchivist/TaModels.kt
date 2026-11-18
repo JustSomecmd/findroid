@@ -147,6 +147,7 @@ data class TaPlaylist(
 @Serializable
 data class TaPlaylistEntry(
     @SerialName("youtube_id") val youtubeId: String,
+    val title: String = "",
     val downloaded: Boolean = false,
 )
 

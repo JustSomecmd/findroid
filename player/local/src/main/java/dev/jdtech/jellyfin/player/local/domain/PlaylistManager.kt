@@ -14,6 +14,8 @@ import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.core.domain.models.TrickplayInfo
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.tubearchivist.TaApi
+import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
@@ -27,6 +29,8 @@ class PlaylistManager
 internal constructor(
     private val repository: JellyfinRepository,
     appPreferences: AppPreferences,
+    private val taApi: TaApi,
+    private val taJellyfinLookup: TaJellyfinLookup,
 ) {
     private var startItem: FindroidItem? = null
     private var items: List<FindroidItem> = emptyList()
@@ -35,6 +39,78 @@ internal constructor(
 
     // True when playing a Jellyfin playlist, which can mix movies and episodes
     private var isPlaylist = false
+
+    // A TubeArchivist playlist being played: its downloaded videos in order, the one playing, and
+    // the Jellyfin episodes found for them so far
+    private var taQueue: List<TaQueueEntry>? = null
+    private var taIndex = -1
+    private val taEpisodeIds = mutableMapOf<String, UUID>()
+
+    /**
+     * Plays the next and previous videos from a TubeArchivist playlist instead of the show's other
+     * episodes. Set before [getInitialItem]; null plays the show as usual.
+     */
+    fun setTubeArchivistQueue(entries: List<TaQueueEntry>?) {
+        taQueue = entries?.takeIf { it.isNotEmpty() }
+        taIndex = -1
+        taEpisodeIds.clear()
+    }
+
+    /** The TubeArchivist video playing from the playlist, if one is. */
+    val currentTaVideoId: String?
+        get() = taQueue?.getOrNull(taIndex)?.videoId
+
+    /** The playlist's video after the one playing, if there is one. */
+    val nextTaVideoId: String?
+        get() = taQueue?.getOrNull(taIndex + 1)?.videoId
+
+    /** The Jellyfin episode of a playlist video, found by its title or else through its channel. */
+    private suspend fun resolve(entry: TaQueueEntry): UUID? {
+        taEpisodeIds[entry.videoId]?.let {
+            return it
+        }
+        val id =
+            try {
+                taJellyfinLookup.findEpisodeId(entry.videoId, entry.title, null, null)
+                    ?: taApi.getVideo(entry.videoId).let { video ->
+                        taJellyfinLookup.findEpisodeId(
+                            videoId = entry.videoId,
+                            title = video.title,
+                            channelId = video.channel?.id,
+                            channelName = video.channel?.name,
+                        )
+                    }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Could not find playlist video ${entry.videoId} in Jellyfin")
+                null
+            }
+        if (id != null) taEpisodeIds[entry.videoId] = id
+        return id
+    }
+
+    /**
+     * The player item of the first playlist video in [indices] that Jellyfin has, or null if there
+     * is none or it's already queued.
+     */
+    private suspend fun taPlayerItem(indices: IntProgression): PlayerItem? {
+        val queue = taQueue ?: return null
+        for (index in indices) {
+            val entry = queue.getOrNull(index) ?: continue
+            val id = resolve(entry) ?: continue
+            if (playerItems.any { it.itemId == id }) return null
+            return try {
+                repository.getEpisode(id).toPlayerItem(null, 0L).also { playerItems.add(it) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to retrieve playlist video ${entry.videoId}")
+                null
+            }
+        }
+        return null
+    }
 
     /** Quality used for streamed items. Changing it applies to items loaded from then on. */
     var quality: StreamQuality =
@@ -145,6 +221,25 @@ internal constructor(
 
         currentItemIndex = items.indexOfFirst { it.id == initialItem.id }
 
+        // Where the video is in the TubeArchivist playlist; one that isn't in it plays as usual
+        taQueue?.let { queue ->
+            val videoId =
+                try {
+                    taJellyfinLookup.videoIdForItem(initialItem.id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not find the TubeArchivist video of ${initialItem.id}")
+                    null
+                }
+            taIndex = queue.indexOfFirst { it.videoId == videoId }
+            if (taIndex < 0 || videoId == null) {
+                taQueue = null
+            } else {
+                taEpisodeIds[videoId] = initialItem.id
+            }
+        }
+
         val playbackPosition =
             if (!startFromBeginning) initialItem.playbackPositionTicks.div(10000) else 0
         val playerItem = initialItem.toPlayerItem(mediaSourceIndex, playbackPosition)
@@ -155,6 +250,7 @@ internal constructor(
 
     suspend fun getPreviousPlayerItem(): PlayerItem? {
         Timber.d("Retrieving previous player item")
+        if (taQueue != null) return taPlayerItem(taIndex - 1 downTo 0)
 
         val itemIndex = currentItemIndex - 1
         val playerItem =
@@ -188,6 +284,9 @@ internal constructor(
 
     suspend fun getNextPlayerItem(): PlayerItem? {
         Timber.d("Retrieving next player item")
+        taQueue?.let { queue ->
+            return taPlayerItem(taIndex + 1..queue.lastIndex)
+        }
 
         val itemIndex = currentItemIndex + 1
         val playerItem =
@@ -221,11 +320,18 @@ internal constructor(
 
     fun setCurrentMediaItemIndex(itemId: UUID) {
         currentItemIndex = items.indexOfFirst { it.id == itemId }
+        taQueue?.let { queue ->
+            val index = queue.indexOfFirst { taEpisodeIds[it.videoId] == itemId }
+            if (index >= 0) taIndex = index
+        }
     }
 
     /** Loads a queued item again with the current [quality]. */
     suspend fun reloadPlayerItem(playerItem: PlayerItem): PlayerItem? {
-        val item = items.firstOrNull { it.id == playerItem.itemId } ?: return null
+        val item =
+            items.firstOrNull { it.id == playerItem.itemId }
+                ?: playerItem.takeIf { taQueue != null }?.let { repository.getEpisode(it.itemId) }
+                ?: return null
         val reloaded = item.toPlayerItem(null, playerItem.playbackPosition)
         val index = playerItems.indexOfFirst { it.itemId == playerItem.itemId }
         if (index != -1) playerItems[index] = reloaded
@@ -351,3 +457,6 @@ internal constructor(
         }
     }
 }
+
+/** A video of a TubeArchivist playlist, to be played after or before the others. */
+data class TaQueueEntry(val videoId: String, val title: String)

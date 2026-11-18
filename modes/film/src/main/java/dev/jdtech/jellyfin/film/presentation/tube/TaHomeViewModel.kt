@@ -9,11 +9,16 @@ import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSession
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
+import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -27,13 +32,22 @@ constructor(
     private val taJellyfinLookup: TaJellyfinLookup,
     private val database: ServerDatabaseDao,
     private val appPreferences: AppPreferences,
+    private val playlistSessions: TaPlaylistSessions,
 ) : ViewModel() {
     private val _servers = MutableStateFlow(TaServersInfo())
     /** The Jellyfin and TubeArchivist servers the app is connected to. */
     val servers = _servers.asStateFlow()
 
-    private val _continueWatching = MutableStateFlow<List<TaVideo>>(emptyList())
+    private val _continueWatching = MutableStateFlow<List<TaContinueItem>>(emptyList())
+    /** Videos part way through, and playlists being watched through, most recent first. */
     val continueWatching = _continueWatching.asStateFlow()
+
+    /** Asks the page to start the player, to carry on with a playlist. */
+    private val _play = Channel<TaPlayRequest>(Channel.BUFFERED)
+    val play = _play.receiveAsFlow()
+
+    private val _messages = Channel<String>(Channel.BUFFERED)
+    val messages = _messages.receiveAsFlow()
 
     private val _latest = MutableStateFlow(TaListState<TaVideo>())
     val latest = _latest.asStateFlow()
@@ -147,10 +161,25 @@ constructor(
                         Timber.w(e, "Could not get the play order from Jellyfin")
                         emptyList()
                     }
-                _continueWatching.value =
-                    videos.reversed().sortedBy { video ->
-                        recent.indexOf(video.youtubeId).let { if (it < 0) Int.MAX_VALUE else it }
+                fun rank(videoId: String): Int =
+                    recent.indexOf(videoId).let { if (it < 0) Int.MAX_VALUE else it }
+
+                // A playlist takes the place of its video, ranked by the last video played in it
+                val playlists =
+                    playlistSessions.sessions.value.take(MAX_PLAYLISTS).mapNotNull { session ->
+                        resolvePlaylist(session)?.let { it to rank(session.videoId) }
                     }
+                val inPlaylists = playlists.flatMap { (item, _) ->
+                    listOf(item.video.youtubeId, item.lastVideoId)
+                }
+                val single =
+                    videos
+                        .reversed()
+                        .filter { it.youtubeId !in inPlaylists }
+                        .map { TaContinueItem.Video(it) to rank(it.youtubeId) }
+
+                _continueWatching.value =
+                    (playlists + single).sortedBy { (_, rank) -> rank }.map { (item, _) -> item }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -159,9 +188,75 @@ constructor(
         }
     }
 
+    /**
+     * The video a playlist is at, or the next one if that was watched. Forgets the playlist when
+     * it's gone or was watched to the end.
+     */
+    private suspend fun resolvePlaylist(session: TaPlaylistSession): TaContinueItem.Playlist? =
+        try {
+            val playlist = taApi.getPlaylist(session.playlistId)
+            val entries = playlist.entries.filter { it.downloaded }
+            var index = entries.indexOfFirst { it.youtubeId == session.videoId }
+            var video = entries.getOrNull(index)?.let { taApi.getVideo(it.youtubeId) }
+            if (video?.player?.watched == true) {
+                index++
+                video = entries.getOrNull(index)?.let { taApi.getVideo(it.youtubeId) }
+            }
+            if (video == null) {
+                playlistSessions.remove(session.playlistId)
+                null
+            } else {
+                TaContinueItem.Playlist(
+                    playlistId = playlist.id,
+                    name = playlist.name.ifBlank { session.playlistName },
+                    video = video,
+                    number = index + 1,
+                    count = entries.size,
+                    lastVideoId = session.videoId,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Could not load playlist ${session.playlistId}")
+            null
+        }
+
+    /** Starts the player at the playlist's video, with the rest of the playlist after it. */
+    fun resumePlaylist(item: TaContinueItem.Playlist) {
+        viewModelScope.launch {
+            try {
+                val video = item.video
+                val episodeId =
+                    taJellyfinLookup.findEpisodeId(
+                        videoId = video.youtubeId,
+                        title = video.title,
+                        channelId = video.channel?.id,
+                        channelName = video.channel?.name,
+                    )
+                if (episodeId == null) {
+                    _messages.send(TaMessages.NOT_IN_JELLYFIN)
+                    return@launch
+                }
+                _play.send(
+                    TaPlayRequest(
+                        episodeId = episodeId,
+                        positionSeconds = video.player?.position,
+                        playlistId = item.playlistId,
+                    )
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
     companion object {
         private const val STALE_AFTER_MS = 60_000L
         private const val FEATURED_COUNT = 8
+        private const val MAX_PLAYLISTS = 5
     }
 }
 
@@ -174,3 +269,32 @@ data class TaServersInfo(
     val taVersion: String? = null,
     val taError: String? = null,
 )
+
+/** Something on Home's Continue watching row. */
+sealed interface TaContinueItem {
+    val key: String
+
+    data class Video(val video: TaVideo) : TaContinueItem {
+        override val key: String
+            get() = "video:" + video.youtubeId
+    }
+
+    /**
+     * A playlist being watched through, at [video], number [number] of its [count] videos.
+     * [lastVideoId] is the video last played in it.
+     */
+    data class Playlist(
+        val playlistId: String,
+        val name: String,
+        val video: TaVideo,
+        val number: Int,
+        val count: Int,
+        val lastVideoId: String,
+    ) : TaContinueItem {
+        override val key: String
+            get() = "playlist:$playlistId"
+    }
+}
+
+/** Play a video's Jellyfin episode from [positionSeconds], with its playlist after it. */
+data class TaPlayRequest(val episodeId: UUID, val positionSeconds: Double?, val playlistId: String?)

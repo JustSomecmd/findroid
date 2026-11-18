@@ -71,7 +71,7 @@ data class CollectionRoute(val collectionId: String, val collectionName: String)
 
 @Serializable data object TaSettingsRoute : NavKey
 
-@Serializable data class TaVideoRoute(val videoId: String) : NavKey
+@Serializable data class TaVideoRoute(val videoId: String, val playlistId: String? = null) : NavKey
 
 @Serializable data class TaChannelRoute(val channelId: String) : NavKey
 

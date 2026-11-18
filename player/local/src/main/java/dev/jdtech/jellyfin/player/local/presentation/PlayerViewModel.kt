@@ -27,6 +27,7 @@ import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.core.domain.models.Trickplay
 import dev.jdtech.jellyfin.player.local.R
 import dev.jdtech.jellyfin.player.local.domain.PlaylistManager
+import dev.jdtech.jellyfin.player.local.domain.TaQueueEntry
 import dev.jdtech.jellyfin.player.local.mpv.MPVPlayer
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
@@ -34,6 +35,7 @@ import dev.jdtech.jellyfin.settings.domain.Constants
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import java.util.UUID
 import javax.inject.Inject
@@ -66,6 +68,7 @@ constructor(
     private val taApi: TaApi,
     private val taJellyfinLookup: TaJellyfinLookup,
     private val taOfflineStore: TaOfflineStore,
+    private val taPlaylistSessions: TaPlaylistSessions,
 ) : ViewModel(), Player.Listener {
     val player: Player
 
@@ -101,12 +104,28 @@ constructor(
         val hasSubtitles: Boolean = false,
         /** Whether only the sound of the current item is streamed. */
         val isAudioOnly: Boolean = false,
+        /** Whether the next video plays on its own when this one ends. */
+        val autoplay: Boolean = true,
+        /** The video that plays next, shown while the current one is about to end. */
+        val upNext: UpNext? = null,
     )
+
+    /** The video that's about to play, and in how many seconds. */
+    data class UpNext(val title: String, val secondsLeft: Int)
 
     private var items: MutableList<PlayerItem> = mutableListOf()
 
-    // The streamed item that was already put back in step, so it is only done once per item
+    // The item that was already put back in step, so it is only done once per item
     private var resyncedMediaId: String? = null
+    private var resyncJob: Job? = null
+
+    // Whether the next video plays when one ends, and the video for which that was called off
+    private var autoplay = appPreferences.getValue(appPreferences.playerAutoplay)
+    private var upNextCancelledFor: String? = null
+
+    // The TubeArchivist playlist being played through, if the video was started from one
+    private var taPlaylistId: String? = null
+    private var taPlaylistName: String = ""
 
     // Switching to sound only while the player is in the background
     private var backgroundAudioOnlyJob: Job? = null
@@ -221,14 +240,36 @@ constructor(
         itemKind: String,
         startFromBeginning: Boolean,
         startPositionMs: Long? = null,
+        taPlaylistId: String? = null,
     ) {
         player.addListener(this)
+        _uiState.update { it.copy(autoplay = autoplay) }
         // A position from TubeArchivist, which may be newer than the one in Jellyfin
         if (!startFromBeginning && startPositionMs != null && startPositionMs > 0) {
             playbackPosition = startPositionMs
         }
 
         viewModelScope.launch {
+            // Started from a TubeArchivist playlist: its other videos play before and after
+            this@PlayerViewModel.taPlaylistId = null
+            playlistManager.setTubeArchivistQueue(null)
+            if (taPlaylistId != null) {
+                try {
+                    val playlist = taApi.getPlaylist(taPlaylistId)
+                    playlistManager.setTubeArchivistQueue(
+                        playlist.entries
+                            .filter { it.downloaded }
+                            .map { TaQueueEntry(videoId = it.youtubeId, title = it.title) }
+                    )
+                    this@PlayerViewModel.taPlaylistId = taPlaylistId
+                    taPlaylistName = playlist.name
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not load playlist $taPlaylistId, playing the video alone")
+                }
+            }
+
             val startItem =
                 try {
                     playlistManager.getInitialItem(
@@ -495,6 +536,9 @@ constructor(
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         Timber.d("Playing MediaItem: ${mediaItem?.mediaId}")
+        // A video that plays straight on from the last one doesn't pause in between
+        resyncJob?.cancel()
+        if (player.isPlaying) resyncOnce()
         savedStateHandle["mediaItemIndex"] = player.currentMediaItemIndex
         viewModelScope.launch {
             try {
@@ -541,6 +585,7 @@ constructor(
                         }
 
                         playlistManager.setCurrentMediaItemIndex(item.itemId)
+                        rememberPlaylistPosition()
 
                         val previousItem = playlistManager.getPreviousPlayerItem()
                         if (previousItem != null) {
@@ -588,10 +633,103 @@ constructor(
                 } catch (e: Exception) {
                     Timber.e(e)
                 }
-                player.seekToNextMediaItem()
-                player.play()
+                val cancelled = upNextCancelledFor == mediaId
+                _uiState.update { it.copy(upNext = null) }
+                if (autoplay && !cancelled && player.hasNextMediaItem()) {
+                    player.seekToNextMediaItem()
+                    player.play()
+                } else {
+                    // The playlist carries on from the next video next time
+                    taPlaylistId?.let { playlistId ->
+                        val next = playlistManager.nextTaVideoId
+                        if (next != null) {
+                            taPlaylistSessions.update(playlistId, taPlaylistName, next)
+                        } else {
+                            taPlaylistSessions.remove(playlistId)
+                        }
+                    }
+                    eventsChannel.trySend(PlayerEvents.NavigateBack)
+                }
             }
         }
+    }
+
+    /** Notes where the TubeArchivist playlist is, so Home can carry on from there. */
+    private fun rememberPlaylistPosition() {
+        val playlistId = taPlaylistId ?: return
+        val videoId = playlistManager.currentTaVideoId ?: return
+        taPlaylistSessions.update(playlistId, taPlaylistName, videoId)
+    }
+
+    /** Turns playing the next video on its own on or off, for this and later videos. */
+    fun setAutoplay(enabled: Boolean) {
+        autoplay = enabled
+        appPreferences.setValue(appPreferences.playerAutoplay, enabled)
+        if (enabled) upNextCancelledFor = null
+        _uiState.update { it.copy(autoplay = enabled, upNext = if (enabled) it.upNext else null) }
+    }
+
+    /**
+     * Shows the next video during the last seconds of this one, when it's going to play on its own.
+     */
+    fun updateUpNext() {
+        val mediaId = player.currentMediaItem?.mediaId
+        val duration = player.duration
+        val remaining = duration - player.currentPosition
+        val upNext =
+            if (
+                autoplay &&
+                    mediaId != null &&
+                    mediaId != upNextCancelledFor &&
+                    player.hasNextMediaItem() &&
+                    duration > 0 &&
+                    remaining in 0..UP_NEXT_MS
+            ) {
+                val title =
+                    player
+                        .getMediaItemAt(player.nextMediaItemIndex)
+                        .mediaMetadata
+                        .title
+                        ?.toString()
+                        .orEmpty()
+                UpNext(title = title, secondsLeft = ceil(remaining / 1000.0).toInt())
+            } else {
+                null
+            }
+        if (upNext != _uiState.value.upNext) _uiState.update { it.copy(upNext = upNext) }
+    }
+
+    /** Plays the next video right away, saving where this one was left first. */
+    fun playNextNow() {
+        _uiState.update { it.copy(upNext = null) }
+        if (!player.hasNextMediaItem()) return
+        val mediaId = player.currentMediaItem?.mediaId
+        val position = player.currentPosition
+        val duration = player.duration
+        reportTaProgress(force = true)
+        if (mediaId != null && duration > 0) {
+            viewModelScope.launch {
+                try {
+                    repository.postPlaybackStop(
+                        UUID.fromString(mediaId),
+                        position.times(10000),
+                        position.div(duration.toFloat()).times(100).toInt(),
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.e(e)
+                }
+            }
+        }
+        player.seekToNextMediaItem()
+        player.play()
+    }
+
+    /** Lets this video end without the next one playing after it. */
+    fun cancelUpNext() {
+        upNextCancelledFor = player.currentMediaItem?.mediaId
+        _uiState.update { it.copy(upNext = null) }
     }
 
     override fun onPlaybackStateChanged(state: Int) {
@@ -609,6 +747,10 @@ constructor(
             }
             ExoPlayer.STATE_ENDED -> {
                 stateString = "ExoPlayer.STATE_ENDED     -"
+                // Watched to the end of the playlist
+                taPlaylistId?.let { playlistId ->
+                    if (playlistManager.nextTaVideoId == null) taPlaylistSessions.remove(playlistId)
+                }
                 eventsChannel.trySend(PlayerEvents.NavigateBack)
             }
         }
@@ -957,25 +1099,23 @@ constructor(
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         super.onIsPlayingChanged(isPlaying)
         eventsChannel.trySend(PlayerEvents.IsPlayingChanged(isPlaying))
-        if (isPlaying) resyncStreamOnce()
+        if (isPlaying) resyncOnce()
     }
 
     /**
-     * Streamed videos can start with sound and picture slightly out of step, which a seek puts
-     * right. So shortly after a streamed item starts playing, it does that seek once, to where it
-     * already is. Downloaded videos don't have the problem and are left alone.
+     * Videos, streamed and downloaded alike, can start with sound and picture out of step, which a
+     * seek puts right. So once each video has played for a moment, it does that seek, to where it
+     * already is. Waits until it's actually playing, so a video that starts paused is still done.
      */
-    private fun resyncStreamOnce() {
+    private fun resyncOnce() {
         if (player !is ExoPlayer) return
         val mediaId = player.currentMediaItem?.mediaId ?: return
-        if (mediaId == resyncedMediaId) return
-        val item = items.getOrNull(player.currentMediaItemIndex) ?: return
-        if (item.isLocal) return
-        resyncedMediaId = mediaId
+        if (mediaId == resyncedMediaId || resyncJob?.isActive == true) return
 
-        viewModelScope.launch {
-            delay(STREAM_RESYNC_DELAY_MS)
+        resyncJob = viewModelScope.launch {
+            delay(RESYNC_DELAY_MS)
             if (player.isPlaying && player.currentMediaItem?.mediaId == mediaId) {
+                resyncedMediaId = mediaId
                 player.seekTo(player.currentPosition)
             }
         }
@@ -998,8 +1138,11 @@ sealed interface PlayerEvents {
 // How long the player waits in the background before dropping the picture
 private const val BACKGROUND_AUDIO_ONLY_DELAY_MS = 10_000L
 
-// How long a streamed item plays before sound and picture are put back in step
-private const val STREAM_RESYNC_DELAY_MS = 1_000L
+// How long a video plays before sound and picture are put back in step
+private const val RESYNC_DELAY_MS = 1_000L
+
+// How long before the end the next video is shown
+private const val UP_NEXT_MS = 10_000L
 
 // What happens at a SponsorBlock segment
 private const val SPONSORBLOCK_OFF = "off"

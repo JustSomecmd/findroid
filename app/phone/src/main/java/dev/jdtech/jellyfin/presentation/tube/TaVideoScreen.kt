@@ -55,7 +55,6 @@ import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.jdtech.jellyfin.PlayerActivity
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderAction
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderEvent
@@ -68,7 +67,6 @@ import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaComment
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
-import org.jellyfin.sdk.model.api.BaseItemKind
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,6 +75,8 @@ fun TaVideoScreen(
     onVideoClick: (videoId: String) -> Unit,
     onChannelClick: (channelId: String) -> Unit,
     navigateBack: () -> Unit,
+    /** The playlist the video was opened from, whose next videos then play after it. */
+    playlistId: String? = null,
     viewModel: TaVideoViewModel = hiltViewModel(),
     downloaderViewModel: DownloaderViewModel = hiltViewModel(),
 ) {
@@ -110,14 +110,13 @@ fun TaVideoScreen(
             val player = state.video?.player?.takeIf { !state.offline }
             val position = player?.position
             val fromStart = startFromBeginning || player?.watched == true
-            val intent = Intent(context, PlayerActivity::class.java)
-            intent.putExtra("itemId", episode.id.toString())
-            intent.putExtra("itemKind", BaseItemKind.EPISODE.serialName)
-            intent.putExtra("startFromBeginning", fromStart)
-            if (!fromStart && position != null) {
-                intent.putExtra("position", (position * 1000).toLong())
-            }
-            context.startActivity(intent)
+            startTaPlayback(
+                context = context,
+                episodeId = episode.id,
+                startFromBeginning = fromStart,
+                positionSeconds = position,
+                playlistId = playlistId,
+            )
         }
     }
 
