@@ -100,19 +100,16 @@ fun TaVideoScreen(
 
     val play: (Boolean) -> Unit = { startFromBeginning ->
         state.episode?.let { episode ->
+            // TubeArchivist's position comes first, as it may be newer than Jellyfin's. A saved
+            // copy's position is from when it was downloaded, so then the phone's own is used.
+            val player = state.video?.player?.takeIf { !state.offline }
+            val position = player?.position
+            val fromStart = startFromBeginning || player?.watched == true
             val intent = Intent(context, PlayerActivity::class.java)
             intent.putExtra("itemId", episode.id.toString())
             intent.putExtra("itemKind", BaseItemKind.EPISODE.serialName)
-            intent.putExtra("startFromBeginning", startFromBeginning)
-            // Resume where TubeArchivist says, which may be newer than Jellyfin. A saved copy's
-            // position is from when it was downloaded, so then the phone's own position is used.
-            val position = state.video?.player?.position
-            if (
-                !startFromBeginning &&
-                    !state.offline &&
-                    position != null &&
-                    state.video?.player?.watched != true
-            ) {
+            intent.putExtra("startFromBeginning", fromStart)
+            if (!fromStart && position != null) {
                 intent.putExtra("position", (position * 1000).toLong())
             }
             context.startActivity(intent)
@@ -132,6 +129,7 @@ fun TaVideoScreen(
                         )
                     }
                 },
+                actions = { TaOpenInWebButton(path = "/video/$videoId") },
                 windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
             )
         },
@@ -181,6 +179,20 @@ private fun TaVideoContent(
     var descriptionExpanded by rememberSaveable { mutableStateOf(false) }
     val padding = MaterialTheme.spacings.medium
     val episode = state.episode
+    // The play button shows TubeArchivist's watched state and position, which playing follows
+    val shownEpisode = episode?.let { item ->
+        val player = video.player?.takeIf { !state.offline } ?: return@let item
+        val position = player.position
+        when {
+            player.watched -> item.copy(played = true, playbackPositionTicks = 0)
+            position != null ->
+                item.copy(
+                    played = false,
+                    playbackPositionTicks = (position * TICKS_PER_SECOND).toLong(),
+                )
+            else -> item.copy(played = false)
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -261,9 +273,9 @@ private fun TaVideoContent(
         item(key = "buttons") {
             Column(modifier = Modifier.padding(horizontal = padding, vertical = padding / 2)) {
                 when {
-                    episode != null ->
+                    episode != null && shownEpisode != null ->
                         ItemButtonsBar(
-                            item = episode,
+                            item = shownEpisode,
                             downloaderState = downloaderState,
                             onPlayClick = onPlay,
                             onMarkAsPlayedClick = onToggleWatched,
@@ -496,3 +508,5 @@ private fun videoDetails(video: TaVideo): String {
     fullDate(video.published)?.let { parts.add(it) }
     return parts.joinToString(" • ")
 }
+
+private const val TICKS_PER_SECOND = 10_000_000.0

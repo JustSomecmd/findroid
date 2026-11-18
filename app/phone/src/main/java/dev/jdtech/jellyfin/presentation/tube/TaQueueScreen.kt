@@ -216,6 +216,9 @@ fun TaQueueScreen(viewModel: TaQueueViewModel = hiltViewModel()) {
                     ),
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
             ) {
+                // Keeps the list at the top while pages load below, instead of following the
+                // loading indicator to the bottom
+                item(key = "top") { Spacer(Modifier) }
                 items(tasks, key = { "task" + it.id }) { task -> TaTaskCard(task) }
                 items(items.items, key = { it.youtubeId }) { item ->
                     TaQueueItem(

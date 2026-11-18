@@ -108,6 +108,7 @@ fun TaChannelScreen(
                     }
                 },
                 actions = {
+                    TaOpenInWebButton(path = "/channel/$channelId")
                     if (channel != null) {
                         Box {
                             IconButton(onClick = { menuOpen = true }) {

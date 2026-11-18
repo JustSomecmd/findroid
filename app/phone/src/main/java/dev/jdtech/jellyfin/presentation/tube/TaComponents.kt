@@ -1,7 +1,10 @@
 package dev.jdtech.jellyfin.presentation.tube
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.text.format.DateUtils
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -19,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -35,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -46,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import coil3.compose.AsyncImage
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaListState
@@ -414,3 +420,26 @@ fun taMessageText(context: Context, message: String): String =
         TaMessages.SAVED -> context.getString(CoreR.string.ta_saved)
         else -> message
     }
+
+/** A top bar button that opens a page of the TubeArchivist web app, such as /video/<id>. */
+@Composable
+fun TaOpenInWebButton(path: String) {
+    val context = LocalContext.current
+    val url = taUrl(path)
+    if (url != null) {
+        IconButton(
+            onClick = {
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                } catch (_: ActivityNotFoundException) {
+                    Toast.makeText(context, url, Toast.LENGTH_LONG).show()
+                }
+            }
+        ) {
+            Icon(
+                painter = painterResource(CoreR.drawable.ic_external_link),
+                contentDescription = stringResource(CoreR.string.ta_open_in_web),
+            )
+        }
+    }
+}

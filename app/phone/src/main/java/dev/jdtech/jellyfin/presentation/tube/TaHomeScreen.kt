@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin.presentation.tube
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
@@ -102,6 +103,8 @@ fun TaHomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
             ) {
+                // Keeps the page at the top when continue watching loads after the rest
+                item(span = { GridItemSpan(maxLineSpan) }, key = "top") { Spacer(Modifier) }
                 if (continueWatching.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
                         Column {

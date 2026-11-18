@@ -81,6 +81,7 @@ fun TaPlaylistScreen(
                         )
                     }
                 },
+                actions = { TaOpenInWebButton(path = "/playlist/$playlistId") },
                 windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
                 scrollBehavior = scrollBehavior,
             )

@@ -257,5 +257,6 @@
     <string name="ta_task_backup">Back up the index</string>
     <string name="ta_task_version">Check for updates</string>
     <string name="ta_task_other">Other task</string>
+    <string name="ta_open_in_web">Open in TubeArchivist</string>
     <string name="ta_offline_copy">Saved with the download. TubeArchivist can\'t be reached right now.</string>
 </resources>

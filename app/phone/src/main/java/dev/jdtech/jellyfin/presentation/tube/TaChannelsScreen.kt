@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
@@ -138,6 +139,9 @@ fun TaChannelsScreen(
                 horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
             ) {
+                // Keeps the list at the top while pages load below, instead of following the
+                // loading indicator to the bottom
+                item(span = { GridItemSpan(maxLineSpan) }, key = "top") { Spacer(Modifier) }
                 when (tab) {
                     TaChannelsTab.SUBSCRIBED,
                     TaChannelsTab.ALL -> {
