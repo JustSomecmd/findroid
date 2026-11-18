@@ -132,8 +132,6 @@
     <string name="pref_cast_shows">Cast &amp; crew on show pages</string>
     <string name="pref_latest_episodes">New episodes in Latest</string>
     <string name="pref_latest_episodes_summary">In the Latest rows on Home, show every new episode on its own with its thumbnail, instead of grouping them under the show\'s poster</string>
-    <string name="pref_player_tunneling">Tunneled playback</string>
-    <string name="pref_player_tunneling_summary">Let the phone keep sound and picture in step. Can cause them to drift apart at the start on some phones.</string>
     <string name="pref_player_buttons_summary">Choose which buttons the player shows and where</string>
     <string name="player_buttons_hint">Hold a button and drag it to change its place. Buttons keep this order inside each bar.</string>
     <string name="player_buttons_reset">Reset</string>

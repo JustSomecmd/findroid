@@ -40,7 +40,6 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val playerBackgroundPlayback = Preference("pref_player_background_playback", false)
     val playerButtons = Preference("pref_player_buttons", "")
     val playerBackgroundAudioOnly = Preference("pref_player_background_audio_only", true)
-    val playerTunneling = Preference("pref_player_tunneling", false)
     val playerBrightness = Preference("pref_player_brightness", -1.0f)
 
     // Player - mpv

@@ -98,6 +98,9 @@ constructor(
 
     private var items: MutableList<PlayerItem> = mutableListOf()
 
+    // The streamed item that was already put back in step, so it is only done once per item
+    private var resyncedMediaId: String? = null
+
     // Switching to sound only while the player is in the background
     private var backgroundAudioOnlyJob: Job? = null
     private var qualityBeforeBackground: StreamQuality? = null
@@ -141,8 +144,7 @@ constructor(
         trackSelector.setParameters(
             trackSelector
                 .buildUponParameters()
-                // Off by default: on some phones it lets sound and picture start out of step
-                .setTunnelingEnabled(appPreferences.getValue(appPreferences.playerTunneling))
+                .setTunnelingEnabled(true)
                 .setPreferredAudioLanguage(
                     appPreferences.getValue(appPreferences.preferredAudioLanguage)
                 )
@@ -811,6 +813,28 @@ constructor(
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         super.onIsPlayingChanged(isPlaying)
         eventsChannel.trySend(PlayerEvents.IsPlayingChanged(isPlaying))
+        if (isPlaying) resyncStreamOnce()
+    }
+
+    /**
+     * Streamed videos can start with sound and picture slightly out of step, which a seek puts
+     * right. So shortly after a streamed item starts playing, it does that seek once, to where it
+     * already is. Downloaded videos don't have the problem and are left alone.
+     */
+    private fun resyncStreamOnce() {
+        if (player !is ExoPlayer) return
+        val mediaId = player.currentMediaItem?.mediaId ?: return
+        if (mediaId == resyncedMediaId) return
+        val item = items.getOrNull(player.currentMediaItemIndex) ?: return
+        if (item.isLocal) return
+        resyncedMediaId = mediaId
+
+        viewModelScope.launch {
+            delay(STREAM_RESYNC_DELAY_MS)
+            if (player.isPlaying && player.currentMediaItem?.mediaId == mediaId) {
+                player.seekTo(player.currentPosition)
+            }
+        }
     }
 
     override fun onTracksChanged(tracks: Tracks) {
@@ -829,3 +853,6 @@ sealed interface PlayerEvents {
 
 // How long the player waits in the background before dropping the picture
 private const val BACKGROUND_AUDIO_ONLY_DELAY_MS = 10_000L
+
+// How long a streamed item plays before sound and picture are put back in step
+private const val STREAM_RESYNC_DELAY_MS = 1_000L

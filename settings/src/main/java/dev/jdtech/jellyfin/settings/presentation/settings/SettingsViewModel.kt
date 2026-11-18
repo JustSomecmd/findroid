@@ -396,14 +396,6 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     options = R.array.player_backends,
                                                     optionValues = R.array.player_backends,
                                                 ),
-                                                PreferenceSwitch(
-                                                    nameStringResource =
-                                                        R.string.pref_player_tunneling,
-                                                    descriptionStringRes =
-                                                        R.string.pref_player_tunneling_summary,
-                                                    backendPreference =
-                                                        appPreferences.playerTunneling,
-                                                ),
                                                 PreferenceCategory(
                                                     nameStringResource = R.string.mpv_options,
                                                     onClick = {
