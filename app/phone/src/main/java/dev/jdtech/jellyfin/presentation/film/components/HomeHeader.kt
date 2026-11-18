@@ -45,6 +45,7 @@ fun HomeHeader(
     onSearchClick: () -> Unit,
     onUserClick: () -> Unit,
     modifier: Modifier = Modifier,
+    logo: @Composable () -> Unit = { HomeHeaderLogo() },
 ) {
     val isOfflineMode = LocalOfflineMode.current
 
@@ -63,12 +64,7 @@ fun HomeHeader(
                 horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    painter = painterResource(CoreR.drawable.ic_logo),
-                    contentDescription = null,
-                    modifier = Modifier.size(32.dp),
-                    tint = Color.Unspecified,
-                )
+                logo()
                 Text(
                     text = serverName,
                     overflow = TextOverflow.Ellipsis,
@@ -166,6 +162,16 @@ fun HomeHeader(
             }
         }
     }
+}
+
+@Composable
+private fun HomeHeaderLogo() {
+    Icon(
+        painter = painterResource(CoreR.drawable.ic_logo),
+        contentDescription = null,
+        modifier = Modifier.size(32.dp),
+        tint = Color.Unspecified,
+    )
 }
 
 @Composable

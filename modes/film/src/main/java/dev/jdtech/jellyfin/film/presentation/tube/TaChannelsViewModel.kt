@@ -37,14 +37,15 @@ class TaChannelsViewModel @Inject constructor(private val taApi: TaApi) : ViewMo
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages = _messages.receiveAsFlow()
 
+    /** Remembers the shown tab. Each tab's list loads its pages as it scrolls. */
     fun selectTab(tab: TaChannelsTab) {
         _tab.value = tab
-        loadMore()
     }
 
-    fun loadMore() {
+    /** Loads the next page of a tab's list, the shown tab's by default. */
+    fun loadMore(tab: TaChannelsTab = _tab.value) {
         viewModelScope.launch {
-            when (_tab.value) {
+            when (tab) {
                 TaChannelsTab.SUBSCRIBED ->
                     _subscribed.loadNextPage(key = { it.id }) { page ->
                         taApi.getChannels(page = page, subscribedOnly = true)
@@ -66,14 +67,22 @@ class TaChannelsViewModel @Inject constructor(private val taApi: TaApi) : ViewMo
         loadMore()
     }
 
-    /** Subscribes to one or more channels, given as URLs, handles or IDs. */
-    fun subscribe(input: String) {
+    /**
+     * Subscribes to one or more channels, given as URLs, handles or IDs, or to playlists, given as
+     * URLs or IDs.
+     */
+    fun subscribe(input: String, playlists: Boolean = false) {
         val urls = input.split(Regex("""[\s,]+""")).map { it.trim() }.filter { it.isNotEmpty() }
         if (urls.isEmpty()) return
         viewModelScope.launch {
             try {
-                taApi.subscribeToChannels(urls)
-                _messages.send(TaMessages.SUBSCRIBE_STARTED)
+                if (playlists) {
+                    taApi.subscribeToPlaylists(urls)
+                    _messages.send(TaMessages.PLAYLIST_SUBSCRIBE_STARTED)
+                } else {
+                    taApi.subscribeToChannels(urls)
+                    _messages.send(TaMessages.SUBSCRIBE_STARTED)
+                }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 _messages.send(e.errorText())
@@ -85,6 +94,7 @@ class TaChannelsViewModel @Inject constructor(private val taApi: TaApi) : ViewMo
 /** Fixed messages the screens turn into text. Anything else is shown as it is. */
 object TaMessages {
     const val SUBSCRIBE_STARTED = "ta:subscribe_started"
+    const val PLAYLIST_SUBSCRIBE_STARTED = "ta:playlist_subscribe_started"
     const val ADDED_TO_QUEUE = "ta:added_to_queue"
     const val TASK_STARTED = "ta:task_started"
     const val SAVED = "ta:saved"

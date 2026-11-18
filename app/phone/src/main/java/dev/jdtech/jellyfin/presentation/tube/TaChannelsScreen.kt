@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -37,8 +39,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -52,6 +56,7 @@ import dev.jdtech.jellyfin.film.presentation.tube.TaChannelsTab
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelsViewModel
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,22 +66,22 @@ fun TaChannelsScreen(
     viewModel: TaChannelsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val tab by viewModel.tab.collectAsStateWithLifecycle()
-    val subscribed by viewModel.subscribed.collectAsStateWithLifecycle()
-    val all by viewModel.all.collectAsStateWithLifecycle()
-    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
 
     var showSubscribeDialog by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) { viewModel.loadMore() }
 
     ObserveAsEvents(viewModel.messages) { message ->
         Toast.makeText(context, taMessageText(context, message), Toast.LENGTH_LONG).show()
     }
 
-    val gridState = rememberLazyGridState()
-    LoadMoreEffect(gridState) { viewModel.loadMore() }
-    LaunchedEffect(tab) { gridState.scrollToItem(0) }
+    // Swiping moves between the tabs, with each list sliding along with the finger
+    val pagerState = rememberPagerState(initialPage = tab.ordinal) { TaChannelsTab.entries.size }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }
+            .collect { page -> viewModel.selectTab(TaChannelsTab.entries[page]) }
+    }
+    val onPlaylists = TaChannelsTab.entries[pagerState.currentPage] == TaChannelsTab.PLAYLISTS
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
@@ -92,11 +97,13 @@ fun TaChannelsScreen(
                     windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
                     scrollBehavior = scrollBehavior,
                 )
-                PrimaryTabRow(selectedTabIndex = tab.ordinal) {
+                PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
                     TaChannelsTab.entries.forEach { entry ->
                         Tab(
-                            selected = tab == entry,
-                            onClick = { viewModel.selectTab(entry) },
+                            selected = pagerState.currentPage == entry.ordinal,
+                            onClick = {
+                                scope.launch { pagerState.animateScrollToPage(entry.ordinal) }
+                            },
                             text = {
                                 Text(
                                     stringResource(
@@ -117,80 +124,120 @@ fun TaChannelsScreen(
             FloatingActionButton(onClick = { showSubscribeDialog = true }) {
                 Icon(
                     painter = painterResource(CoreR.drawable.ic_plus),
-                    contentDescription = stringResource(CoreR.string.ta_subscribe_to_channel),
+                    contentDescription =
+                        stringResource(
+                            if (onPlaylists) CoreR.string.ta_subscribe_to_playlist
+                            else CoreR.string.ta_subscribe_to_channel
+                        ),
                 )
             }
         },
         contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
     ) { innerPadding ->
-        PullToRefreshBox(
-            isRefreshing = false,
-            onRefresh = { viewModel.refresh() },
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier.padding(innerPadding).fillMaxSize(),
-        ) {
-            LazyVerticalGrid(
-                columns =
-                    GridCells.Adaptive(
-                        minSize = if (tab == TaChannelsTab.PLAYLISTS) TA_CARD_MIN_WIDTH else 120.dp
-                    ),
-                state = gridState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-                verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-            ) {
-                // Keeps the list at the top while pages load below, instead of following the
-                // loading indicator to the bottom
-                item(span = { GridItemSpan(maxLineSpan) }, key = "top") { Spacer(Modifier) }
-                when (tab) {
-                    TaChannelsTab.SUBSCRIBED,
-                    TaChannelsTab.ALL -> {
-                        val list = if (tab == TaChannelsTab.SUBSCRIBED) subscribed else all
-                        items(list.items, key = { it.id }) { channel ->
-                            TaChannelItem(
-                                channel = channel,
-                                onClick = { onChannelClick(channel.id) },
-                            )
-                        }
-                        item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
-                            TaListFooter(
-                                state = list,
-                                onRetry = { viewModel.loadMore() },
-                                emptyText = stringResource(CoreR.string.ta_no_channels),
-                            )
-                        }
-                    }
-                    TaChannelsTab.PLAYLISTS -> {
-                        items(playlists.items, key = { it.id }) { playlist ->
-                            TaPlaylistCard(
-                                playlist = playlist,
-                                onClick = { onPlaylistClick(playlist.id) },
-                            )
-                        }
-                        item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
-                            TaListFooter(
-                                state = playlists,
-                                onRetry = { viewModel.loadMore() },
-                                emptyText = stringResource(CoreR.string.ta_no_playlists),
-                            )
-                        }
-                    }
-                }
-            }
+            key = { page -> TaChannelsTab.entries[page].name },
+        ) { page ->
+            TaChannelsPage(
+                tab = TaChannelsTab.entries[page],
+                viewModel = viewModel,
+                onChannelClick = onChannelClick,
+                onPlaylistClick = onPlaylistClick,
+            )
         }
     }
 
     if (showSubscribeDialog) {
         TaUrlDialog(
-            title = stringResource(CoreR.string.ta_subscribe_to_channel),
-            hint = stringResource(CoreR.string.ta_subscribe_hint),
+            title =
+                stringResource(
+                    if (onPlaylists) CoreR.string.ta_subscribe_to_playlist
+                    else CoreR.string.ta_subscribe_to_channel
+                ),
+            hint =
+                stringResource(
+                    if (onPlaylists) CoreR.string.ta_subscribe_playlist_hint
+                    else CoreR.string.ta_subscribe_hint
+                ),
             confirmText = stringResource(CoreR.string.ta_subscribe),
             onConfirm = { text ->
-                viewModel.subscribe(text)
+                viewModel.subscribe(text, playlists = onPlaylists)
                 showSubscribeDialog = false
             },
             onDismiss = { showSubscribeDialog = false },
         )
+    }
+}
+
+/** One tab's list, with its own scroll position. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaChannelsPage(
+    tab: TaChannelsTab,
+    viewModel: TaChannelsViewModel,
+    onChannelClick: (channelId: String) -> Unit,
+    onPlaylistClick: (playlistId: String) -> Unit,
+) {
+    val subscribed by viewModel.subscribed.collectAsStateWithLifecycle()
+    val all by viewModel.all.collectAsStateWithLifecycle()
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+
+    // Also loads the first page when the tab is first shown
+    val gridState = rememberLazyGridState()
+    LoadMoreEffect(gridState) { viewModel.loadMore(tab) }
+
+    PullToRefreshBox(
+        isRefreshing = false,
+        onRefresh = { viewModel.refresh() },
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        LazyVerticalGrid(
+            columns =
+                GridCells.Adaptive(
+                    minSize = if (tab == TaChannelsTab.PLAYLISTS) TA_CARD_MIN_WIDTH else 120.dp
+                ),
+            state = gridState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+        ) {
+            // Keeps the list at the top while pages load below, instead of following the
+            // loading indicator to the bottom
+            item(span = { GridItemSpan(maxLineSpan) }, key = "top") { Spacer(Modifier) }
+            when (tab) {
+                TaChannelsTab.SUBSCRIBED,
+                TaChannelsTab.ALL -> {
+                    val list = if (tab == TaChannelsTab.SUBSCRIBED) subscribed else all
+                    items(list.items, key = { it.id }) { channel ->
+                        TaChannelItem(channel = channel, onClick = { onChannelClick(channel.id) })
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
+                        TaListFooter(
+                            state = list,
+                            onRetry = { viewModel.loadMore(tab) },
+                            emptyText = stringResource(CoreR.string.ta_no_channels),
+                        )
+                    }
+                }
+                TaChannelsTab.PLAYLISTS -> {
+                    items(playlists.items, key = { it.id }) { playlist ->
+                        TaPlaylistCard(
+                            playlist = playlist,
+                            onClick = { onPlaylistClick(playlist.id) },
+                        )
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
+                        TaListFooter(
+                            state = playlists,
+                            onRetry = { viewModel.loadMore(tab) },
+                            emptyText = stringResource(CoreR.string.ta_no_playlists),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

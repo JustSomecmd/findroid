@@ -435,6 +435,8 @@ fun fullDate(iso: String?): String? {
 fun taMessageText(context: Context, message: String): String =
     when (message) {
         TaMessages.SUBSCRIBE_STARTED -> context.getString(CoreR.string.ta_subscribe_started)
+        TaMessages.PLAYLIST_SUBSCRIBE_STARTED ->
+            context.getString(CoreR.string.ta_playlist_subscribe_started)
         TaMessages.ADDED_TO_QUEUE -> context.getString(CoreR.string.ta_added_to_queue)
         TaMessages.TASK_STARTED -> context.getString(CoreR.string.ta_task_started)
         TaMessages.SAVED -> context.getString(CoreR.string.ta_saved)
@@ -491,19 +493,36 @@ fun TaSideTitle(
             modifier = Modifier.weight(1f, fill = false),
         )
         Spacer(Modifier.width(MaterialTheme.spacings.small))
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-            Row(modifier = Modifier.padding(2.dp)) {
-                TaSideSegment(
-                    icon = localIcon,
-                    label = localLabel,
-                    selected = !onServer,
-                )
-                TaSideSegment(
-                    icon = CoreR.drawable.ic_server,
-                    label = stringResource(CoreR.string.ta_side_server),
-                    selected = onServer,
-                )
-            }
+        TaSideSwitch(onServer = onServer, localIcon = localIcon, localLabel = localLabel)
+    }
+}
+
+/**
+ * The switch of [TaSideTitle] on its own, for pages whose title is already shown below. Tapping it
+ * flips the side when [onToggle] is set.
+ */
+@Composable
+fun TaSideSwitch(
+    onServer: Boolean,
+    modifier: Modifier = Modifier,
+    onToggle: (() -> Unit)? = null,
+    @DrawableRes localIcon: Int = CoreR.drawable.ic_smartphone,
+    localLabel: String = stringResource(CoreR.string.ta_side_phone),
+) {
+    val shape = CircleShape
+    Surface(
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier =
+            if (onToggle != null) modifier.clip(shape).clickable(onClick = onToggle) else modifier,
+    ) {
+        Row(modifier = Modifier.padding(2.dp)) {
+            TaSideSegment(icon = localIcon, label = localLabel, selected = !onServer)
+            TaSideSegment(
+                icon = CoreR.drawable.ic_server,
+                label = stringResource(CoreR.string.ta_side_server),
+                selected = onServer,
+            )
         }
     }
 }
@@ -593,3 +612,22 @@ fun formatEpochSeconds(seconds: Long): String =
 
 /** A date TubeArchivist sends, in the phone's format, or as it is when it can't be read. */
 fun formatTaDate(value: String?): String? = value?.let { fullDate(it) ?: it }
+
+/** The TubeArchivist logo, with its letters in the text color so it suits light and dark themes. */
+@Composable
+fun TaLogo(modifier: Modifier = Modifier) {
+    Box(modifier = modifier) {
+        Icon(
+            painter = painterResource(CoreR.drawable.ic_ta_logo_mark),
+            contentDescription = null,
+            tint = Color.Unspecified,
+            modifier = Modifier.matchParentSize(),
+        )
+        Icon(
+            painter = painterResource(CoreR.drawable.ic_ta_logo_letters),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.matchParentSize(),
+        )
+    }
+}

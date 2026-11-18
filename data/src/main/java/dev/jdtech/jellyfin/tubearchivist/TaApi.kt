@@ -195,6 +195,28 @@ class TaApi(private val appPreferences: AppPreferences) {
         )
     }
 
+    /** Subscribes to playlists, given as URLs or IDs. TubeArchivist adds them in a task. */
+    suspend fun subscribeToPlaylists(urls: List<String>) {
+        post(
+            "api/playlist/",
+            buildJsonObject {
+                put(
+                    "data",
+                    buildJsonArray {
+                        urls.forEach { url ->
+                            add(
+                                buildJsonObject {
+                                    put("playlist_id", url)
+                                    put("playlist_subscribed", true)
+                                }
+                            )
+                        }
+                    },
+                )
+            },
+        )
+    }
+
     // Playlists
 
     suspend fun setPlaylistSubscribed(playlistId: String, subscribed: Boolean) {

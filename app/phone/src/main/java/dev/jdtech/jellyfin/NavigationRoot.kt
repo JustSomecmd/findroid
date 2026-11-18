@@ -76,6 +76,7 @@ import dev.jdtech.jellyfin.presentation.setup.permission.PermissionScreen
 import dev.jdtech.jellyfin.presentation.setup.servers.ServersScreen
 import dev.jdtech.jellyfin.presentation.setup.users.UsersScreen
 import dev.jdtech.jellyfin.presentation.setup.welcome.WelcomeScreen
+import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.tube.LocalTaBaseUrl
 import dev.jdtech.jellyfin.presentation.tube.LocalTubeArchivistMode
 import dev.jdtech.jellyfin.presentation.tube.TaChannelScreen
@@ -526,19 +527,15 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         // download queue on the server
         val tubeArchivistMode = LocalTubeArchivistMode.current
         var onServer by rememberSaveable { mutableStateOf(false) }
-        if (tubeArchivistMode && onServer) {
-            TaQueueScreen(onSwitchSide = { onServer = false })
-        } else {
-            DownloadsScreen(
-                onItemClick =
-                    resumedAction { item ->
-                        navigateToItem(
-                            navigator,
-                            item,
-                        )
-                    },
-                onSwitchSide = if (tubeArchivistMode) ({ onServer = true }) else null,
-            )
+        ServerSideTheme(onServer = tubeArchivistMode && onServer) {
+            if (tubeArchivistMode && onServer) {
+                TaQueueScreen(onSwitchSide = { onServer = false })
+            } else {
+                DownloadsScreen(
+                    onItemClick = resumedAction { item -> navigateToItem(navigator, item) },
+                    onSwitchSide = if (tubeArchivistMode) ({ onServer = true }) else null,
+                )
+            }
         }
     }
     entry<DownloadStorageRoute> {

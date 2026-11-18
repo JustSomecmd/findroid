@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The T and A, tinted to the text color in the app. From the TubeArchivist logo (tubearchivist/tubearchivist, assets/tube-archivist-logo-dark.svg). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="1000"
+    android:viewportHeight="1000">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M114.9,238.4 L115.1,324.3 L261.3,324.3 L261.1,458.5 L351.9,458.5 L352.1,324.3 L495.9,324.3 L495.6,238 L114.9,238.4Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M261.1,554.4h90.8v200.1h-90.8Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M622.7,244.2 L429.6,754.5 L526.4,754.4 L666.6,361.6 L806,754.4 L902.9,754.4 L710.4,244.2 L622.7,244.2Z" />
+</vector>

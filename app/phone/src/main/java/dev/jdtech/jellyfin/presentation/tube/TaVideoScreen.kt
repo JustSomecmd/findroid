@@ -61,6 +61,7 @@ import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderEvent
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.TaVideoViewModel
 import dev.jdtech.jellyfin.presentation.film.components.ItemButtonsBar
+import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaComment
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
@@ -120,63 +121,66 @@ fun TaVideoScreen(
 
     var serverSide by rememberSaveable { mutableStateOf(false) }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(
-                title = {
-                    TaSideTitle(
-                        title = state.video?.title.orEmpty(),
-                        onServer = serverSide,
-                        onToggle = { serverSide = !serverSide },
-                        localIcon = CoreR.drawable.ic_play,
-                        localLabel = stringResource(CoreR.string.ta_side_video),
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = navigateBack) {
-                        Icon(
-                            painter = painterResource(CoreR.drawable.ic_arrow_left),
-                            contentDescription = null,
+    ServerSideTheme(onServer = serverSide) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    title = {},
+                    navigationIcon = {
+                        IconButton(onClick = navigateBack) {
+                            Icon(
+                                painter = painterResource(CoreR.drawable.ic_arrow_left),
+                                contentDescription = null,
+                            )
+                        }
+                    },
+                    actions = {
+                        // The title is already shown on the page, so the switch stands alone
+                        TaSideSwitch(
+                            onServer = serverSide,
+                            onToggle = { serverSide = !serverSide },
+                            localIcon = CoreR.drawable.ic_play,
+                            localLabel = stringResource(CoreR.string.ta_side_video),
                         )
-                    }
-                },
-                actions = { TaOpenInWebButton(path = "/video/$videoId") },
-                windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-            )
-        },
-        contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-    ) { innerPadding ->
-        val video = state.video
-        Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-            when {
-                video == null && state.error != null ->
-                    Text(
-                        text = state.error.orEmpty(),
-                        color = MaterialTheme.colorScheme.error,
-                        modifier =
-                            Modifier.align(Alignment.Center)
-                                .padding(MaterialTheme.spacings.default),
-                    )
-                video == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                serverSide ->
-                    TaVideoServerSide(
-                        video = video,
-                        offline = state.offline,
-                        onRefresh = { viewModel.refreshMetadata() },
-                    )
-                else ->
-                    TaVideoContent(
-                        video = video,
-                        state = state,
-                        downloaderState = downloaderState,
-                        onPlay = play,
-                        onToggleWatched = { viewModel.toggleWatched() },
-                        onToggleFavorite = { viewModel.toggleFavorite() },
-                        onDownloaderAction = { downloaderViewModel.onAction(it) },
-                        onVideoClick = onVideoClick,
-                        onChannelClick = onChannelClick,
-                    )
+                        TaOpenInWebButton(path = "/video/$videoId")
+                    },
+                    windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+                )
+            },
+            contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+        ) { innerPadding ->
+            val video = state.video
+            Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                when {
+                    video == null && state.error != null ->
+                        Text(
+                            text = state.error.orEmpty(),
+                            color = MaterialTheme.colorScheme.error,
+                            modifier =
+                                Modifier.align(Alignment.Center)
+                                    .padding(MaterialTheme.spacings.default),
+                        )
+                    video == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    serverSide ->
+                        TaVideoServerSide(
+                            video = video,
+                            offline = state.offline,
+                            onRefresh = { viewModel.refreshMetadata() },
+                        )
+                    else ->
+                        TaVideoContent(
+                            video = video,
+                            state = state,
+                            downloaderState = downloaderState,
+                            onPlay = play,
+                            onToggleWatched = { viewModel.toggleWatched() },
+                            onToggleFavorite = { viewModel.toggleFavorite() },
+                            onDownloaderAction = { downloaderViewModel.onAction(it) },
+                            onVideoClick = onVideoClick,
+                            onChannelClick = onChannelClick,
+                        )
+                }
             }
         }
     }

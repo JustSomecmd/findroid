@@ -1,6 +1,5 @@
 package dev.jdtech.jellyfin.presentation.tube
 
-import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -23,18 +23,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaHomeViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.TaServersInfo
+import dev.jdtech.jellyfin.presentation.film.components.HomeHeader
 import dev.jdtech.jellyfin.presentation.film.components.ServerSelectionBottomSheet
 import dev.jdtech.jellyfin.presentation.theme.spacings
 
@@ -82,40 +78,35 @@ fun TaHomeScreen(
     val gridState = rememberLazyGridState()
     LoadMoreEffect(gridState) { viewModel.loadMore() }
 
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-
     Scaffold(
-        modifier =
-            Modifier.fillMaxSize()
-                .recalculateWindowInsets()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = Modifier.fillMaxSize().recalculateWindowInsets(),
         topBar = {
-            TopAppBar(
-                title = {
-                    TaServerButton(
-                        name =
-                            servers.jellyfinName ?: stringResource(CoreR.string.ta_tubearchivist),
-                        hasError = servers.taError != null,
-                        onClick = { showServers = true },
-                    )
-                },
-                actions = {
-                    IconButton(onClick = onSearchClick) {
-                        Icon(
-                            painter = painterResource(CoreR.drawable.ic_search),
-                            contentDescription = stringResource(CoreR.string.search),
-                        )
-                    }
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(
-                            painter = painterResource(CoreR.drawable.ic_settings),
-                            contentDescription = stringResource(CoreR.string.title_settings),
-                        )
-                    }
-                },
-                windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-                scrollBehavior = scrollBehavior,
-            )
+            // Findroid's own header, with TubeArchivist's logo, on a background that always shows
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                HomeHeader(
+                    serverName =
+                        servers.jellyfinName ?: stringResource(CoreR.string.ta_tubearchivist),
+                    isLoading = servers.taVersion == null && servers.taError == null,
+                    isError = servers.taError != null,
+                    onServerClick = { showServers = true },
+                    onErrorClick = { showServers = true },
+                    onRetryClick = {
+                        viewModel.loadServers()
+                        viewModel.refresh()
+                    },
+                    onSearchClick = onSearchClick,
+                    onUserClick = onSettingsClick,
+                    logo = { TaLogo(modifier = Modifier.size(32.dp)) },
+                    modifier =
+                        Modifier.windowInsetsPadding(
+                                WindowInsets.statusBars.union(WindowInsets.displayCutout)
+                            )
+                            .padding(
+                                horizontal = MaterialTheme.spacings.medium,
+                                vertical = MaterialTheme.spacings.small,
+                            ),
+                )
+            }
         },
         contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
     ) { innerPadding ->
@@ -216,44 +207,6 @@ fun TaSectionTitle(text: String, modifier: Modifier = Modifier) {
 /** Cards are at least this wide, so a phone shows one per row and a tablet several. */
 val TA_CARD_MIN_WIDTH = 300.dp
 
-/** The connected server's name, as on Findroid's home page. */
-@Composable
-private fun TaServerButton(name: String, hasError: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-            modifier =
-                Modifier.padding(horizontal = MaterialTheme.spacings.medium, vertical = 6.dp),
-        ) {
-            Icon(
-                painter = painterResource(CoreR.drawable.ic_logo),
-                contentDescription = null,
-                tint = Color.Unspecified,
-                modifier = Modifier.size(28.dp),
-            )
-            Text(
-                text = name,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (hasError) {
-                Icon(
-                    painter = painterResource(CoreR.drawable.ic_alert_circle),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-    }
-}
-
 /** The Jellyfin and TubeArchivist servers the app is connected to. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -274,8 +227,14 @@ private fun TaServersSheet(
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
         ) {
             TaServerCard(
-                icon = CoreR.drawable.ic_logo,
-                tintIcon = false,
+                logo = {
+                    Icon(
+                        painter = painterResource(CoreR.drawable.ic_logo),
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(36.dp),
+                    )
+                },
                 kind = stringResource(CoreR.string.ta_jellyfin),
                 name = servers.jellyfinName,
                 lines =
@@ -290,8 +249,7 @@ private fun TaServersSheet(
                 onButtonClick = onChangeJellyfinServer,
             )
             TaServerCard(
-                icon = CoreR.drawable.ic_youtube,
-                tintIcon = true,
+                logo = { TaLogo(modifier = Modifier.size(36.dp)) },
                 kind = stringResource(CoreR.string.ta_tubearchivist),
                 name = servers.taAddress,
                 lines = listOfNotNull(servers.taVersion?.let { "TubeArchivist $it" }),
@@ -311,8 +269,7 @@ private fun TaServersSheet(
 
 @Composable
 private fun TaServerCard(
-    @DrawableRes icon: Int,
-    tintIcon: Boolean,
+    logo: @Composable () -> Unit,
     kind: String,
     name: String?,
     lines: List<String>,
@@ -330,12 +287,7 @@ private fun TaServerCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(MaterialTheme.spacings.medium),
         ) {
-            Icon(
-                painter = painterResource(icon),
-                contentDescription = null,
-                tint = if (tintIcon) MaterialTheme.colorScheme.primary else Color.Unspecified,
-                modifier = Modifier.size(36.dp),
-            )
+            logo()
             Spacer(Modifier.width(MaterialTheme.spacings.medium))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

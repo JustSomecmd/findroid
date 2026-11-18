@@ -6,12 +6,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -186,27 +188,29 @@ fun TaQueueScreen(
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
             ) {
                 item(key = "actions") {
+                    // All three as tall as the tallest, when a label takes two lines
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)
+                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+                        modifier = Modifier.height(IntrinsicSize.Min),
                     ) {
                         TaQueueAction(
                             icon = CoreR.drawable.ic_refresh,
                             label = stringResource(CoreR.string.ta_rescan_subscriptions),
                             onClick = { viewModel.rescanSubscriptions() },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                         TaQueueAction(
                             icon = CoreR.drawable.ic_download,
                             label = stringResource(CoreR.string.ta_start_downloading),
                             onClick = { viewModel.startDownloading() },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                         TaQueueAction(
                             icon = CoreR.drawable.ic_plus,
                             label = stringResource(CoreR.string.ta_add_to_queue),
                             onClick = { adding = !adding },
                             selected = adding,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                     }
                 }
@@ -320,7 +324,8 @@ private fun TaQueueAction(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(MaterialTheme.spacings.small),
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxSize().padding(MaterialTheme.spacings.small),
         ) {
             Icon(painter = painterResource(icon), contentDescription = null)
             Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))

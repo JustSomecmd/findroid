@@ -163,6 +163,9 @@
     <string name="ta_subscribe_to_channel">Subscribe to a channel</string>
     <string name="ta_subscribe_hint">Channel links, handles or IDs</string>
     <string name="ta_subscribe_started">TubeArchivist is looking up the channel</string>
+    <string name="ta_subscribe_to_playlist">Subscribe to a playlist</string>
+    <string name="ta_subscribe_playlist_hint">Playlist links or IDs</string>
+    <string name="ta_playlist_subscribe_started">TubeArchivist is looking up the playlist</string>
     <string name="ta_subscribers">%1$s subscribers</string>
     <string name="ta_views">%1$s views</string>
     <string name="ta_likes">%1$s likes</string>

@@ -59,6 +59,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelTab
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelViewModel
+import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
@@ -99,205 +100,219 @@ fun TaChannelScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val channel = state.channel
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            TopAppBar(
-                title = {
-                    TaSideTitle(
-                        title = channel?.name.orEmpty(),
-                        onServer = state.serverSide,
-                        onToggle = { viewModel.toggleServerSide() },
-                        localIcon = CoreR.drawable.ic_users,
-                        localLabel = stringResource(CoreR.string.ta_side_channel),
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = navigateBack) {
-                        Icon(
-                            painter = painterResource(CoreR.drawable.ic_arrow_left),
-                            contentDescription = null,
+    ServerSideTheme(onServer = state.serverSide) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+            topBar = {
+                TopAppBar(
+                    title = {
+                        TaSideTitle(
+                            title = channel?.name.orEmpty(),
+                            onServer = state.serverSide,
+                            onToggle = { viewModel.toggleServerSide() },
+                            localIcon = CoreR.drawable.ic_users,
+                            localLabel = stringResource(CoreR.string.ta_side_channel),
                         )
-                    }
-                },
-                actions = {
-                    TaOpenInWebButton(path = "/channel/$channelId")
-                    if (channel != null) {
-                        Box {
-                            IconButton(onClick = { menuOpen = true }) {
-                                Icon(
-                                    painter = painterResource(CoreR.drawable.ic_more_vertical),
-                                    contentDescription = null,
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = menuOpen,
-                                onDismissRequest = { menuOpen = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(CoreR.string.ta_queue_channel)) },
-                                    onClick = {
-                                        menuOpen = false
-                                        viewModel.queueChannel()
-                                    },
-                                )
-                            }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = navigateBack) {
+                            Icon(
+                                painter = painterResource(CoreR.drawable.ic_arrow_left),
+                                contentDescription = null,
+                            )
                         }
-                    }
-                },
-                windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-                scrollBehavior = scrollBehavior,
-            )
-        },
-        contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-    ) { innerPadding ->
-        Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-            when {
-                channel == null && state.error != null ->
-                    Text(
-                        text = state.error.orEmpty(),
-                        color = MaterialTheme.colorScheme.error,
-                        modifier =
-                            Modifier.align(Alignment.Center)
-                                .padding(MaterialTheme.spacings.default),
-                    )
-                channel == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                else ->
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = TA_CARD_MIN_WIDTH),
-                        state = gridState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-                    ) {
-                        if (state.serverSide) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "server") {
-                                TaChannelServerSide(
-                                    channel = channel,
-                                    globalConfig = globalConfig,
-                                    onEdit = { editing = it },
-                                    onChange = viewModel::setOverwrite,
-                                    onRefresh = viewModel::refresh,
-                                )
-                            }
-                            return@LazyVerticalGrid
-                        }
-                        item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
-                            Column {
-                                if (channel.bannerUrl != null) {
-                                    TaImage(
-                                        path = channel.bannerUrl,
-                                        modifier =
-                                            Modifier.fillMaxWidth()
-                                                .aspectRatio(6.2f)
-                                                .padding(bottom = MaterialTheme.spacings.medium),
+                    },
+                    actions = {
+                        TaOpenInWebButton(path = "/channel/$channelId")
+                        if (channel != null) {
+                            Box {
+                                IconButton(onClick = { menuOpen = true }) {
+                                    Icon(
+                                        painter = painterResource(CoreR.drawable.ic_more_vertical),
+                                        contentDescription = null,
                                     )
                                 }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TaAvatar(path = channel.thumbUrl, size = 64.dp)
-                                    Spacer(Modifier.width(MaterialTheme.spacings.medium))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = channel.name,
-                                            style = MaterialTheme.typography.titleLarge,
-                                        )
-                                        channel.subs?.let { subs ->
-                                            Text(
-                                                text =
-                                                    stringResource(
-                                                        CoreR.string.ta_subscribers,
-                                                        formatCount(subs),
-                                                    ),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                    }
+                                DropdownMenu(
+                                    expanded = menuOpen,
+                                    onDismissRequest = { menuOpen = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(stringResource(CoreR.string.ta_queue_channel))
+                                        },
+                                        onClick = {
+                                            menuOpen = false
+                                            viewModel.queueChannel()
+                                        },
+                                    )
                                 }
-                                Spacer(Modifier.padding(top = MaterialTheme.spacings.small))
-                                if (channel.subscribed) {
-                                    FilledTonalButton(
-                                        onClick = { viewModel.setSubscribed(false) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Text(stringResource(CoreR.string.ta_subscribed))
-                                    }
-                                } else {
-                                    Button(
-                                        onClick = { viewModel.setSubscribed(true) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Text(stringResource(CoreR.string.ta_subscribe))
-                                    }
+                            }
+                        }
+                    },
+                    windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+                    scrollBehavior = scrollBehavior,
+                )
+            },
+            contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+        ) { innerPadding ->
+            Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                when {
+                    channel == null && state.error != null ->
+                        Text(
+                            text = state.error.orEmpty(),
+                            color = MaterialTheme.colorScheme.error,
+                            modifier =
+                                Modifier.align(Alignment.Center)
+                                    .padding(MaterialTheme.spacings.default),
+                        )
+                    channel == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    else ->
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = TA_CARD_MIN_WIDTH),
+                            state = gridState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                            verticalArrangement =
+                                Arrangement.spacedBy(MaterialTheme.spacings.small),
+                        ) {
+                            if (state.serverSide) {
+                                item(span = { GridItemSpan(maxLineSpan) }, key = "server") {
+                                    TaChannelServerSide(
+                                        channel = channel,
+                                        globalConfig = globalConfig,
+                                        onEdit = { editing = it },
+                                        onChange = viewModel::setOverwrite,
+                                        onRefresh = viewModel::refresh,
+                                    )
                                 }
-                                channel.description
-                                    ?.takeIf { it.isNotBlank() }
-                                    ?.let { description ->
-                                        Text(
-                                            text = rememberLinkedText(description),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            maxLines =
-                                                if (descriptionExpanded) Int.MAX_VALUE else 3,
-                                            overflow = TextOverflow.Ellipsis,
+                                return@LazyVerticalGrid
+                            }
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+                                Column {
+                                    if (channel.bannerUrl != null) {
+                                        TaImage(
+                                            path = channel.bannerUrl,
                                             modifier =
-                                                Modifier.padding(top = MaterialTheme.spacings.small)
-                                                    .animateContentSize()
-                                                    .clickable {
-                                                        descriptionExpanded = !descriptionExpanded
-                                                    },
+                                                Modifier.fillMaxWidth()
+                                                    .aspectRatio(6.2f)
+                                                    .padding(
+                                                        bottom = MaterialTheme.spacings.medium
+                                                    ),
                                         )
                                     }
-                                val tabs = state.tabs
-                                if (tabs.size > 1) {
-                                    Row(
-                                        horizontalArrangement =
-                                            Arrangement.spacedBy(MaterialTheme.spacings.small),
-                                        modifier =
-                                            Modifier.padding(top = MaterialTheme.spacings.small),
-                                    ) {
-                                        tabs.forEach { tab ->
-                                            FilterChip(
-                                                selected = state.tab == tab,
-                                                onClick = { viewModel.selectTab(tab) },
-                                                label = { Text(stringResource(tab.label())) },
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        TaAvatar(path = channel.thumbUrl, size = 64.dp)
+                                        Spacer(Modifier.width(MaterialTheme.spacings.medium))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = channel.name,
+                                                style = MaterialTheme.typography.titleLarge,
                                             )
+                                            channel.subs?.let { subs ->
+                                                Text(
+                                                    text =
+                                                        stringResource(
+                                                            CoreR.string.ta_subscribers,
+                                                            formatCount(subs),
+                                                        ),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color =
+                                                        MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Spacer(Modifier.padding(top = MaterialTheme.spacings.small))
+                                    if (channel.subscribed) {
+                                        FilledTonalButton(
+                                            onClick = { viewModel.setSubscribed(false) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Text(stringResource(CoreR.string.ta_subscribed))
+                                        }
+                                    } else {
+                                        Button(
+                                            onClick = { viewModel.setSubscribed(true) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Text(stringResource(CoreR.string.ta_subscribe))
+                                        }
+                                    }
+                                    channel.description
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let { description ->
+                                            Text(
+                                                text = rememberLinkedText(description),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                maxLines =
+                                                    if (descriptionExpanded) Int.MAX_VALUE else 3,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier =
+                                                    Modifier.padding(
+                                                            top = MaterialTheme.spacings.small
+                                                        )
+                                                        .animateContentSize()
+                                                        .clickable {
+                                                            descriptionExpanded =
+                                                                !descriptionExpanded
+                                                        },
+                                            )
+                                        }
+                                    val tabs = state.tabs
+                                    if (tabs.size > 1) {
+                                        Row(
+                                            horizontalArrangement =
+                                                Arrangement.spacedBy(MaterialTheme.spacings.small),
+                                            modifier =
+                                                Modifier.padding(
+                                                    top = MaterialTheme.spacings.small
+                                                ),
+                                        ) {
+                                            tabs.forEach { tab ->
+                                                FilterChip(
+                                                    selected = state.tab == tab,
+                                                    onClick = { viewModel.selectTab(tab) },
+                                                    label = { Text(stringResource(tab.label())) },
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
+                            if (state.tab == TaChannelTab.PLAYLISTS) {
+                                items(playlists.items, key = { "p" + it.id }) { playlist ->
+                                    TaPlaylistCard(
+                                        playlist = playlist,
+                                        onClick = { onPlaylistClick(playlist.id) },
+                                    )
+                                }
+                                item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
+                                    TaListFooter(
+                                        state = playlists,
+                                        onRetry = { viewModel.loadMore() },
+                                        emptyText = stringResource(CoreR.string.ta_no_playlists),
+                                    )
+                                }
+                            } else {
+                                items(videos.items, key = { "v" + it.youtubeId }) { video ->
+                                    TaVideoCard(
+                                        video = video,
+                                        onClick = { onVideoClick(video.youtubeId) },
+                                        showChannel = false,
+                                    )
+                                }
+                                item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
+                                    TaListFooter(
+                                        state = videos,
+                                        onRetry = { viewModel.loadMore() },
+                                        emptyText = stringResource(CoreR.string.ta_no_videos),
+                                    )
+                                }
+                            }
                         }
-                        if (state.tab == TaChannelTab.PLAYLISTS) {
-                            items(playlists.items, key = { "p" + it.id }) { playlist ->
-                                TaPlaylistCard(
-                                    playlist = playlist,
-                                    onClick = { onPlaylistClick(playlist.id) },
-                                )
-                            }
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
-                                TaListFooter(
-                                    state = playlists,
-                                    onRetry = { viewModel.loadMore() },
-                                    emptyText = stringResource(CoreR.string.ta_no_playlists),
-                                )
-                            }
-                        } else {
-                            items(videos.items, key = { "v" + it.youtubeId }) { video ->
-                                TaVideoCard(
-                                    video = video,
-                                    onClick = { onVideoClick(video.youtubeId) },
-                                    showChannel = false,
-                                )
-                            }
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
-                                TaListFooter(
-                                    state = videos,
-                                    onRetry = { viewModel.loadMore() },
-                                    emptyText = stringResource(CoreR.string.ta_no_videos),
-                                )
-                            }
-                        }
-                    }
+                }
             }
         }
     }

@@ -44,6 +44,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaPlaylistViewModel
+import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
@@ -75,103 +76,108 @@ fun TaPlaylistScreen(
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            TopAppBar(
-                title = {
-                    TaSideTitle(
-                        title = playlist?.name.orEmpty(),
-                        onServer = serverSide,
-                        onToggle = { serverSide = !serverSide },
-                        localIcon = CoreR.drawable.ic_list_video,
-                        localLabel = stringResource(CoreR.string.ta_side_playlist),
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = navigateBack) {
-                        Icon(
-                            painter = painterResource(CoreR.drawable.ic_arrow_left),
-                            contentDescription = null,
+    ServerSideTheme(onServer = serverSide) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+            topBar = {
+                TopAppBar(
+                    title = {
+                        TaSideTitle(
+                            title = playlist?.name.orEmpty(),
+                            onServer = serverSide,
+                            onToggle = { serverSide = !serverSide },
+                            localIcon = CoreR.drawable.ic_list_video,
+                            localLabel = stringResource(CoreR.string.ta_side_playlist),
                         )
-                    }
-                },
-                actions = { TaOpenInWebButton(path = "/playlist/$playlistId") },
-                windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-                scrollBehavior = scrollBehavior,
-            )
-        },
-        contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-    ) { innerPadding ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = TA_CARD_MIN_WIDTH),
-            state = gridState,
-            modifier = Modifier.padding(innerPadding).fillMaxSize(),
-            contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
-            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-        ) {
-            val current = playlist
-            if (serverSide && current != null) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "server") {
-                    TaPlaylistServerSide(
-                        playlist = current,
-                        onSubscribedChange = viewModel::setSubscribed,
-                        onReversedChange = viewModel::setReversed,
-                        onRefresh = viewModel::refresh,
-                    )
-                }
-                return@LazyVerticalGrid
-            }
-            item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
-                Column {
-                    error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
-                    playlist?.let { playlist ->
-                        playlist.channelName?.let { channelName ->
-                            Text(
-                                text = channelName,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier =
-                                    Modifier.clickable(enabled = playlist.channelId != null) {
-                                        playlist.channelId?.let(onChannelClick)
-                                    },
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = navigateBack) {
+                            Icon(
+                                painter = painterResource(CoreR.drawable.ic_arrow_left),
+                                contentDescription = null,
                             )
                         }
-                        Text(
-                            text =
-                                stringResource(CoreR.string.ta_video_count, playlist.entries.size),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    },
+                    actions = { TaOpenInWebButton(path = "/playlist/$playlistId") },
+                    windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+                    scrollBehavior = scrollBehavior,
+                )
+            },
+            contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+        ) { innerPadding ->
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = TA_CARD_MIN_WIDTH),
+                state = gridState,
+                modifier = Modifier.padding(innerPadding).fillMaxSize(),
+                contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+            ) {
+                val current = playlist
+                if (serverSide && current != null) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "server") {
+                        TaPlaylistServerSide(
+                            playlist = current,
+                            onSubscribedChange = viewModel::setSubscribed,
+                            onReversedChange = viewModel::setReversed,
+                            onRefresh = viewModel::refresh,
                         )
-                        playlist.description
-                            ?.takeIf { it.isNotBlank() }
-                            ?.let { description ->
+                    }
+                    return@LazyVerticalGrid
+                }
+                item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+                    Column {
+                        error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
+                        playlist?.let { playlist ->
+                            playlist.channelName?.let { channelName ->
                                 Text(
-                                    text = rememberLinkedText(description),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = if (descriptionExpanded) Int.MAX_VALUE else 3,
-                                    overflow = TextOverflow.Ellipsis,
+                                    text = channelName,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary,
                                     modifier =
-                                        Modifier.padding(top = MaterialTheme.spacings.small)
-                                            .animateContentSize()
-                                            .clickable {
-                                                descriptionExpanded = !descriptionExpanded
-                                            },
+                                        Modifier.clickable(enabled = playlist.channelId != null) {
+                                            playlist.channelId?.let(onChannelClick)
+                                        },
                                 )
                             }
+                            Text(
+                                text =
+                                    stringResource(
+                                        CoreR.string.ta_video_count,
+                                        playlist.entries.size,
+                                    ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            playlist.description
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { description ->
+                                    Text(
+                                        text = rememberLinkedText(description),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = if (descriptionExpanded) Int.MAX_VALUE else 3,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier =
+                                            Modifier.padding(top = MaterialTheme.spacings.small)
+                                                .animateContentSize()
+                                                .clickable {
+                                                    descriptionExpanded = !descriptionExpanded
+                                                },
+                                    )
+                                }
+                        }
                     }
                 }
-            }
-            items(videos.items, key = { it.youtubeId }) { video ->
-                TaVideoCard(video = video, onClick = { onVideoClick(video.youtubeId) })
-            }
-            item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
-                TaListFooter(
-                    state = videos,
-                    onRetry = { viewModel.loadMore() },
-                    emptyText = stringResource(CoreR.string.ta_no_videos),
-                )
+                items(videos.items, key = { it.youtubeId }) { video ->
+                    TaVideoCard(video = video, onClick = { onVideoClick(video.youtubeId) })
+                }
+                item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
+                    TaListFooter(
+                        state = videos,
+                        onRetry = { viewModel.loadMore() },
+                        emptyText = stringResource(CoreR.string.ta_no_videos),
+                    )
+                }
             }
         }
     }
