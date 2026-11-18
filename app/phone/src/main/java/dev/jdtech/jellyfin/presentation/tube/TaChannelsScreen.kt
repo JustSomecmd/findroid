@@ -50,7 +50,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -112,13 +112,16 @@ fun TaChannelsScreen(
                     scrollBehavior = scrollBehavior,
                     colors = alwaysShownTopAppBarColors(),
                 )
-                // A shade darker than the bar above, to set the tabs apart
-                val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                // The bar's grey with a touch of the accent, to set the tabs apart from the bar
+                // in a way that follows the chosen accent color
                 PrimaryTabRow(
                     selectedTabIndex = pagerState.currentPage,
                     containerColor =
-                        if (dark) MaterialTheme.colorScheme.surfaceContainerLowest
-                        else MaterialTheme.colorScheme.surfaceContainerHighest,
+                        lerp(
+                            MaterialTheme.colorScheme.surfaceContainer,
+                            MaterialTheme.colorScheme.primary,
+                            0.1f,
+                        ),
                 ) {
                     TaChannelsTab.entries.forEach { entry ->
                         Tab(
