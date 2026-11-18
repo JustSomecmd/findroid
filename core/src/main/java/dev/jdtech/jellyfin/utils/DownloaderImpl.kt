@@ -31,6 +31,7 @@ import dev.jdtech.jellyfin.models.toFindroidTrickplayInfoDto
 import dev.jdtech.jellyfin.models.toFindroidUserDataDto
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.work.ImagesDownloaderWorker
 import dev.jdtech.jellyfin.work.MediaDownloadQueue
 import dev.jdtech.jellyfin.work.MediaDownloadWorker
@@ -65,6 +66,7 @@ class DownloaderImpl(
     private val jellyfinRepository: JellyfinRepository,
     private val appPreferences: AppPreferences,
     private val workManager: WorkManager,
+    private val taOfflineStore: TaOfflineStore,
 ) : Downloader {
     // Preparing a download keeps going when the screen that started it is closed
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -199,6 +201,7 @@ class DownloaderImpl(
                 ),
             )
             changes.update { it + 1 }
+            if (item is FindroidEpisode) saveTubeArchivistDetails(item)
             return null
         } catch (e: CancellationException) {
             throw e
@@ -212,6 +215,19 @@ class DownloaderImpl(
             } catch (_: Exception) {}
             return if (e.message != null) UiText.DynamicString(e.message!!)
             else UiText.StringResource(CoreR.string.unknown_error)
+        }
+    }
+
+    /** Keeps TubeArchivist's description, comments and SponsorBlock segments for offline use. */
+    private fun saveTubeArchivistDetails(item: FindroidEpisode) {
+        scope.launch {
+            try {
+                taOfflineStore.saveForDownload(item.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Could not save TubeArchivist details")
+            }
         }
     }
 
@@ -320,6 +336,7 @@ class DownloaderImpl(
 
     private suspend fun deleteItemFiles(item: FindroidItem, source: FindroidSource) {
         MediaDownloadQueue.remove(context, item.id)
+        taOfflineStore.delete(item.id)
         cancelMediaDownload(item.id)
 
         when (item) {

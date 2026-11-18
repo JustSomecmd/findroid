@@ -33,6 +33,8 @@ import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.Constants
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
+import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
@@ -63,6 +65,7 @@ constructor(
     private val savedStateHandle: SavedStateHandle,
     private val taApi: TaApi,
     private val taJellyfinLookup: TaJellyfinLookup,
+    private val taOfflineStore: TaOfflineStore,
 ) : ViewModel(), Player.Listener {
     val player: Player
 
@@ -308,8 +311,10 @@ constructor(
             if (finalTaVideoId != null) {
                 try {
                     taApi.postProgress(finalTaVideoId, position / 1000.0)
+                    taOfflineStore.clearPendingProgress(finalTaVideoId)
                 } catch (e: Exception) {
                     Timber.w(e, "Could not save progress in TubeArchivist")
+                    taOfflineStore.addPendingProgress(finalTaVideoId, position / 1000.0)
                 }
             }
             try {
@@ -366,10 +371,13 @@ constructor(
         viewModelScope.launch {
             try {
                 taApi.postProgress(videoId, seconds)
+                taOfflineStore.clearPendingProgress(videoId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // Sent when TubeArchivist can be reached again
                 Timber.w(e, "Could not save progress in TubeArchivist")
+                taOfflineStore.addPendingProgress(videoId, seconds)
             }
         }
     }
@@ -380,33 +388,47 @@ constructor(
         taSegments = emptyList()
         taLastReport = 0L
         if (!taApi.isConfigured) return
+        val isCurrent = { player.currentMediaItem?.mediaId == itemId.toString() }
+
+        // Saved with the download, so this works without a connection
+        val savedVideoId = taOfflineStore.videoIdForItem(itemId)
+        if (savedVideoId != null) {
+            val saved = taOfflineStore.load(savedVideoId)
+            if (!isCurrent()) return
+            taVideoId = savedVideoId
+            if (sponsorBlockMode != SPONSORBLOCK_OFF && saved != null) {
+                taSegments = saved.video.sponsorBlockSegments()
+            }
+        }
+
         try {
-            val videoId = taJellyfinLookup.videoIdForItem(itemId) ?: return
-            if (player.currentMediaItem?.mediaId != itemId.toString()) return
+            val videoId = savedVideoId ?: taJellyfinLookup.videoIdForItem(itemId) ?: return
+            if (!isCurrent()) return
             taVideoId = videoId
             if (sponsorBlockMode == SPONSORBLOCK_OFF) return
-            val segments =
-                taApi.getVideo(videoId).sponsorblock?.segments.orEmpty().mapNotNull { segment ->
-                    val start = segment.segment.getOrNull(0) ?: return@mapNotNull null
-                    val end = segment.segment.getOrNull(1) ?: return@mapNotNull null
-                    // Segments that only mark a point (such as highlights) can't be skipped
-                    if (end - start < 1.0 || segment.actionType == "poi") return@mapNotNull null
-                    FindroidSegment(
-                        type = FindroidSegmentType.UNKNOWN,
-                        startTicks = (start * 1000).toLong(),
-                        endTicks = (end * 1000).toLong(),
-                        sponsorBlockCategory = segment.category,
-                    )
-                }
-            if (player.currentMediaItem?.mediaId == itemId.toString()) {
-                taSegments = segments
-            }
+            val segments = taApi.getVideo(videoId).sponsorBlockSegments()
+            if (isCurrent()) taSegments = segments
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Timber.w(e, "Could not load TubeArchivist info")
         }
     }
+
+    /** Skippable SponsorBlock segments, in the player's milliseconds. */
+    private fun TaVideo.sponsorBlockSegments(): List<FindroidSegment> =
+        sponsorblock?.segments.orEmpty().mapNotNull { segment ->
+            val start = segment.segment.getOrNull(0) ?: return@mapNotNull null
+            val end = segment.segment.getOrNull(1) ?: return@mapNotNull null
+            // Segments that only mark a point (such as highlights) can't be skipped
+            if (end - start < 1.0 || segment.actionType == "poi") return@mapNotNull null
+            FindroidSegment(
+                type = FindroidSegmentType.UNKNOWN,
+                startTicks = (start * 1000).toLong(),
+                endTicks = (end * 1000).toLong(),
+                sponsorBlockCategory = segment.category,
+            )
+        }
 
     fun updateCurrentSegment() {
         Timber.d("Updating current segment")

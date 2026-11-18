@@ -184,6 +184,11 @@ fun NavigationRoot(
             topLevelRoutes = TOP_LEVEL_ROUTES,
         )
     val navigator = remember(navigationState) { Navigator(navigationState) }
+    // Downloaded TubeArchivist videos open on their TubeArchivist page, also offline
+    navigator.episodeRedirect = { itemId ->
+        if (taConfigured) taNavViewModel.downloadedVideoId(itemId)?.let { TaVideoRoute(it) }
+        else null
+    }
 
     // The entry decorators hold the per-entry SavedState and ViewModel stores. They must be
     // hoisted as well, otherwise the retained state would be discarded when switching modes.
@@ -694,7 +699,10 @@ private fun navigateToItem(navigator: Navigator, item: FindroidItem) {
         is FindroidMovie -> navigator.navigate(MovieRoute(movieId = item.id.toString()))
         is FindroidShow -> navigator.navigate(ShowRoute(showId = item.id.toString()))
         is FindroidSeason -> navigator.navigate(SeasonRoute(seasonId = item.id.toString()))
-        is FindroidEpisode -> navigator.navigate(EpisodeRoute(episodeId = item.id.toString()))
+        is FindroidEpisode ->
+            navigator.navigate(
+                navigator.episodeRedirect(item.id) ?: EpisodeRoute(episodeId = item.id.toString())
+            )
         is FindroidPlaylist ->
             navigator.navigate(
                 PlaylistRoute(playlistId = item.id.toString(), playlistName = item.name)

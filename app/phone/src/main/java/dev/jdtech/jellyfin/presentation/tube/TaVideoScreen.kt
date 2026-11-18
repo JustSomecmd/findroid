@@ -213,6 +213,13 @@ private fun TaVideoContent(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (state.offline) {
+                    Text(
+                        text = stringResource(CoreR.string.ta_offline_copy),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
             }
         }
         video.channel?.let { channel ->

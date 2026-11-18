@@ -11,6 +11,7 @@ import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
+import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import javax.inject.Singleton
 import kotlinx.coroutines.runBlocking
 
@@ -60,4 +61,13 @@ object ApiModule {
     @Provides
     fun provideTaJellyfinLookup(jellyfinApi: JellyfinApi): TaJellyfinLookup =
         TaJellyfinLookup(jellyfinApi)
+
+    @Singleton
+    @Provides
+    fun provideTaOfflineStore(
+        @ApplicationContext application: Context,
+        taApi: TaApi,
+        taJellyfinLookup: TaJellyfinLookup,
+        database: ServerDatabaseDao,
+    ): TaOfflineStore = TaOfflineStore(application, taApi, taJellyfinLookup, database)
 }

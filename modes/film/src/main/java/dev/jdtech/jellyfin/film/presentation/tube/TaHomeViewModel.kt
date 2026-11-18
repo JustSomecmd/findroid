@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.tubearchivist.TaApi
+import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
@@ -13,7 +14,9 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 
 @HiltViewModel
-class TaHomeViewModel @Inject constructor(private val taApi: TaApi) : ViewModel() {
+class TaHomeViewModel
+@Inject
+constructor(private val taApi: TaApi, private val taOfflineStore: TaOfflineStore) : ViewModel() {
     private val _continueWatching = MutableStateFlow<List<TaVideo>>(emptyList())
     val continueWatching = _continueWatching.asStateFlow()
 
@@ -24,6 +27,8 @@ class TaHomeViewModel @Inject constructor(private val taApi: TaApi) : ViewModel(
 
     /** Loads the page the first time, and refreshes it when coming back after a while. */
     fun onShown() {
+        // Anything that couldn't be sent before
+        viewModelScope.launch { taOfflineStore.sync() }
         val now = System.currentTimeMillis()
         if (_latest.value.page == 0) {
             lastLoad = now

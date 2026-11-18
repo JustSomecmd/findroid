@@ -5,16 +5,24 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaApi
+import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /** Whether TubeArchivist is set up, which makes it the main part of the app. */
 @HiltViewModel
-class TaNavViewModel @Inject constructor(appPreferences: AppPreferences, taApi: TaApi) :
-    ViewModel() {
+class TaNavViewModel
+@Inject
+constructor(
+    private val appPreferences: AppPreferences,
+    taApi: TaApi,
+    private val taOfflineStore: TaOfflineStore,
+) : ViewModel() {
     val configured =
         combine(
                 appPreferences.observe(appPreferences.tubeArchivistUrl),
@@ -30,4 +38,14 @@ class TaNavViewModel @Inject constructor(appPreferences: AppPreferences, taApi: 
             .observe(appPreferences.tubeArchivistUrl)
             .map { url -> url?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() } }
             .stateIn(viewModelScope, SharingStarted.Eagerly, taApi.baseUrl)
+
+    init {
+        // Progress made offline, and details of earlier downloads
+        if (!appPreferences.getValue(appPreferences.offlineMode)) {
+            viewModelScope.launch { taOfflineStore.sync() }
+        }
+    }
+
+    /** The TubeArchivist video of a downloaded Jellyfin item, so it opens on that page. */
+    fun downloadedVideoId(itemId: UUID): String? = taOfflineStore.videoIdForItem(itemId)
 }

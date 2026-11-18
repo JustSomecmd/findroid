@@ -12,8 +12,10 @@ import org.jellyfin.sdk.model.api.ItemFields
 /** Name the TubeArchivist Jellyfin plugin stores its IDs under. */
 private const val PROVIDER_NAME = "TubeArchivist"
 
-private val VIDEO_FILE_REGEX = Regex("""([A-Za-z0-9_-]{11})\.[A-Za-z0-9]+$""")
-private val CHANNEL_FOLDER_REGEX = Regex("""(UC[A-Za-z0-9_-]{22})/?$""")
+// TubeArchivist keeps each video as <channel ID>/<video ID>.mp4
+private val VIDEO_FILE_REGEX =
+    Regex("""(?:^|[/\\])UC[A-Za-z0-9_-]{22}[/\\]([A-Za-z0-9_-]{11})\.[A-Za-z0-9]+$""")
+private val CHANNEL_FOLDER_REGEX = Regex("""(?:^|[/\\])(UC[A-Za-z0-9_-]{22})[/\\]?$""")
 
 private val LOOKUP_FIELDS = listOf(ItemFields.PROVIDER_IDS, ItemFields.PATH)
 

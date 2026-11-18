@@ -5,11 +5,14 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaApiException
 import dev.jdtech.jellyfin.tubearchivist.TaComment
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
+import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
+import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.channels.Channel
@@ -29,6 +32,8 @@ data class TaVideoState(
     /** Null while loading. */
     val comments: List<TaComment>? = null,
     val similar: List<TaVideo> = emptyList(),
+    /** Shown from what was saved with the download, as TubeArchivist can't be reached. */
+    val offline: Boolean = false,
 )
 
 @HiltViewModel
@@ -38,6 +43,8 @@ constructor(
     private val taApi: TaApi,
     private val taJellyfinLookup: TaJellyfinLookup,
     private val repository: JellyfinRepository,
+    private val taOfflineStore: TaOfflineStore,
+    private val appPreferences: AppPreferences,
 ) : ViewModel() {
     private val _state = MutableStateFlow(TaVideoState())
     val state = _state.asStateFlow()
@@ -51,16 +58,20 @@ constructor(
         val firstLoad = this.videoId != videoId
         this.videoId = videoId
         viewModelScope.launch {
+            // In offline mode the saved copy is all there is
+            if (appPreferences.getValue(appPreferences.offlineMode) && loadSaved(videoId)) {
+                return@launch
+            }
             val video =
                 try {
                     taApi.getVideo(videoId)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _state.update { it.copy(error = e.errorText()) }
+                    if (!loadSaved(videoId)) _state.update { it.copy(error = e.errorText()) }
                     return@launch
                 }
-            _state.update { it.copy(video = video, error = null) }
+            _state.update { it.copy(video = video, error = null, offline = false) }
             launch { findEpisode(video) }
             if (firstLoad) {
                 launch { loadComments(video) }
@@ -124,15 +135,43 @@ constructor(
         }
     }
 
+    /** Shows what was saved when the video was downloaded. Returns false if nothing was. */
+    private suspend fun loadSaved(videoId: String): Boolean {
+        val saved = taOfflineStore.load(videoId) ?: return false
+        val episode =
+            try {
+                repository.getEpisode(UUID.fromString(saved.itemId))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Could not load the downloaded episode")
+                null
+            }
+        _state.update {
+            it.copy(
+                video = saved.video,
+                comments = saved.comments,
+                episode = episode,
+                lookingUp = false,
+                offline = true,
+                error = null,
+            )
+        }
+        return true
+    }
+
     private suspend fun findEpisode(video: TaVideo) {
         try {
+            // A download already knows its Jellyfin item
+            val savedItemId = taOfflineStore.load(video.youtubeId)?.itemId
             val episodeId =
-                taJellyfinLookup.findEpisodeId(
-                    videoId = video.youtubeId,
-                    title = video.title,
-                    channelId = video.channel?.id,
-                    channelName = video.channel?.name,
-                )
+                savedItemId?.let { UUID.fromString(it) }
+                    ?: taJellyfinLookup.findEpisodeId(
+                        videoId = video.youtubeId,
+                        title = video.title,
+                        channelId = video.channel?.id,
+                        channelName = video.channel?.name,
+                    )
             val episode = episodeId?.let { repository.getEpisode(it) }
             _state.update { it.copy(episode = episode, lookingUp = false) }
         } catch (e: CancellationException) {
@@ -154,7 +193,7 @@ constructor(
                 emptyList()
             } catch (e: Exception) {
                 Timber.w(e, "Could not load comments")
-                emptyList()
+                taOfflineStore.load(video.youtubeId)?.comments.orEmpty()
             }
         _state.update { it.copy(comments = comments) }
     }
