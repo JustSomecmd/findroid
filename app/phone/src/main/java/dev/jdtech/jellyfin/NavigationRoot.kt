@@ -6,6 +6,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.recalculateWindowInsets
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
@@ -15,15 +20,25 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.material3.adaptive.navigationsuite.rememberNavigationSuiteScaffoldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
@@ -37,6 +52,7 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.window.core.layout.WindowSizeClass
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.film.presentation.tube.TaChannelsTab
 import dev.jdtech.jellyfin.film.presentation.tube.TaNavViewModel
 import dev.jdtech.jellyfin.models.CollectionType
 import dev.jdtech.jellyfin.models.FindroidBoxSet
@@ -75,6 +91,7 @@ import dev.jdtech.jellyfin.presentation.setup.permission.PermissionScreen
 import dev.jdtech.jellyfin.presentation.setup.servers.ServersScreen
 import dev.jdtech.jellyfin.presentation.setup.users.UsersScreen
 import dev.jdtech.jellyfin.presentation.setup.welcome.WelcomeScreen
+import dev.jdtech.jellyfin.presentation.tube.LocalInMainPager
 import dev.jdtech.jellyfin.presentation.tube.LocalTaBaseUrl
 import dev.jdtech.jellyfin.presentation.tube.LocalTubeArchivistMode
 import dev.jdtech.jellyfin.presentation.tube.TaChannelScreen
@@ -86,6 +103,7 @@ import dev.jdtech.jellyfin.presentation.tube.TaQueueScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSearchScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSettingsScreen
 import dev.jdtech.jellyfin.presentation.tube.TaVideoScreen
+import dev.jdtech.jellyfin.presentation.tube.rememberSidePagerState
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionAction
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionViewModel
@@ -352,13 +370,193 @@ private fun MainNavigation(
         layoutType = customNavSuiteType,
         state = navigationSuiteScaffoldState,
     ) {
-        NavDisplay(
-            entries = navigationState.toDecoratedEntries(entryDecorators, entryProvider),
-            onBack = { navigator.goBack() },
-            transitionSpec = { GLOBAL_TRANSITION_SPEC },
-            popTransitionSpec = { GLOBAL_TRANSITION_SPEC },
-            predictivePopTransitionSpec = { _ -> GLOBAL_TRANSITION_SPEC },
-        )
+        val navDisplay: @Composable () -> Unit = {
+            NavDisplay(
+                entries = navigationState.toDecoratedEntries(entryDecorators, entryProvider),
+                onBack = { navigator.goBack() },
+                transitionSpec = { GLOBAL_TRANSITION_SPEC },
+                popTransitionSpec = { GLOBAL_TRANSITION_SPEC },
+                predictivePopTransitionSpec = { _ -> GLOBAL_TRANSITION_SPEC },
+            )
+        }
+        if (tubeArchivistMode) {
+            // Home, Channels and Downloads sit side by side in one pager under the other pages, and
+            // their own entries in the navigation are left empty so the pager shows through
+            Box(modifier = Modifier.fillMaxSize()) {
+                TaMainPager(
+                    navigationState = navigationState,
+                    navigator = navigator,
+                    active = atTabRoot && topLevelRoute in TA_MAIN_PAGES,
+                )
+                CompositionLocalProvider(LocalTaMainPagerShown provides true) { navDisplay() }
+            }
+        } else {
+            navDisplay()
+        }
+    }
+}
+
+/** The main pages, left to right, in the TubeArchivist interface. */
+private val TA_MAIN_PAGES = listOf(TaHomeRoute, TaChannelsRoute, DownloadsRoute)
+
+/** True where the main pager shows the main pages, so their navigation entries stay empty. */
+private val LocalTaMainPagerShown = staticCompositionLocalOf { false }
+
+/**
+ * Home, Channels and Downloads side by side, to swipe between. The Channels tabs and the two sides
+ * of Downloads turn first, and the pager moves on once they're at their end, so swiping goes Home,
+ * Subscribed, All channels, Playlists, the phone's downloads, then the server's queue.
+ */
+@Composable
+private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, active: Boolean) {
+    val topLevelRoute = navigationState.topLevelRoute
+    val pages =
+        rememberPagerState(initialPage = TA_MAIN_PAGES.indexOf(topLevelRoute).coerceAtLeast(0)) {
+            TA_MAIN_PAGES.size
+        }
+    val channelTabs = rememberPagerState { TaChannelsTab.entries.size }
+    val downloadSides = rememberSidePagerState()
+    // True while the pager turns for the bottom bar or back, rather than for a swipe
+    val turning = remember { BooleanHolder() }
+
+    // The bottom bar and back turn the pager
+    LaunchedEffect(topLevelRoute) {
+        val page = TA_MAIN_PAGES.indexOf(topLevelRoute)
+        if (page >= 0 && page != pages.currentPage) {
+            turning.value = true
+            try {
+                pages.animateScrollToPage(page)
+            } finally {
+                turning.value = false
+            }
+        }
+    }
+
+    // A swipe picks the tab in the bottom bar
+    LaunchedEffect(pages) {
+        snapshotFlow { pages.settledPage }
+            .collect { page ->
+                val route = TA_MAIN_PAGES[page]
+                val current = navigationState.topLevelRoute
+                if (current in TA_MAIN_PAGES && current != route) navigator.navigate(route)
+            }
+    }
+
+    // Swiping on from the page before or after lands on the nearest Channels tab or Downloads side
+    LaunchedEffect(pages) {
+        snapshotFlow { pages.isScrollInProgress }
+            .collect { scrolling ->
+                if (!scrolling || turning.value) return@collect
+                when (TA_MAIN_PAGES[pages.settledPage]) {
+                    TaHomeRoute -> channelTabs.requestScrollToPage(0)
+                    DownloadsRoute -> channelTabs.requestScrollToPage(channelTabs.pageCount - 1)
+                    TaChannelsRoute -> downloadSides.requestScrollToPage(0)
+                    else -> {}
+                }
+            }
+    }
+
+    // A swipe passed on from a page's own tabs can stop between two pages, so it settles
+    LaunchedEffect(pages) {
+        snapshotFlow { pages.isScrollInProgress to pages.currentPageOffsetFraction }
+            .collect { (scrolling, offset) ->
+                if (!scrolling && offset != 0f) pages.animateScrollToPage(pages.currentPage)
+            }
+    }
+
+    val lifecycleOwner = rememberGatedLifecycleOwner(active)
+    CompositionLocalProvider(
+        LocalLifecycleOwner provides lifecycleOwner,
+        LocalInMainPager provides true,
+    ) {
+        HorizontalPager(
+            state = pages,
+            // Worked out once here, as the pages move while they slide
+            modifier = Modifier.fillMaxSize().recalculateWindowInsets(),
+            userScrollEnabled = active,
+        ) { page ->
+            when (TA_MAIN_PAGES[page]) {
+                TaHomeRoute ->
+                    TaHomeScreen(
+                        onVideoClick =
+                            resumedAction<String> { navigator.navigate(TaVideoRoute(it)) },
+                        onChannelClick =
+                            resumedAction<String> { navigator.navigateOrReuse(TaChannelRoute(it)) },
+                        onSearchClick = dropUnlessResumed { navigator.navigate(TaSearchRoute) },
+                        onSettingsClick =
+                            dropUnlessResumed {
+                                navigator.navigate(
+                                    SettingsRoute(indexes = listOf(CoreR.string.title_settings))
+                                )
+                            },
+                        onManageServers = dropUnlessResumed { navigator.navigate(ServersRoute) },
+                        onTubeArchivistSettings =
+                            dropUnlessResumed { navigator.navigate(TaSettingsRoute) },
+                    )
+                TaChannelsRoute ->
+                    TaChannelsScreen(
+                        onChannelClick =
+                            resumedAction<String> { navigator.navigateOrReuse(TaChannelRoute(it)) },
+                        onPlaylistClick =
+                            resumedAction<String> { navigator.navigate(TaPlaylistRoute(it)) },
+                        tabsPagerState = channelTabs,
+                    )
+                else ->
+                    TaDownloadsScreen(
+                        onItemClick =
+                            resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) },
+                        sides = downloadSides,
+                    )
+            }
+        }
+    }
+}
+
+/** A flag that can be changed without causing anything to draw again. */
+private class BooleanHolder(var value: Boolean = false)
+
+/**
+ * A lifecycle that follows the app's, but stops short of resumed while [active] is false. The main
+ * pages then act as when their screen is covered by another, and update when it's uncovered.
+ */
+@Composable
+private fun rememberGatedLifecycleOwner(active: Boolean): LifecycleOwner {
+    val parent = LocalLifecycleOwner.current
+    val owner = remember { GatedLifecycleOwner() }
+    val currentActive by rememberUpdatedState(active)
+    DisposableEffect(parent) {
+        val observer = LifecycleEventObserver { _, _ ->
+            owner.follow(parent.lifecycle.currentState, currentActive)
+        }
+        parent.lifecycle.addObserver(observer)
+        onDispose {
+            parent.lifecycle.removeObserver(observer)
+            owner.follow(Lifecycle.State.DESTROYED, false)
+        }
+    }
+    LaunchedEffect(active) { owner.follow(parent.lifecycle.currentState, active) }
+    return owner
+}
+
+private class GatedLifecycleOwner : LifecycleOwner {
+    private val registry = LifecycleRegistry(this)
+
+    override val lifecycle: Lifecycle
+        get() = registry
+
+    fun follow(parentState: Lifecycle.State, active: Boolean) {
+        val target =
+            if (active || parentState < Lifecycle.State.STARTED) parentState
+            else Lifecycle.State.STARTED
+        // A lifecycle that never started can't be ended, and one that ended can't come back
+        if (registry.currentState == Lifecycle.State.DESTROYED) return
+        if (
+            target == Lifecycle.State.DESTROYED &&
+                registry.currentState == Lifecycle.State.INITIALIZED
+        ) {
+            return
+        }
+        registry.currentState = target
     }
 }
 
@@ -526,7 +724,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         // With TubeArchivist, the downloads on this phone and the download queue on the server are
         // two sides to swipe between, or to switch with the title
         if (LocalTubeArchivistMode.current) {
-            TaDownloadsScreen(onItemClick = onItemClick)
+            if (!LocalTaMainPagerShown.current) TaDownloadsScreen(onItemClick = onItemClick)
         } else {
             DownloadsScreen(onItemClick = onItemClick)
         }
@@ -728,6 +926,8 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
         navigator.navigate(TaPlaylistRoute(playlistId))
     }
     entry<TaHomeRoute> {
+        // Shown by the main pager underneath instead
+        if (LocalTaMainPagerShown.current) return@entry
         TaHomeScreen(
             onVideoClick = resumedAction<String> { openVideo(it) },
             onChannelClick = resumedAction<String> { openChannel(it) },
@@ -741,6 +941,7 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
         )
     }
     entry<TaChannelsRoute> {
+        if (LocalTaMainPagerShown.current) return@entry
         TaChannelsScreen(
             onChannelClick = resumedAction<String> { openChannel(it) },
             onPlaylistClick = resumedAction<String> { openPlaylist(it) },

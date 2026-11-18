@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
@@ -573,6 +574,21 @@ private fun TaSideSegment(@DrawableRes icon: Int, label: String, selected: Boole
         }
     }
 }
+
+/**
+ * True for the main pages shown side by side in the pager that swipes between Home, Channels and
+ * Downloads.
+ */
+val LocalInMainPager = staticCompositionLocalOf { false }
+
+/**
+ * Works out the screen's insets from where it is on screen, as screens inside the app's navigation
+ * do, except in the main pager: there a page that slides would get different insets at each step,
+ * so the pager works them out once for all its pages.
+ */
+@Composable
+fun Modifier.recalculateWindowInsetsUnlessPaged(): Modifier =
+    if (LocalInMainPager.current) this else this.recalculateWindowInsets()
 
 /** Top bar colors with the bar's background always shown, not only once the page scrolls. */
 @OptIn(ExperimentalMaterial3Api::class)

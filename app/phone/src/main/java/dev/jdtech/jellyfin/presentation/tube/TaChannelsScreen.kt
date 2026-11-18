@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -19,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,6 +64,8 @@ fun TaChannelsScreen(
     onChannelClick: (channelId: String) -> Unit,
     onPlaylistClick: (playlistId: String) -> Unit,
     viewModel: TaChannelsViewModel = hiltViewModel(),
+    /** The tabs' pages, when the main pager needs to turn them, such as to the last one. */
+    tabsPagerState: PagerState? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -76,7 +78,8 @@ fun TaChannelsScreen(
     }
 
     // Swiping moves between the tabs, with each list sliding along with the finger
-    val pagerState = rememberPagerState(initialPage = tab.ordinal) { TaChannelsTab.entries.size }
+    val ownPagerState = rememberPagerState(initialPage = tab.ordinal) { TaChannelsTab.entries.size }
+    val pagerState = tabsPagerState ?: ownPagerState
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
             .collect { page -> viewModel.selectTab(TaChannelsTab.entries[page]) }
@@ -88,7 +91,7 @@ fun TaChannelsScreen(
     Scaffold(
         modifier =
             Modifier.fillMaxSize()
-                .recalculateWindowInsets()
+                .recalculateWindowInsetsUnlessPaged()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             Column {

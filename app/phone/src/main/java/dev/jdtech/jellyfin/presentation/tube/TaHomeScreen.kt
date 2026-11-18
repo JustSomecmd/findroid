@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
@@ -104,7 +103,7 @@ fun TaHomeScreen(
     LoadMoreEffect(gridState) { viewModel.loadMore() }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize().recalculateWindowInsets(),
+        modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged(),
         topBar = {
             // Findroid's own header, with TubeArchivist's logo, on a background that always shows
             Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
