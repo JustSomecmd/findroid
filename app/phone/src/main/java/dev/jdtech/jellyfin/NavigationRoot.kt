@@ -6,10 +6,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -31,8 +33,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -464,6 +470,29 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
             }
     }
 
+    // A swipe handed on by the Channels tabs or the Downloads sides keeps its speed, so a quick
+    // flick turns the main page as easily as any other swipe
+    val defaultConnection = PagerDefaults.pageNestedScrollConnection(pages, Orientation.Horizontal)
+    val flickSpeed = with(LocalDensity.current) { MAIN_PAGE_FLICK_SPEED.toPx() }
+    val connection =
+        remember(defaultConnection, pages, flickSpeed) {
+            object : NestedScrollConnection by defaultConnection {
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    // Only when the swipe moved the main pages; otherwise the inner pages fling
+                    if (pages.currentPageOffsetFraction == 0f) return Velocity.Zero
+                    val from = pages.settledPage
+                    val target =
+                        when {
+                            available.x < -flickSpeed -> from + 1
+                            available.x > flickSpeed -> from - 1
+                            else -> pages.currentPage
+                        }.coerceIn(0, pages.pageCount - 1)
+                    pages.animateScrollToPage(target)
+                    return available
+                }
+            }
+        }
+
     val lifecycleOwner = rememberGatedLifecycleOwner(active)
     CompositionLocalProvider(
         LocalLifecycleOwner provides lifecycleOwner,
@@ -474,6 +503,7 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
             // Worked out once here, as the pages move while they slide
             modifier = Modifier.fillMaxSize().recalculateWindowInsets(),
             userScrollEnabled = active,
+            pageNestedScrollConnection = connection,
         ) { page ->
             when (TA_MAIN_PAGES[page]) {
                 TaHomeRoute ->
@@ -513,6 +543,9 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
         }
     }
 }
+
+// How fast a flick has to be to turn to the next main page, as for other pages
+private val MAIN_PAGE_FLICK_SPEED = 400.dp
 
 /** A flag that can be changed without causing anything to draw again. */
 private class BooleanHolder(var value: Boolean = false)
