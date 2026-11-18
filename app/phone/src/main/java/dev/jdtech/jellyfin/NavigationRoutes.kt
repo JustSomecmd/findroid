@@ -59,3 +59,20 @@ data class CollectionRoute(val collectionId: String, val collectionName: String)
 @Serializable data object DownloadStorageRoute : NavKey
 
 @Serializable data object AboutRoute : NavKey
+
+// TubeArchivist
+@Serializable data object TaHomeRoute : NavKey
+
+@Serializable data object TaChannelsRoute : NavKey
+
+@Serializable data object TaQueueRoute : NavKey
+
+@Serializable data object TaSearchRoute : NavKey
+
+@Serializable data object TaSettingsRoute : NavKey
+
+@Serializable data class TaVideoRoute(val videoId: String) : NavKey
+
+@Serializable data class TaChannelRoute(val channelId: String) : NavKey
+
+@Serializable data class TaPlaylistRoute(val playlistId: String) : NavKey

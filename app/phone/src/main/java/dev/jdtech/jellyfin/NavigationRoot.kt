@@ -14,6 +14,7 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.material3.adaptive.navigationsuite.rememberNavigationSuiteScaffoldState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -35,6 +36,7 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.window.core.layout.WindowSizeClass
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.film.presentation.tube.TaNavViewModel
 import dev.jdtech.jellyfin.models.CollectionType
 import dev.jdtech.jellyfin.models.FindroidBoxSet
 import dev.jdtech.jellyfin.models.FindroidCollection
@@ -72,12 +74,30 @@ import dev.jdtech.jellyfin.presentation.setup.permission.PermissionScreen
 import dev.jdtech.jellyfin.presentation.setup.servers.ServersScreen
 import dev.jdtech.jellyfin.presentation.setup.users.UsersScreen
 import dev.jdtech.jellyfin.presentation.setup.welcome.WelcomeScreen
+import dev.jdtech.jellyfin.presentation.tube.LocalTaBaseUrl
+import dev.jdtech.jellyfin.presentation.tube.TaChannelScreen
+import dev.jdtech.jellyfin.presentation.tube.TaChannelsScreen
+import dev.jdtech.jellyfin.presentation.tube.TaHomeScreen
+import dev.jdtech.jellyfin.presentation.tube.TaPlaylistScreen
+import dev.jdtech.jellyfin.presentation.tube.TaQueueScreen
+import dev.jdtech.jellyfin.presentation.tube.TaSearchScreen
+import dev.jdtech.jellyfin.presentation.tube.TaSettingsScreen
+import dev.jdtech.jellyfin.presentation.tube.TaVideoScreen
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionAction
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionViewModel
 import java.util.UUID
 
-private val TOP_LEVEL_ROUTES = setOf(HomeRoute, MediaRoute, DownloadsRoute, PlaylistsRoute)
+private val TOP_LEVEL_ROUTES =
+    setOf(
+        TaHomeRoute,
+        TaChannelsRoute,
+        TaQueueRoute,
+        HomeRoute,
+        MediaRoute,
+        DownloadsRoute,
+        PlaylistsRoute,
+    )
 private val GLOBAL_TRANSITION_SPEC = fadeIn(tween(300)) togetherWith fadeOut(tween(300))
 
 data class TabBarItem(
@@ -111,6 +131,31 @@ val playlistsTab =
         route = PlaylistsRoute,
     )
 
+// With TubeArchivist set up it becomes the main part of the app, and Jellyfin gets its own tab
+val taHomeTab =
+    TabBarItem(title = CoreR.string.title_home, icon = CoreR.drawable.ic_home, route = TaHomeRoute)
+
+val taChannelsTab =
+    TabBarItem(
+        title = CoreR.string.ta_channels,
+        icon = CoreR.drawable.ic_users,
+        route = TaChannelsRoute,
+    )
+
+val taQueueTab =
+    TabBarItem(
+        title = CoreR.string.ta_queue,
+        icon = CoreR.drawable.ic_list_plus,
+        route = TaQueueRoute,
+    )
+
+val jellyfinTab =
+    TabBarItem(
+        title = CoreR.string.ta_jellyfin,
+        icon = CoreR.drawable.ic_library,
+        route = HomeRoute,
+    )
+
 @Composable
 fun NavigationRoot(
     hasServers: Boolean,
@@ -118,6 +163,11 @@ fun NavigationRoot(
     hasCurrentUser: Boolean,
 ) {
     val setupComplete = hasServers && hasCurrentServer && hasCurrentUser
+
+    val taNavViewModel: TaNavViewModel = hiltViewModel()
+    val taConfigured by taNavViewModel.configured.collectAsStateWithLifecycle()
+    val taBaseUrl by taNavViewModel.baseUrl.collectAsStateWithLifecycle()
+    val tubeArchivistMode = taConfigured && !LocalOfflineMode.current
 
     val setupStartRoute: NavKey =
         when {
@@ -130,7 +180,7 @@ fun NavigationRoot(
     val setupBackStack = rememberNavBackStack(setupStartRoute)
     val navigationState =
         rememberNavigationState(
-            startRoute = HomeRoute,
+            startRoute = if (tubeArchivistMode) TaHomeRoute else HomeRoute,
             topLevelRoutes = TOP_LEVEL_ROUTES,
         )
     val navigator = remember(navigationState) { Navigator(navigationState) }
@@ -179,15 +229,18 @@ fun NavigationRoot(
                 onBackPressed = { permissionViewModel.onAction(PermissionAction.OnDismiss) },
             )
         } else {
-            MainNavigation(
-                navigationState = navigationState,
-                navigator = navigator,
-                entryDecorators = entryDecorators,
-                isOfflineMode = LocalOfflineMode.current,
-                searchExpanded = searchExpanded,
-                permissionViewModel = permissionViewModel,
-                permissionApplicable = permissionState.currentRequest != null,
-            )
+            CompositionLocalProvider(LocalTaBaseUrl provides taBaseUrl) {
+                MainNavigation(
+                    navigationState = navigationState,
+                    navigator = navigator,
+                    entryDecorators = entryDecorators,
+                    isOfflineMode = LocalOfflineMode.current,
+                    tubeArchivistMode = tubeArchivistMode,
+                    searchExpanded = searchExpanded,
+                    permissionViewModel = permissionViewModel,
+                    permissionApplicable = permissionState.currentRequest != null,
+                )
+            }
         }
     } else {
         SetupNavigation(
@@ -211,14 +264,17 @@ private fun MainNavigation(
     navigator: Navigator,
     entryDecorators: List<NavEntryDecorator<NavKey>>,
     isOfflineMode: Boolean,
+    tubeArchivistMode: Boolean,
     searchExpanded: MutableState<Boolean>,
     permissionViewModel: PermissionViewModel,
     permissionApplicable: Boolean,
 ) {
     val navigationItems =
-        when (isOfflineMode) {
-            false -> listOf(homeTab, mediaTab, downloadsTab, playlistsTab)
-            true -> listOf(homeTab, downloadsTab)
+        when {
+            isOfflineMode -> listOf(homeTab, downloadsTab)
+            tubeArchivistMode ->
+                listOf(taHomeTab, taChannelsTab, taQueueTab, jellyfinTab, downloadsTab)
+            else -> listOf(homeTab, mediaTab, downloadsTab, playlistsTab)
         }
     val tabRoutes = navigationItems.map { it.route }
 
@@ -437,6 +493,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         permissionViewModel = permissionViewModel,
         permissionApplicable = permissionApplicable,
     )
+    tubeArchivistEntries(navigator)
     entry<HomeRoute> {
         HomeScreen(
             onLibraryClick =
@@ -609,6 +666,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
             navigateToPlayerButtons =
                 dropUnlessResumed { navigator.navigate(SettingsPlayerButtonsRoute) },
             navigateToStorage = dropUnlessResumed { navigator.navigate(DownloadStorageRoute) },
+            navigateToTubeArchivist = dropUnlessResumed { navigator.navigate(TaSettingsRoute) },
             navigateToServers = dropUnlessResumed { navigator.navigate(ServersRoute) },
             navigateToUsers = dropUnlessResumed { navigator.navigate(UsersRoute) },
             navigateToAbout = dropUnlessResumed { navigator.navigate(AboutRoute) },
@@ -658,5 +716,67 @@ private fun navigateToItem(navigator: Navigator, item: FindroidItem) {
                 )
             )
         else -> Unit
+    }
+}
+
+private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator) {
+    val openVideo: (String) -> Unit = { videoId -> navigator.navigate(TaVideoRoute(videoId)) }
+    val openChannel: (String) -> Unit = { channelId ->
+        navigator.navigateOrReuse(TaChannelRoute(channelId))
+    }
+    val openPlaylist: (String) -> Unit = { playlistId ->
+        navigator.navigate(TaPlaylistRoute(playlistId))
+    }
+    entry<TaHomeRoute> {
+        TaHomeScreen(
+            onVideoClick = resumedAction<String> { openVideo(it) },
+            onSearchClick = dropUnlessResumed { navigator.navigate(TaSearchRoute) },
+            onSettingsClick =
+                dropUnlessResumed {
+                    navigator.navigate(SettingsRoute(indexes = listOf(CoreR.string.title_settings)))
+                },
+        )
+    }
+    entry<TaChannelsRoute> {
+        TaChannelsScreen(
+            onChannelClick = resumedAction<String> { openChannel(it) },
+            onPlaylistClick = resumedAction<String> { openPlaylist(it) },
+        )
+    }
+    entry<TaQueueRoute> { TaQueueScreen() }
+    entry<TaSearchRoute> {
+        TaSearchScreen(
+            onVideoClick = resumedAction<String> { openVideo(it) },
+            onChannelClick = resumedAction<String> { openChannel(it) },
+            onPlaylistClick = resumedAction<String> { openPlaylist(it) },
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+        )
+    }
+    entry<TaSettingsRoute> {
+        TaSettingsScreen(navigateBack = dropUnlessResumed { navigator.goBack() })
+    }
+    entry<TaVideoRoute> { key ->
+        TaVideoScreen(
+            videoId = key.videoId,
+            onVideoClick = resumedAction<String> { openVideo(it) },
+            onChannelClick = resumedAction<String> { openChannel(it) },
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+        )
+    }
+    entry<TaChannelRoute> { key ->
+        TaChannelScreen(
+            channelId = key.channelId,
+            onVideoClick = resumedAction<String> { openVideo(it) },
+            onPlaylistClick = resumedAction<String> { openPlaylist(it) },
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+        )
+    }
+    entry<TaPlaylistRoute> { key ->
+        TaPlaylistScreen(
+            playlistId = key.playlistId,
+            onVideoClick = resumedAction<String> { openVideo(it) },
+            onChannelClick = resumedAction<String> { openChannel(it) },
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+        )
     }
 }

@@ -12,6 +12,12 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     // Server
     val currentServer = Preference<String?>("pref_current_server", null)
 
+    // TubeArchivist
+    val tubeArchivistUrl = Preference<String?>("pref_ta_url", null)
+    val tubeArchivistToken = Preference<String?>("pref_ta_token", null)
+    // What happens at a SponsorBlock segment: button, auto or off
+    val tubeArchivistSponsorBlock = Preference("pref_ta_sponsorblock", "button")
+
     // Language
     val preferredAudioLanguage = Preference<String?>("pref_audio_language", null)
     val preferredSubtitleLanguage = Preference<String?>("pref_subtitle_language", null)

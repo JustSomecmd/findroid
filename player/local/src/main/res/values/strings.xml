@@ -22,6 +22,11 @@
     <string name="player_controls_skip_preview">Skip preview</string>
     <string name="player_controls_skip_commercial">Skip commercial</string>
     <string name="player_controls_skip_unknown">Skip</string>
+    <string name="player_controls_skip_sponsor">Skip sponsor</string>
+    <string name="player_controls_skip_selfpromo">Skip self-promotion</string>
+    <string name="player_controls_skip_interaction">Skip reminder</string>
+    <string name="player_controls_skip_music_offtopic">Skip non-music</string>
+    <string name="player_controls_skip_filler">Skip filler</string>
     <string name="chapters">Chapters</string>
     <string name="chapter_number">Chapter %1$d</string>
     <string name="select_quality">Quality</string>

@@ -406,6 +406,7 @@ class PlayerActivity : BasePlayerActivity() {
             itemId = itemId,
             itemKind = itemKind ?: "",
             startFromBeginning = startFromBeginning,
+            startPositionMs = intent.extras?.getLong("position", 0L),
         )
         hideSystemUI()
     }
@@ -419,10 +420,7 @@ class PlayerActivity : BasePlayerActivity() {
             }
         }
 
-        if (
-            appPreferences.getValue(appPreferences.playerMediaSegmentsSkipButton) ||
-                appPreferences.getValue(appPreferences.playerMediaSegmentsAutoSkip)
-        ) {
+        if (viewModel.checksSegments) {
             scope.launch {
                 while (true) {
                     viewModel.updateCurrentSegment()
@@ -447,6 +445,7 @@ class PlayerActivity : BasePlayerActivity() {
             itemId = itemId,
             itemKind = itemKind ?: "",
             startFromBeginning = startFromBeginning,
+            startPositionMs = intent.extras?.getLong("position", 0L),
         )
     }
 

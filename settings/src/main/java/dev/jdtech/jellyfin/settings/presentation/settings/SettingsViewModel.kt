@@ -764,6 +764,22 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                 preferences =
                     listOf(
                         PreferenceCategory(
+                            nameStringResource = R.string.settings_category_tubearchivist,
+                            descriptionStringRes = R.string.settings_category_tubearchivist_summary,
+                            iconDrawableId = R.drawable.ic_youtube,
+                            supportedDeviceTypes = listOf(DeviceType.PHONE),
+                            onClick = {
+                                viewModelScope.launch {
+                                    eventsChannel.send(SettingsEvent.NavigateToTubeArchivist)
+                                }
+                            },
+                        )
+                    )
+            ),
+            PreferenceGroup(
+                preferences =
+                    listOf(
+                        PreferenceCategory(
                             nameStringResource = R.string.users,
                             iconDrawableId = R.drawable.ic_user,
                             onClick = {

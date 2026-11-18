@@ -126,6 +126,8 @@
     <string name="pref_player_buttons">Player buttons</string>
     <string name="settings_category_storage">Storage</string>
     <string name="settings_category_storage_summary">Space used by downloads on this phone</string>
+    <string name="settings_category_tubearchivist">TubeArchivist</string>
+    <string name="settings_category_tubearchivist_summary">Server, API token, SponsorBlock and TubeArchivist\'s own settings</string>
     <string name="pref_new_item_notifications">Notify about new episodes and movies</string>
     <string name="pref_new_item_notifications_summary">Checks the server every 15 minutes and sends a notification naming the show or movie</string>
     <string name="pref_cast_movies">Cast &amp; crew on movie pages</string>

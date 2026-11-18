@@ -56,6 +56,7 @@ fun SettingsScreen(
             is SettingsEvent.NavigateToSettingsFileEdit -> {}
             is SettingsEvent.NavigateToPlayerButtons -> Unit
             is SettingsEvent.NavigateToStorage -> Unit
+            is SettingsEvent.NavigateToTubeArchivist -> Unit
             is SettingsEvent.NavigateToUsers -> navigateToUsers()
             is SettingsEvent.NavigateToServers -> navigateToServers()
             is SettingsEvent.NavigateToAbout -> Unit

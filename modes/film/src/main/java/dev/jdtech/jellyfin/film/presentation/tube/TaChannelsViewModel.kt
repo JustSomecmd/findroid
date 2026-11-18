@@ -1,0 +1,91 @@
+package dev.jdtech.jellyfin.film.presentation.tube
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.jdtech.jellyfin.tubearchivist.TaApi
+import dev.jdtech.jellyfin.tubearchivist.TaChannel
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
+import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
+
+enum class TaChannelsTab {
+    SUBSCRIBED,
+    ALL,
+    PLAYLISTS,
+}
+
+@HiltViewModel
+class TaChannelsViewModel @Inject constructor(private val taApi: TaApi) : ViewModel() {
+    private val _tab = MutableStateFlow(TaChannelsTab.SUBSCRIBED)
+    val tab = _tab.asStateFlow()
+
+    private val _subscribed = MutableStateFlow(TaListState<TaChannel>())
+    val subscribed = _subscribed.asStateFlow()
+
+    private val _all = MutableStateFlow(TaListState<TaChannel>())
+    val all = _all.asStateFlow()
+
+    private val _playlists = MutableStateFlow(TaListState<TaPlaylist>())
+    val playlists = _playlists.asStateFlow()
+
+    private val _messages = Channel<String>(Channel.BUFFERED)
+    val messages = _messages.receiveAsFlow()
+
+    fun selectTab(tab: TaChannelsTab) {
+        _tab.value = tab
+        loadMore()
+    }
+
+    fun loadMore() {
+        viewModelScope.launch {
+            when (_tab.value) {
+                TaChannelsTab.SUBSCRIBED ->
+                    _subscribed.loadNextPage(key = { it.id }) { page ->
+                        taApi.getChannels(page = page, subscribedOnly = true)
+                    }
+                TaChannelsTab.ALL ->
+                    _all.loadNextPage(key = { it.id }) { page -> taApi.getChannels(page = page) }
+                TaChannelsTab.PLAYLISTS ->
+                    _playlists.loadNextPage(key = { it.id }) { page ->
+                        taApi.getPlaylists(page = page)
+                    }
+            }
+        }
+    }
+
+    fun refresh() {
+        _subscribed.value = TaListState()
+        _all.value = TaListState()
+        _playlists.value = TaListState()
+        loadMore()
+    }
+
+    /** Subscribes to one or more channels, given as URLs, handles or IDs. */
+    fun subscribe(input: String) {
+        val urls = input.split(Regex("""[\s,]+""")).map { it.trim() }.filter { it.isNotEmpty() }
+        if (urls.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                taApi.subscribeToChannels(urls)
+                _messages.send(TaMessages.SUBSCRIBE_STARTED)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _messages.send(e.errorText())
+            }
+        }
+    }
+}
+
+/** Fixed messages the screens turn into text. Anything else is shown as it is. */
+object TaMessages {
+    const val SUBSCRIBE_STARTED = "ta:subscribe_started"
+    const val ADDED_TO_QUEUE = "ta:added_to_queue"
+    const val TASK_STARTED = "ta:task_started"
+    const val SAVED = "ta:saved"
+}

@@ -9,6 +9,8 @@ import dagger.hilt.components.SingletonComponent
 import dev.jdtech.jellyfin.api.JellyfinApi
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.tubearchivist.TaApi
+import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import javax.inject.Singleton
 import kotlinx.coroutines.runBlocking
 
@@ -49,4 +51,13 @@ object ApiModule {
 
         return jellyfinApi
     }
+
+    @Singleton
+    @Provides
+    fun provideTaApi(appPreferences: AppPreferences): TaApi = TaApi(appPreferences)
+
+    @Singleton
+    @Provides
+    fun provideTaJellyfinLookup(jellyfinApi: JellyfinApi): TaJellyfinLookup =
+        TaJellyfinLookup(jellyfinApi)
 }

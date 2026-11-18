@@ -58,6 +58,7 @@ fun SettingsScreen(
     navigateToSettingsFileEdit: (filePath: String) -> Unit,
     navigateToPlayerButtons: () -> Unit,
     navigateToStorage: () -> Unit,
+    navigateToTubeArchivist: () -> Unit,
     navigateToServers: () -> Unit,
     navigateToUsers: () -> Unit,
     navigateToAbout: () -> Unit,
@@ -77,6 +78,7 @@ fun SettingsScreen(
                 navigateToSettingsFileEdit(event.filePath)
             is SettingsEvent.NavigateToPlayerButtons -> navigateToPlayerButtons()
             is SettingsEvent.NavigateToStorage -> navigateToStorage()
+            is SettingsEvent.NavigateToTubeArchivist -> navigateToTubeArchivist()
             is SettingsEvent.NavigateToUsers -> navigateToUsers()
             is SettingsEvent.NavigateToServers -> navigateToServers()
             is SettingsEvent.NavigateToAbout -> navigateToAbout()

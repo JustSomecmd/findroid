@@ -32,6 +32,8 @@ import dev.jdtech.jellyfin.work.SyncWorker
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import kotlin.time.ExperimentalTime
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
 import timber.log.Timber
 
@@ -84,7 +86,12 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         return ImageLoader.Builder(context)
             .components {
-                add(OkHttpNetworkFetcherFactory(cacheStrategy = { CacheControlCacheStrategy() }))
+                add(
+                    OkHttpNetworkFetcherFactory(
+                        callFactory = { imageClient },
+                        cacheStrategy = { CacheControlCacheStrategy() },
+                    )
+                )
                 add(SvgDecoder.Factory())
             }
             .diskCachePolicy(
@@ -100,6 +107,35 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
                     .build()
             }
             .crossfade(true)
+            .build()
+    }
+
+    // Images from TubeArchivist need its API token, unless it was set up without that
+    private val imageClient by lazy {
+        OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val request = chain.request()
+                val base =
+                    appPreferences
+                        .getValue(appPreferences.tubeArchivistUrl)
+                        ?.trim()
+                        ?.toHttpUrlOrNull()
+                val token = appPreferences.getValue(appPreferences.tubeArchivistToken)?.trim()
+                val url = request.url
+                if (
+                    base != null &&
+                        !token.isNullOrEmpty() &&
+                        url.host == base.host &&
+                        url.port == base.port &&
+                        url.scheme == base.scheme
+                ) {
+                    chain.proceed(
+                        request.newBuilder().header("Authorization", "Token $token").build()
+                    )
+                } else {
+                    chain.proceed(request)
+                }
+            }
             .build()
     }
 

@@ -31,6 +31,8 @@ import dev.jdtech.jellyfin.player.local.mpv.MPVPlayer
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.Constants
+import dev.jdtech.jellyfin.tubearchivist.TaApi
+import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
@@ -59,6 +61,8 @@ constructor(
     private val repository: JellyfinRepository,
     private val appPreferences: AppPreferences,
     private val savedStateHandle: SavedStateHandle,
+    private val taApi: TaApi,
+    private val taJellyfinLookup: TaJellyfinLookup,
 ) : ViewModel(), Player.Listener {
     val player: Player
 
@@ -110,6 +114,20 @@ constructor(
     private var currentMediaItemIndex = savedStateHandle["mediaItemIndex"] ?: 0
     private var playbackPosition: Long = savedStateHandle["position"] ?: 0
     private var currentMediaItemSegments: List<FindroidSegment> = emptyList()
+
+    // TubeArchivist: the video ID of the current item, its SponsorBlock segments and when its
+    // progress was last saved there
+    private var taVideoId: String? = null
+    private var taSegments: List<FindroidSegment> = emptyList()
+    private var taLastReport = 0L
+    private val sponsorBlockMode = appPreferences.getValue(appPreferences.tubeArchivistSponsorBlock)
+
+    /** Whether the player needs to check for skippable segments while playing. */
+    val checksSegments: Boolean
+        get() =
+            segmentsSkipButton ||
+                segmentsAutoSkip ||
+                (taApi.isConfigured && sponsorBlockMode != SPONSORBLOCK_OFF)
 
     // Segments preferences
     var segmentsSkipButton: Boolean = false
@@ -195,8 +213,17 @@ constructor(
             }
     }
 
-    fun initializePlayer(itemId: UUID, itemKind: String, startFromBeginning: Boolean) {
+    fun initializePlayer(
+        itemId: UUID,
+        itemKind: String,
+        startFromBeginning: Boolean,
+        startPositionMs: Long? = null,
+    ) {
         player.addListener(this)
+        // A position from TubeArchivist, which may be newer than the one in Jellyfin
+        if (!startFromBeginning && startPositionMs != null && startPositionMs > 0) {
+            playbackPosition = startPositionMs
+        }
 
         viewModelScope.launch {
             val startItem =
@@ -274,8 +301,17 @@ constructor(
         val mediaId = player.currentMediaItem?.mediaId
         val position = player.currentPosition
         val duration = player.duration
+        val finalTaVideoId = taVideoId
+        taVideoId = null
         GlobalScope.launch {
             delay(200L)
+            if (finalTaVideoId != null) {
+                try {
+                    taApi.postProgress(finalTaVideoId, position / 1000.0)
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not save progress in TubeArchivist")
+                }
+            }
             try {
                 if (mediaId != null && duration != C.TIME_UNSET) {
                     Timber.d("Sending playback stop")
@@ -313,21 +349,77 @@ constructor(
                 } catch (e: Exception) {
                     Timber.e(e)
                 }
+                reportTaProgress(force = !player.isPlaying)
             }
+        }
+    }
+
+    /** Saves the position in TubeArchivist as well, every so often and whenever paused. */
+    private fun reportTaProgress(force: Boolean) {
+        val videoId = taVideoId ?: return
+        val now = System.currentTimeMillis()
+        if (!force && now - taLastReport < TA_PROGRESS_INTERVAL_MS) return
+        // Paused and already saved there
+        if (force && taLastReport < 0) return
+        taLastReport = if (force) -1L else now
+        val seconds = player.currentPosition / 1000.0
+        viewModelScope.launch {
+            try {
+                taApi.postProgress(videoId, seconds)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Could not save progress in TubeArchivist")
+            }
+        }
+    }
+
+    /** Looks the item up in TubeArchivist, for its SponsorBlock segments and saving progress. */
+    private suspend fun loadTubeArchivistInfo(itemId: UUID) {
+        taVideoId = null
+        taSegments = emptyList()
+        taLastReport = 0L
+        if (!taApi.isConfigured) return
+        try {
+            val videoId = taJellyfinLookup.videoIdForItem(itemId) ?: return
+            if (player.currentMediaItem?.mediaId != itemId.toString()) return
+            taVideoId = videoId
+            if (sponsorBlockMode == SPONSORBLOCK_OFF) return
+            val segments =
+                taApi.getVideo(videoId).sponsorblock?.segments.orEmpty().mapNotNull { segment ->
+                    val start = segment.segment.getOrNull(0) ?: return@mapNotNull null
+                    val end = segment.segment.getOrNull(1) ?: return@mapNotNull null
+                    // Segments that only mark a point (such as highlights) can't be skipped
+                    if (end - start < 1.0 || segment.actionType == "poi") return@mapNotNull null
+                    FindroidSegment(
+                        type = FindroidSegmentType.UNKNOWN,
+                        startTicks = (start * 1000).toLong(),
+                        endTicks = (end * 1000).toLong(),
+                        sponsorBlockCategory = segment.category,
+                    )
+                }
+            if (player.currentMediaItem?.mediaId == itemId.toString()) {
+                taSegments = segments
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Could not load TubeArchivist info")
         }
     }
 
     fun updateCurrentSegment() {
         Timber.d("Updating current segment")
         viewModelScope.launch(Dispatchers.Main) {
-            if (currentMediaItemSegments.isEmpty()) {
+            val segments = currentMediaItemSegments + taSegments
+            if (segments.isEmpty()) {
                 return@launch
             }
 
             val milliSeconds = player.currentPosition
 
             // Get current segment, - 100 milliseconds to avoid showing button after segment ends
-            val currentSegment = currentMediaItemSegments.find { segment ->
+            val currentSegment = segments.find { segment ->
                 milliSeconds in segment.startTicks..<(segment.endTicks - 100L)
             }
 
@@ -340,6 +432,21 @@ constructor(
             }
 
             Timber.tag("SegmentInfo").d("currentSegment: %s", currentSegment)
+
+            // SponsorBlock follows its own setting
+            if (currentSegment.sponsorBlockCategory != null) {
+                if (sponsorBlockMode == SPONSORBLOCK_AUTO) {
+                    skipSegment(currentSegment)
+                } else if (_uiState.value.currentSegment != currentSegment) {
+                    _uiState.update {
+                        it.copy(
+                            currentSegment = currentSegment,
+                            currentSkipButtonStringRes = getSkipButtonTextStringId(currentSegment),
+                        )
+                    }
+                }
+                return@launch
+            }
 
             if (
                 segmentsAutoSkip &&
@@ -404,6 +511,8 @@ constructor(
                         if (segmentsSkipButton || segmentsAutoSkip) {
                             getSegments(item.itemId)
                         }
+
+                        launch { loadTubeArchivistInfo(item.itemId) }
 
                         if (appPreferences.getValue(appPreferences.playerTrickplay)) {
                             getTrickplay(item)
@@ -692,6 +801,19 @@ constructor(
     }
 
     private fun getSkipButtonTextStringId(segment: FindroidSegment): Int {
+        segment.sponsorBlockCategory?.let { category ->
+            return when (category) {
+                "sponsor" -> R.string.player_controls_skip_sponsor
+                "selfpromo" -> R.string.player_controls_skip_selfpromo
+                "interaction" -> R.string.player_controls_skip_interaction
+                "intro" -> R.string.player_controls_skip_intro
+                "outro" -> R.string.player_controls_skip_outro
+                "preview" -> R.string.player_controls_skip_preview
+                "music_offtopic" -> R.string.player_controls_skip_music_offtopic
+                "filler" -> R.string.player_controls_skip_filler
+                else -> R.string.player_controls_skip_unknown
+            }
+        }
         return when (shouldSkipToNextEpisode(segment)) {
             true -> R.string.player_controls_next_episode
             false ->
@@ -856,3 +978,10 @@ private const val BACKGROUND_AUDIO_ONLY_DELAY_MS = 10_000L
 
 // How long a streamed item plays before sound and picture are put back in step
 private const val STREAM_RESYNC_DELAY_MS = 1_000L
+
+// What happens at a SponsorBlock segment
+private const val SPONSORBLOCK_OFF = "off"
+private const val SPONSORBLOCK_AUTO = "auto"
+
+// How often the position is saved in TubeArchivist while playing
+private const val TA_PROGRESS_INTERVAL_MS = 15_000L

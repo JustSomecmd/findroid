@@ -22,7 +22,13 @@ private fun MediaSegmentType.toFindroidSegmentType(): FindroidSegmentType =
         MediaSegmentType.COMMERCIAL -> FindroidSegmentType.COMMERCIAL
     }
 
-data class FindroidSegment(val type: FindroidSegmentType, val startTicks: Long, val endTicks: Long)
+data class FindroidSegment(
+    val type: FindroidSegmentType,
+    val startTicks: Long,
+    val endTicks: Long,
+    /** Set for SponsorBlock segments from TubeArchivist: sponsor, selfpromo, interaction etc. */
+    val sponsorBlockCategory: String? = null,
+)
 
 fun FindroidSegmentDto.toFindroidSegment(): FindroidSegment {
     return FindroidSegment(type = type, startTicks = startTicks, endTicks = endTicks)
