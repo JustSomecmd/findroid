@@ -11,6 +11,7 @@ import dev.jdtech.jellyfin.tubearchivist.TaApiException
 import dev.jdtech.jellyfin.tubearchivist.TaComment
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import java.util.UUID
 import javax.inject.Inject
@@ -121,6 +122,69 @@ constructor(
     }
 
     /** Asks TubeArchivist to look the video up on YouTube again. */
+    private val _customPlaylists = MutableStateFlow<List<TaPlaylist>?>(null)
+    /** TubeArchivist's own playlists, to save the video to. Null while loading. */
+    val customPlaylists = _customPlaylists.asStateFlow()
+
+    /** Loads the playlists made in TubeArchivist, which videos can be added to. */
+    fun loadCustomPlaylists() {
+        viewModelScope.launch {
+            try {
+                val playlists = mutableListOf<TaPlaylist>()
+                var page = 1
+                do {
+                    val result = taApi.getPlaylists(page = page, type = "custom")
+                    playlists += result.data
+                    page++
+                } while (result.hasMore && result.data.isNotEmpty() && page <= MAX_PLAYLIST_PAGES)
+                _customPlaylists.value = playlists
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _customPlaylists.value = _customPlaylists.value ?: emptyList()
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
+    /** Adds the video to a playlist of TubeArchivist's own, or takes it out. */
+    fun setInPlaylist(playlist: TaPlaylist, inPlaylist: Boolean) {
+        val video = _state.value.video ?: return
+        val before = video.playlist
+        val after = if (inPlaylist) before + playlist.id else before - playlist.id
+        _state.update { it.copy(video = video.copy(playlist = after.distinct())) }
+        viewModelScope.launch {
+            try {
+                val updated =
+                    if (inPlaylist) taApi.addToCustomPlaylist(playlist.id, video.youtubeId)
+                    else taApi.removeFromCustomPlaylist(playlist.id, video.youtubeId)
+                _customPlaylists.value =
+                    _customPlaylists.value?.map { if (it.id == updated.id) updated else it }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { state -> state.copy(video = state.video?.copy(playlist = before)) }
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
+    /** Makes a new playlist in TubeArchivist and puts the video in it. */
+    fun createPlaylist(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val playlist = taApi.createCustomPlaylist(name)
+                _customPlaylists.value = listOf(playlist) + _customPlaylists.value.orEmpty()
+                setInPlaylist(playlist, true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
     /** Tells the page the video was deleted, so it can close. */
     private val _deleted = Channel<Unit>(Channel.CONFLATED)
     val deleted = _deleted.receiveAsFlow()
@@ -234,3 +298,6 @@ constructor(
         }
     }
 }
+
+// Enough for every playlist made by hand
+private const val MAX_PLAYLIST_PAGES = 10

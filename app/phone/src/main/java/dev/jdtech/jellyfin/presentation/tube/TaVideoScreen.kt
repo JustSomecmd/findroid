@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -24,6 +25,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -31,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -65,6 +70,7 @@ import dev.jdtech.jellyfin.presentation.film.components.ItemButtonsBar
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaComment
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 
@@ -126,6 +132,8 @@ fun TaVideoScreen(
 
     // An action on the server waiting to be confirmed
     var confirming by rememberSaveable { mutableStateOf<TaVideoAction?>(null) }
+    // The playlists to save the video to
+    var savingToPlaylist by rememberSaveable { mutableStateOf(false) }
     // A deleted video has no page left to show
     ObserveAsEvents(viewModel.deleted) { navigateBack() }
 
@@ -184,6 +192,15 @@ fun TaVideoScreen(
                                     onDownloaderAction = { downloaderViewModel.onAction(it) },
                                     onVideoClick = onVideoClick,
                                     onChannelClick = onChannelClick,
+                                    // Playlists live on the server
+                                    onPlaylistClick =
+                                        if (state.offline) null
+                                        else {
+                                            {
+                                                viewModel.loadCustomPlaylists()
+                                                savingToPlaylist = true
+                                            }
+                                        },
                                 )
                             },
                             server = {
@@ -197,6 +214,17 @@ fun TaVideoScreen(
                 }
             }
         }
+    }
+
+    if (savingToPlaylist) {
+        val playlists by viewModel.customPlaylists.collectAsStateWithLifecycle()
+        TaSaveToPlaylistDialog(
+            playlists = playlists,
+            inPlaylists = state.video?.playlist.orEmpty().toSet(),
+            onToggle = viewModel::setInPlaylist,
+            onCreate = viewModel::createPlaylist,
+            onDismiss = { savingToPlaylist = false },
+        )
     }
 
     confirming?.let { action ->
@@ -223,6 +251,7 @@ private fun TaVideoContent(
     onDownloaderAction: (DownloaderAction) -> Unit,
     onVideoClick: (String) -> Unit,
     onChannelClick: (String) -> Unit,
+    onPlaylistClick: (() -> Unit)?,
 ) {
     var descriptionExpanded by rememberSaveable { mutableStateOf(false) }
     val padding = MaterialTheme.spacings.medium
@@ -344,6 +373,7 @@ private fun TaVideoContent(
                             onDownloadResumeClick = {
                                 onDownloaderAction(DownloaderAction.ResumeDownload(episode))
                             },
+                            onPlaylistClick = onPlaylistClick,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     state.lookingUp ->
@@ -363,13 +393,23 @@ private fun TaVideoContent(
                         )
                 }
                 if (episode == null && !state.lookingUp) {
-                    TextButton(onClick = onToggleWatched) {
-                        Text(
-                            stringResource(
-                                if (video.player?.watched == true) CoreR.string.ta_mark_unwatched
-                                else CoreR.string.ta_mark_watched
+                    Row {
+                        TextButton(onClick = onToggleWatched) {
+                            Text(
+                                stringResource(
+                                    if (video.player?.watched == true) {
+                                        CoreR.string.ta_mark_unwatched
+                                    } else {
+                                        CoreR.string.ta_mark_watched
+                                    }
+                                )
                             )
-                        )
+                        }
+                        onPlaylistClick?.let { onClick ->
+                            TextButton(onClick = onClick) {
+                                Text(stringResource(CoreR.string.ta_save_to_playlist))
+                            }
+                        }
                     }
                 }
             }
@@ -749,3 +789,91 @@ private fun formatBitrate(bitsPerSecond: Long): String =
     } else {
         "${bitsPerSecond / 1000} kbit/s"
     }
+
+/**
+ * The playlists made in TubeArchivist, ticked where the video is in them. Ticking adds the video
+ * and unticking takes it out; a new playlist can be made here too, with the video in it.
+ */
+@Composable
+private fun TaSaveToPlaylistDialog(
+    playlists: List<TaPlaylist>?,
+    inPlaylists: Set<String>,
+    onToggle: (TaPlaylist, Boolean) -> Unit,
+    onCreate: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var newName by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(CoreR.string.ta_save_to_playlist)) },
+        text = {
+            Column {
+                when {
+                    playlists == null ->
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier =
+                                Modifier.fillMaxWidth().padding(MaterialTheme.spacings.medium),
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    playlists.isEmpty() ->
+                        Text(
+                            text = stringResource(CoreR.string.ta_no_custom_playlists),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    else ->
+                        LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                            items(playlists, key = { it.id }) { playlist ->
+                                val checked = playlist.id in inPlaylists
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier =
+                                        Modifier.fillMaxWidth()
+                                            .clip(MaterialTheme.shapes.small)
+                                            .clickable { onToggle(playlist, !checked) },
+                                ) {
+                                    Checkbox(
+                                        checked = checked,
+                                        onCheckedChange = { onToggle(playlist, it) },
+                                    )
+                                    Text(
+                                        text = playlist.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                }
+                // A new playlist, with the video in it
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+                ) {
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        label = { Text(stringResource(CoreR.string.ta_new_playlist)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = {
+                            onCreate(newName)
+                            newName = ""
+                        },
+                        enabled = newName.isNotBlank() && playlists != null,
+                    ) {
+                        Text(stringResource(CoreR.string.ta_create))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(CoreR.string.ta_done)) }
+        },
+    )
+}

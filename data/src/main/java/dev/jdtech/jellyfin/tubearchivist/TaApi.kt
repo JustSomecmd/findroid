@@ -231,12 +231,47 @@ class TaApi(private val appPreferences: AppPreferences) {
         post("api/playlist/$playlistId/", buildJsonObject { put("playlist_sort_order", sortOrder) })
     }
 
-    suspend fun getPlaylists(page: Int = 1, channel: String? = null): TaPage<TaPlaylist> =
+    /**
+     * Playlists, of one [type] if given: regular (from YouTube) or custom (made in TubeArchivist).
+     */
+    suspend fun getPlaylists(
+        page: Int = 1,
+        channel: String? = null,
+        type: String? = null,
+    ): TaPage<TaPlaylist> =
         decode(
             get("api/playlist/") {
                 addQueryParameter("page", page.toString())
                 channel?.let { addQueryParameter("channel", it) }
+                type?.let { addQueryParameter("type", it) }
             }
+        )
+
+    /** Makes a new playlist of TubeArchivist's own, to put videos in. */
+    suspend fun createCustomPlaylist(name: String): TaPlaylist =
+        decode(post("api/playlist/custom/", buildJsonObject { put("playlist_name", name.trim()) }))
+
+    /** Adds a video to one of TubeArchivist's own playlists, at the end. */
+    suspend fun addToCustomPlaylist(playlistId: String, videoId: String): TaPlaylist =
+        updateCustomPlaylist(playlistId, "create", videoId)
+
+    /** Takes a video out of one of TubeArchivist's own playlists. */
+    suspend fun removeFromCustomPlaylist(playlistId: String, videoId: String): TaPlaylist =
+        updateCustomPlaylist(playlistId, "remove", videoId)
+
+    private suspend fun updateCustomPlaylist(
+        playlistId: String,
+        action: String,
+        videoId: String,
+    ): TaPlaylist =
+        decode(
+            post(
+                "api/playlist/custom/$playlistId/",
+                buildJsonObject {
+                    put("action", action)
+                    put("video_id", videoId)
+                },
+            )
         )
 
     suspend fun getPlaylist(playlistId: String): TaPlaylist =

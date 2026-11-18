@@ -482,6 +482,8 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
                             resumedAction<String> { navigator.navigate(TaVideoRoute(it)) },
                         onChannelClick =
                             resumedAction<String> { navigator.navigateOrReuse(TaChannelRoute(it)) },
+                        onPlaylistClick =
+                            resumedAction<String> { navigator.navigate(TaPlaylistRoute(it)) },
                         onSearchClick = dropUnlessResumed { navigator.navigate(TaSearchRoute) },
                         onSettingsClick =
                             dropUnlessResumed {
@@ -931,6 +933,7 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
         TaHomeScreen(
             onVideoClick = resumedAction<String> { openVideo(it) },
             onChannelClick = resumedAction<String> { openChannel(it) },
+            onPlaylistClick = resumedAction<String> { openPlaylist(it) },
             onSearchClick = dropUnlessResumed { navigator.navigate(TaSearchRoute) },
             onSettingsClick =
                 dropUnlessResumed {

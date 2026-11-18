@@ -349,6 +349,15 @@
     <string name="ta_info_actions">Actions</string>
     <string name="ta_playlist_position">%1$d of %2$d</string>
     <string name="ta_playlist_download">Download to phone</string>
+    <string name="ta_save_to_playlist">Save to playlist</string>
+    <string name="ta_new_playlist">New playlist</string>
+    <string name="ta_create">Create</string>
+    <string name="ta_done">Done</string>
+    <string name="ta_no_custom_playlists">No playlists of your own yet. Make one below.</string>
+    <string name="ta_playlist_created">Playlist created</string>
+    <string name="ta_playlist_name">Name</string>
+    <string name="ta_subscribe_youtube_playlist">Subscribe to a YouTube playlist</string>
+    <string name="ta_add_playlist">Add a playlist</string>
     <string name="ta_playlist_downloading">Adding %1$d of %2$d…</string>
     <string name="ta_confirm_playlist_download_text">They go into the phone\'s download queue, after anything already in it. Videos already on the phone are skipped.</string>
     <string name="ta_playlist_saved_copy">Saved copy: TubeArchivist can\'t be reached</string>

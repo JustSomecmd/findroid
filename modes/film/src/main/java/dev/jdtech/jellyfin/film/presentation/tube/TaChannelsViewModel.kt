@@ -57,6 +57,23 @@ constructor(private val taApi: TaApi, private val playlistCache: TaPlaylistCache
         }
     }
 
+    /** Makes a new playlist in TubeArchivist, to add videos to from their pages. */
+    fun createPlaylist(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            try {
+                taApi.createCustomPlaylist(name)
+                _messages.send(TaMessages.PLAYLIST_CREATED)
+                _playlists.value = TaListState()
+                loadMorePlaylists()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
     /** Remembers the shown tab. Each tab's list loads its pages as it scrolls. */
     fun selectTab(tab: TaChannelsTab) {
         _tab.value = tab
@@ -119,4 +136,5 @@ object TaMessages {
     const val REDOWNLOAD_STARTED = "ta:redownload_started"
     const val DELETED = "ta:deleted"
     const val NOT_IN_JELLYFIN = "ta:not_in_jellyfin"
+    const val PLAYLIST_CREATED = "ta:playlist_created"
 }

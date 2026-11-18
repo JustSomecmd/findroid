@@ -1,8 +1,9 @@
 package dev.jdtech.jellyfin.presentation.tube
 
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,7 +45,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +69,7 @@ import dev.jdtech.jellyfin.utils.ObserveAsEvents
 fun TaHomeScreen(
     onVideoClick: (videoId: String) -> Unit,
     onChannelClick: (channelId: String) -> Unit,
+    onPlaylistClick: (playlistId: String) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onManageServers: () -> Unit,
@@ -177,6 +181,7 @@ fun TaHomeScreen(
                                             TaPlaylistResumeCard(
                                                 item = item,
                                                 onClick = { viewModel.resumePlaylist(item) },
+                                                onLongClick = { onPlaylistClick(item.playlistId) },
                                             )
                                     }
                                 }
@@ -368,13 +373,28 @@ private fun TaServerCard(
 
 /**
  * A playlist being watched through, on Continue watching: the video it's at, with the playlist's
- * name and how far into it that is. Tapping it carries on playing the playlist from there.
+ * name and how far into it that is. Tapping it carries on playing the playlist from there, and
+ * holding it opens the playlist's page.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TaPlaylistResumeCard(item: TaContinueItem.Playlist, onClick: () -> Unit) {
+private fun TaPlaylistResumeCard(
+    item: TaContinueItem.Playlist,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
     Column(
         modifier =
-            Modifier.width(240.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = onClick)
+            Modifier.width(240.dp)
+                .clip(MaterialTheme.shapes.medium)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongClick()
+                    },
+                )
     ) {
         Box {
             TaVideoThumbnail(video = item.video, modifier = Modifier.fillMaxWidth())

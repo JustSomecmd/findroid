@@ -1,9 +1,12 @@
 package dev.jdtech.jellyfin.presentation.tube
 
 import android.widget.Toast
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
@@ -12,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -43,7 +47,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -72,6 +78,9 @@ fun TaChannelsScreen(
     val tab by viewModel.tab.collectAsStateWithLifecycle()
 
     var showSubscribeDialog by rememberSaveable { mutableStateOf(false) }
+    // On Playlists: a new playlist of TubeArchivist's own, or one from YouTube
+    var showPlaylistChoice by rememberSaveable { mutableStateOf(false) }
+    var showNewPlaylistDialog by rememberSaveable { mutableStateOf(false) }
 
     ObserveAsEvents(viewModel.messages) { message ->
         Toast.makeText(context, taMessageText(context, message), Toast.LENGTH_LONG).show()
@@ -129,7 +138,11 @@ fun TaChannelsScreen(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showSubscribeDialog = true }) {
+            FloatingActionButton(
+                onClick = {
+                    if (onPlaylists) showPlaylistChoice = true else showSubscribeDialog = true
+                }
+            ) {
                 Icon(
                     painter = painterResource(CoreR.drawable.ic_plus),
                     contentDescription =
@@ -156,11 +169,57 @@ fun TaChannelsScreen(
         }
     }
 
+    if (showPlaylistChoice) {
+        AlertDialog(
+            onDismissRequest = { showPlaylistChoice = false },
+            title = { Text(stringResource(CoreR.string.ta_add_playlist)) },
+            text = {
+                Column {
+                    TaChoiceRow(
+                        icon = CoreR.drawable.ic_list_plus,
+                        text = stringResource(CoreR.string.ta_new_playlist),
+                        onClick = {
+                            showPlaylistChoice = false
+                            showNewPlaylistDialog = true
+                        },
+                    )
+                    TaChoiceRow(
+                        icon = CoreR.drawable.ic_youtube,
+                        text = stringResource(CoreR.string.ta_subscribe_youtube_playlist),
+                        onClick = {
+                            showPlaylistChoice = false
+                            showSubscribeDialog = true
+                        },
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showPlaylistChoice = false }) {
+                    Text(stringResource(CoreR.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showNewPlaylistDialog) {
+        TaUrlDialog(
+            title = stringResource(CoreR.string.ta_new_playlist),
+            hint = stringResource(CoreR.string.ta_playlist_name),
+            confirmText = stringResource(CoreR.string.ta_create),
+            onConfirm = { name ->
+                viewModel.createPlaylist(name)
+                showNewPlaylistDialog = false
+            },
+            onDismiss = { showNewPlaylistDialog = false },
+        )
+    }
+
     if (showSubscribeDialog) {
         TaUrlDialog(
             title =
                 stringResource(
-                    if (onPlaylists) CoreR.string.ta_subscribe_to_playlist
+                    if (onPlaylists) CoreR.string.ta_subscribe_youtube_playlist
                     else CoreR.string.ta_subscribe_to_channel
                 ),
             hint =
@@ -284,4 +343,21 @@ fun TaUrlDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(CoreR.string.cancel)) }
         },
     )
+}
+
+/** One of the choices in a dialog: an icon and a line of text. */
+@Composable
+private fun TaChoiceRow(@DrawableRes icon: Int, text: String, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier.fillMaxWidth()
+                .clip(MaterialTheme.shapes.small)
+                .clickable(onClick = onClick)
+                .padding(vertical = MaterialTheme.spacings.medium),
+    ) {
+        Icon(painter = painterResource(icon), contentDescription = null)
+        Spacer(Modifier.width(MaterialTheme.spacings.medium))
+        Text(text = text, style = MaterialTheme.typography.bodyLarge)
+    }
 }
