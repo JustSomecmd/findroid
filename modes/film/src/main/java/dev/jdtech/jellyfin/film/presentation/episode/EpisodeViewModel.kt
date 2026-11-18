@@ -36,7 +36,13 @@ constructor(
             try {
                 val episode = repository.getEpisode(episodeId)
                 val videoMetadata = videoMetadataParser.parse(episode.sources.first())
-                val actors = getActors(episode)
+                // Episodes follow the setting for show pages
+                val actors =
+                    if (appPreferences.getValue(appPreferences.showCastShows)) {
+                        getActors(episode)
+                    } else {
+                        emptyList()
+                    }
                 val displayExtraInfo = appPreferences.getValue(appPreferences.displayExtraInfo)
                 val linkToShow = appPreferences.getValue(appPreferences.episodeLinksToShow)
                 _state.emit(

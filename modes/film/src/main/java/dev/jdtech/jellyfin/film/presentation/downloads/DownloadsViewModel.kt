@@ -123,7 +123,12 @@ constructor(
         val first = itemIds.firstOrNull()
 
         if (running.isEmpty() || first == null || first in runningIds) {
-            viewModelScope.launch { downloader.reorderQueue(itemIds.filter { it !in runningIds }) }
+            val byId = _activeDownloads.value.associate { it.item.id to it.item }
+            viewModelScope.launch {
+                downloader.reorderQueue(
+                    itemIds.filter { it !in runningIds }.mapNotNull { byId[it] }
+                )
+            }
             return
         }
 
@@ -161,10 +166,12 @@ constructor(
                                     it.info.status != DownloadStatus.SUCCESSFUL
                             }
                             .map { download ->
+                                // Every paused download can be moved, also one that
+                                // isn't in the queue yet
                                 val waiting =
-                                    download.item.id in queue &&
-                                        (download.info.status == DownloadStatus.QUEUED ||
-                                            download.info.status == DownloadStatus.PAUSED)
+                                    (download.item.id in queue &&
+                                        download.info.status == DownloadStatus.QUEUED) ||
+                                        download.info.status == DownloadStatus.PAUSED
                                 download.copy(inQueue = waiting)
                             }
                             .sortedWith(

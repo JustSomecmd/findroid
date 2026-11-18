@@ -243,6 +243,7 @@ class DownloaderImpl(
     /** Cancels the worker and waits until WorkManager has stored that, so observers see it. */
     private suspend fun cancelMediaDownload(itemId: UUID) {
         val name = MediaDownloadWorker.uniqueWorkName(itemId)
+        MediaDownloadQueue.stoppingOnPurpose(itemId)
         workManager.cancelUniqueWork(name)
         withTimeoutOrNull(STATE_WAIT_MS) {
             workManager.getWorkInfosForUniqueWorkFlow(name).first { infos ->
@@ -425,9 +426,32 @@ class DownloaderImpl(
 
     override fun queuedItemIds(): List<UUID> = MediaDownloadQueue.queuedItemIds(context)
 
-    override suspend fun reorderQueue(itemIds: List<UUID>) {
+    override suspend fun reorderQueue(items: List<FindroidItem>) {
         withContext(Dispatchers.IO) {
-            MediaDownloadQueue.reorder(context, itemIds)
+            // Paused downloads outside the queue (from older versions) join it, still paused,
+            // where they were put
+            for (item in items) {
+                if (MediaDownloadQueue.entry(context, item.id) != null) continue
+                val partial = partialSource(item.id) ?: continue
+                val hasActiveWork =
+                    workManager
+                        .getWorkInfosForUniqueWorkFlow(MediaDownloadWorker.uniqueWorkName(item.id))
+                        .first()
+                        .any { !it.state.isFinished }
+                if (hasActiveWork) continue
+                MediaDownloadQueue.pause(
+                    context,
+                    item.id,
+                    MediaDownloadQueue.Entry(
+                        itemId = item.id,
+                        sourceId = partial.id,
+                        url = "",
+                        title = item.name,
+                        networkType = networkType(),
+                    ),
+                )
+            }
+            MediaDownloadQueue.reorder(context, items.map { it.id })
             // Moving a download in front of a paused one that was holding the queue starts it
             MediaDownloadQueue.startNext(context, workManager)
         }

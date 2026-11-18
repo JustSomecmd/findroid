@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +61,24 @@ object MediaDownloadQueue {
 
     /** Changes whenever the queue changes, so download screens can refresh. */
     val changes: StateFlow<Int> = _changes.asStateFlow()
+
+    // Downloads the app is stopping itself; it takes care of their place in the queue. Any other
+    // stop by the app comes from the Pause button in the download notification.
+    private val stoppingOnPurpose = ConcurrentHashMap.newKeySet<UUID>()
+
+    /** Called before the app stops a download, so it isn't taken for a pause. */
+    fun stoppingOnPurpose(itemId: UUID) {
+        stoppingOnPurpose.add(itemId)
+    }
+
+    /**
+     * Called by a download that was stopped by the app. Unless the app did that on purpose, it came
+     * from the notification's Pause button, which then works like pausing in the app.
+     */
+    suspend fun onStopped(context: Context, entry: Entry) {
+        if (stoppingOnPurpose.remove(entry.itemId)) return
+        pause(context, entry.itemId, entry)
+    }
 
     /** Items waiting to download, paused ones included, next one first. */
     fun queuedItemIds(context: Context): List<UUID> = read(context).map { it.itemId }
@@ -207,6 +226,7 @@ object MediaDownloadQueue {
     }
 
     private suspend fun startWork(workManager: WorkManager, entry: Entry) {
+        stoppingOnPurpose.remove(entry.itemId)
         val request =
             OneTimeWorkRequestBuilder<MediaDownloadWorker>()
                 .setInputData(

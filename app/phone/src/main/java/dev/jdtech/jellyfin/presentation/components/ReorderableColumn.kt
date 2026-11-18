@@ -115,9 +115,14 @@ fun <K : Any> ReorderableColumn(
         val first = bounds[rows.first()] ?: return
         val last = bounds[rows.last()] ?: return
 
-        // Stays within the list
+        // Stays within the list, with room to go half its height past the first and last rows so
+        // it can get past their middle and land at the very top or bottom
+        val half = (own.second - own.first) / 2
         dragOffset =
-            (dragOffset + amount).coerceIn(first.first - own.first, last.second - own.second)
+            (dragOffset + amount).coerceIn(
+                first.first - own.first - half,
+                last.second - own.second + half,
+            )
 
         // The row lands after every other row whose middle it has passed
         val center = (own.first + own.second) / 2 + dragOffset

@@ -17,6 +17,8 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ForegroundInfo
+import androidx.work.NetworkType
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -31,6 +33,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -72,7 +75,19 @@ constructor(
     private data class ContentRange(val start: Long, val total: Long?)
 
     override suspend fun doWork(): Result {
-        val result = download()
+        val result =
+            try {
+                download()
+            } catch (e: CancellationException) {
+                // The reason a worker stopped is only known on Android 12 and newer
+                if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                        stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP
+                ) {
+                    withContext(NonCancellable) { keepPlaceAfterStop() }
+                }
+                throw e
+            }
         // A retry keeps this download's place. When it ends for good, the next one can start.
         if (result !is Result.Retry) {
             try {
@@ -88,6 +103,30 @@ constructor(
             }
         }
         return result
+    }
+
+    /** Stopped from the notification: paused at the front of the queue, like pausing in the app. */
+    private suspend fun keepPlaceAfterStop() {
+        val itemId =
+            params.inputData.getString(KEY_ITEM_ID)?.let {
+                runCatching { UUID.fromString(it) }.getOrNull()
+            } ?: return
+        val sourceId = params.inputData.getString(KEY_SOURCE_ID) ?: return
+        try {
+            MediaDownloadQueue.onStopped(
+                appContext,
+                MediaDownloadQueue.Entry(
+                    itemId = itemId,
+                    sourceId = sourceId,
+                    // A fresh address is fetched when it is resumed
+                    url = "",
+                    title = params.inputData.getString(KEY_TITLE).orEmpty(),
+                    networkType = NetworkType.CONNECTED,
+                ),
+            )
+        } catch (e: Exception) {
+            Timber.e(e, "Could not keep the stopped download's place")
+        }
     }
 
     private suspend fun download(): Result =
