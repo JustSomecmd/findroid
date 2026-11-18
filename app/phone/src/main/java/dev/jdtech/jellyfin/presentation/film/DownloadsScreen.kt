@@ -134,6 +134,7 @@ private fun DownloadsScreenLayout(
             innerPadding = innerPadding,
             onAction = onAction,
             gridState = gridState,
+            plainHeaders = true,
             header = {
                 if (activeDownloads.isNotEmpty()) {
                     item(key = "active_downloads", span = { GridItemSpan(maxLineSpan) }) {

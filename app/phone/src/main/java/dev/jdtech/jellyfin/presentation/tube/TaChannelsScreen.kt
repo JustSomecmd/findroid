@@ -92,12 +92,17 @@ fun TaChannelsScreen(
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             Column {
+                // One grey header, the same as on Home and Downloads, whether scrolled or not
                 TopAppBar(
                     title = { Text(text = stringResource(CoreR.string.ta_channels)) },
                     windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
                     scrollBehavior = scrollBehavior,
+                    colors = alwaysShownTopAppBarColors(),
                 )
-                PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
+                PrimaryTabRow(
+                    selectedTabIndex = pagerState.currentPage,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ) {
                     TaChannelsTab.entries.forEach { entry ->
                         Tab(
                             selected = pagerState.currentPage == entry.ordinal,
