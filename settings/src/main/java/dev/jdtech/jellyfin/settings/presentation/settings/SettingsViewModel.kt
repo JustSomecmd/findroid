@@ -773,7 +773,15 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                     eventsChannel.send(SettingsEvent.NavigateToTubeArchivist)
                                 }
                             },
-                        )
+                        ),
+                        PreferenceSwitch(
+                            nameStringResource = R.string.settings_tubearchivist_interface,
+                            descriptionStringRes =
+                                R.string.settings_tubearchivist_interface_summary,
+                            iconDrawableId = R.drawable.ic_layout_dashboard,
+                            supportedDeviceTypes = listOf(DeviceType.PHONE),
+                            backendPreference = appPreferences.tubeArchivistInterface,
+                        ),
                     )
             ),
             PreferenceGroup(

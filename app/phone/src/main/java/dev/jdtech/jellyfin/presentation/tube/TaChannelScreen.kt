@@ -34,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -41,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,6 +60,11 @@ import dev.jdtech.jellyfin.film.presentation.tube.TaChannelTab
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelViewModel
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,6 +82,8 @@ fun TaChannelScreen(
 
     var descriptionExpanded by rememberSaveable { mutableStateOf(false) }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<TaChannelSetting?>(null) }
+    val globalConfig by viewModel.globalConfig.collectAsStateWithLifecycle()
 
     LaunchedEffect(channelId) { viewModel.load(channelId) }
 
@@ -242,7 +251,16 @@ fun TaChannelScreen(
                                 }
                             }
                         }
-                        if (state.tab == TaChannelTab.PLAYLISTS) {
+                        if (state.tab == TaChannelTab.SETTINGS) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "settings") {
+                                TaChannelSettings(
+                                    overwrites = channel.overwrites ?: JsonObject(emptyMap()),
+                                    globalConfig = globalConfig,
+                                    onEdit = { editing = it },
+                                    onChange = viewModel::setOverwrite,
+                                )
+                            }
+                        } else if (state.tab == TaChannelTab.PLAYLISTS) {
                             items(playlists.items, key = { "p" + it.id }) { playlist ->
                                 TaPlaylistCard(
                                     playlist = playlist,
@@ -276,6 +294,19 @@ fun TaChannelScreen(
             }
         }
     }
+
+    editing?.let { channelSetting ->
+        TaSettingDialog(
+            setting = channelSetting.setting,
+            current = state.channel?.overwrites?.get(channelSetting.key),
+            noneLabel = stringResource(CoreR.string.ta_use_global),
+            onSave = { value ->
+                viewModel.setOverwrite(channelSetting.key, value)
+                editing = null
+            },
+            onDismiss = { editing = null },
+        )
+    }
 }
 
 private fun TaChannelTab.label(): Int =
@@ -284,4 +315,137 @@ private fun TaChannelTab.label(): Int =
         TaChannelTab.SHORTS -> CoreR.string.ta_shorts
         TaChannelTab.STREAMS -> CoreR.string.ta_streams
         TaChannelTab.PLAYLISTS -> CoreR.string.ta_playlists
+        TaChannelTab.SETTINGS -> CoreR.string.title_settings
     }
+
+/**
+ * A channel's own setting under [key], which replaces the global one that [setting] reads. Its
+ * section is null when there is no global setting.
+ */
+private data class TaChannelSetting(val key: String, val setting: TaSetting)
+
+private val channelSettings =
+    listOf(
+        TaChannelSetting(
+            "download_format",
+            TaSetting(
+                "downloads",
+                "format",
+                CoreR.string.ta_set_format,
+                TaEditor.FORMAT,
+                noneLabel = CoreR.string.ta_ytdlp_default,
+            ),
+        ),
+        TaChannelSetting(
+            "autodelete_days",
+            TaSetting(
+                "downloads",
+                "autodelete_days",
+                CoreR.string.ta_set_autodelete_days,
+                TaEditor.NUMBER,
+                noneLabel = CoreR.string.ta_never,
+                presets = listOf(1L, 3L, 7L, 14L, 30L, 90L),
+                unit = CoreR.string.ta_unit_days,
+            ),
+        ),
+        TaChannelSetting(
+            "integrate_sponsorblock",
+            TaSetting(
+                "downloads",
+                "integrate_sponsorblock",
+                CoreR.string.ta_set_integrate_sponsorblock,
+                TaEditor.CHOICE,
+                options =
+                    listOf(
+                        null to CoreR.string.ta_use_global,
+                        "true" to CoreR.string.ta_on,
+                        "false" to CoreR.string.ta_off,
+                    ),
+            ),
+        ),
+        TaChannelSetting(
+            "subscriptions_channel_size",
+            TaSetting(
+                "subscriptions",
+                "channel_size",
+                CoreR.string.ta_set_channel_size,
+                TaEditor.NUMBER,
+                presets = listOf(0L, 5L, 10L, 25L, 50L, 100L, 250L, 500L),
+            ),
+        ),
+        TaChannelSetting(
+            "subscriptions_shorts_channel_size",
+            TaSetting(
+                "subscriptions",
+                "shorts_channel_size",
+                CoreR.string.ta_set_shorts_channel_size,
+                TaEditor.NUMBER,
+                presets = listOf(0L, 5L, 10L, 25L, 50L, 100L, 250L, 500L),
+            ),
+        ),
+        TaChannelSetting(
+            "subscriptions_live_channel_size",
+            TaSetting(
+                "subscriptions",
+                "live_channel_size",
+                CoreR.string.ta_set_live_channel_size,
+                TaEditor.NUMBER,
+                presets = listOf(0L, 5L, 10L, 25L, 50L, 100L, 250L, 500L),
+            ),
+        ),
+    )
+
+/** The channel's own settings, as on the channel's About page on the web. */
+@Composable
+private fun TaChannelSettings(
+    overwrites: JsonObject,
+    globalConfig: JsonObject?,
+    onEdit: (TaChannelSetting) -> Unit,
+    onChange: (key: String, value: JsonElement) -> Unit,
+) {
+    Column {
+        Text(
+            text = stringResource(CoreR.string.ta_channel_settings_summary),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        channelSettings.forEach { channelSetting ->
+            val own = overwrites[channelSetting.key]?.takeIf { it !is JsonNull }
+            val global = globalConfig?.let { channelSetting.setting.read(it) }
+            TaSettingRow(
+                label = stringResource(channelSetting.setting.label),
+                value =
+                    if (own != null) {
+                        taSettingValueText(channelSetting.setting, own, null)
+                    } else {
+                        stringResource(
+                            CoreR.string.ta_global_value,
+                            taSettingValueText(
+                                channelSetting.setting,
+                                global,
+                                channelSetting.setting.noneLabel?.let { stringResource(it) },
+                            ),
+                        )
+                    },
+                onClick = { onEdit(channelSetting) },
+            )
+        }
+        val indexPlaylists =
+            (overwrites["index_playlists"] as? JsonPrimitive)?.booleanOrNull == true
+        TaSettingRow(
+            label = stringResource(CoreR.string.ta_index_playlists),
+            value = stringResource(CoreR.string.ta_index_playlists_summary),
+            onClick = {
+                onChange("index_playlists", if (indexPlaylists) JsonNull else JsonPrimitive(true))
+            },
+            trailing = {
+                Switch(
+                    checked = indexPlaylists,
+                    onCheckedChange = { checked ->
+                        onChange("index_playlists", if (checked) JsonPrimitive(true) else JsonNull)
+                    },
+                )
+            },
+        )
+    }
+}

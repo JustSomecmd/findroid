@@ -17,12 +17,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import timber.log.Timber
 
 enum class TaChannelTab(val videoType: String?) {
     VIDEOS("videos"),
     SHORTS("shorts"),
     STREAMS("streams"),
     PLAYLISTS(null),
+    /** The channel's own settings. */
+    SETTINGS(null),
 }
 
 data class TaChannelState(
@@ -34,12 +40,13 @@ data class TaChannelState(
     /** The tabs this channel has anything in. */
     val tabs: List<TaChannelTab>
         get() {
-            val nav = nav ?: return listOf(TaChannelTab.VIDEOS)
+            val nav = nav ?: return listOf(TaChannelTab.VIDEOS, TaChannelTab.SETTINGS)
             return buildList {
                 if (nav.hasVideos || (!nav.hasShorts && !nav.hasStreams)) add(TaChannelTab.VIDEOS)
                 if (nav.hasShorts) add(TaChannelTab.SHORTS)
                 if (nav.hasStreams) add(TaChannelTab.STREAMS)
                 if (nav.hasPlaylists) add(TaChannelTab.PLAYLISTS)
+                add(TaChannelTab.SETTINGS)
             }
         }
 }
@@ -54,6 +61,10 @@ class TaChannelViewModel @Inject constructor(private val taApi: TaApi) : ViewMod
 
     private val _playlists = MutableStateFlow(TaListState<TaPlaylist>())
     val playlists = _playlists.asStateFlow()
+
+    /** TubeArchivist's global settings, to show what a channel without its own setting uses. */
+    private val _globalConfig = MutableStateFlow<JsonObject?>(null)
+    val globalConfig = _globalConfig.asStateFlow()
 
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages = _messages.receiveAsFlow()
@@ -94,13 +105,50 @@ class TaChannelViewModel @Inject constructor(private val taApi: TaApi) : ViewMod
     fun selectTab(tab: TaChannelTab) {
         if (tab == _state.value.tab) return
         _state.update { it.copy(tab = tab) }
+        if (tab == TaChannelTab.SETTINGS) {
+            loadGlobalConfig()
+            return
+        }
         if (tab.videoType != null) _videos.value = TaListState()
         loadMore()
+    }
+
+    private fun loadGlobalConfig() {
+        if (_globalConfig.value != null) return
+        viewModelScope.launch {
+            try {
+                _globalConfig.value = taApi.getConfig()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Could not load TubeArchivist settings")
+            }
+        }
+    }
+
+    /** Changes one of the channel's own settings. JsonNull goes back to the global one. */
+    fun setOverwrite(key: String, value: JsonElement) {
+        val channel = _state.value.channel ?: return
+        val before = channel.overwrites ?: JsonObject(emptyMap())
+        val updated =
+            if (value is JsonNull) JsonObject(before - key) else JsonObject(before + (key to value))
+        _state.update { it.copy(channel = channel.copy(overwrites = updated)) }
+        viewModelScope.launch {
+            try {
+                taApi.setChannelOverwrite(channel.id, key, value)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(channel = channel) }
+                _messages.send(e.errorText())
+            }
+        }
     }
 
     fun loadMore() {
         val channelId = channelId ?: return
         val tab = _state.value.tab
+        if (tab == TaChannelTab.SETTINGS) return
         viewModelScope.launch {
             if (tab == TaChannelTab.PLAYLISTS) {
                 _playlists.loadNextPage(key = { it.id }) { page ->

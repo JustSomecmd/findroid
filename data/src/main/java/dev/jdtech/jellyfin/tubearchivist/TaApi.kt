@@ -161,6 +161,17 @@ class TaApi(private val appPreferences: AppPreferences) {
     }
 
     /**
+     * Changes one of a channel's own settings, such as download_format. Null goes back to the
+     * global setting.
+     */
+    suspend fun setChannelOverwrite(channelId: String, key: String, value: JsonElement) {
+        post(
+            "api/channel/$channelId/",
+            buildJsonObject { put("channel_overwrites", buildJsonObject { put(key, value) }) },
+        )
+    }
+
+    /**
      * Subscribes to channels by URL, handle or ID. TubeArchivist looks them up in the background.
      */
     suspend fun subscribeToChannels(urls: List<String>) {
@@ -212,8 +223,16 @@ class TaApi(private val appPreferences: AppPreferences) {
             }
         )
 
-    /** Adds videos, playlists or channels by URL or ID to the download queue. */
-    suspend fun addToQueue(urls: List<String>, autostart: Boolean) {
+    /**
+     * Adds videos, playlists or channels by URL or ID to the download queue. [flat] adds them
+     * without looking up all their details first, [force] downloads them again if they already are.
+     */
+    suspend fun addToQueue(
+        urls: List<String>,
+        autostart: Boolean,
+        flat: Boolean = false,
+        force: Boolean = false,
+    ) {
         post(
             "api/download/",
             buildJsonObject {
@@ -233,6 +252,8 @@ class TaApi(private val appPreferences: AppPreferences) {
             },
         ) {
             if (autostart) addQueryParameter("autostart", "true")
+            if (flat) addQueryParameter("flat", "true")
+            if (force) addQueryParameter("force", "true")
         }
     }
 

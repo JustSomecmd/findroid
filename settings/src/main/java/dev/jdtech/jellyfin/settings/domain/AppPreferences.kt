@@ -17,6 +17,8 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val tubeArchivistToken = Preference<String?>("pref_ta_token", null)
     // What happens at a SponsorBlock segment: button, auto or off
     val tubeArchivistSponsorBlock = Preference("pref_ta_sponsorblock", "button")
+    // TubeArchivist as the main interface. Off gives the regular Jellyfin layout
+    val tubeArchivistInterface = Preference("pref_ta_interface", true)
 
     // Language
     val preferredAudioLanguage = Preference<String?>("pref_audio_language", null)

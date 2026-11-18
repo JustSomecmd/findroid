@@ -12,6 +12,8 @@ data class TaListState<T>(
     val hasMore: Boolean = true,
     val loading: Boolean = false,
     val error: String? = null,
+    /** How many there are in all, once the first page is in. */
+    val total: Int? = null,
 ) {
     /** Nothing loaded yet and nothing found either. */
     val isEmpty: Boolean
@@ -45,6 +47,7 @@ suspend fun <T> MutableStateFlow<TaListState<T>>.loadNextPage(
                 page = state.page + 1,
                 hasMore = result.hasMore && result.data.isNotEmpty(),
                 loading = false,
+                total = result.paginate?.totalHits ?: state.total,
             )
         }
     } catch (e: CancellationException) {

@@ -131,7 +131,7 @@ val playlistsTab =
         route = PlaylistsRoute,
     )
 
-// With TubeArchivist set up it becomes the main part of the app, and Jellyfin gets its own tab
+// With TubeArchivist set up it becomes the main part of the app, unless turned off in Settings
 val taHomeTab =
     TabBarItem(title = CoreR.string.title_home, icon = CoreR.drawable.ic_home, route = TaHomeRoute)
 
@@ -149,13 +149,6 @@ val taQueueTab =
         route = TaQueueRoute,
     )
 
-val jellyfinTab =
-    TabBarItem(
-        title = CoreR.string.ta_jellyfin,
-        icon = CoreR.drawable.ic_library,
-        route = HomeRoute,
-    )
-
 @Composable
 fun NavigationRoot(
     hasServers: Boolean,
@@ -166,8 +159,10 @@ fun NavigationRoot(
 
     val taNavViewModel: TaNavViewModel = hiltViewModel()
     val taConfigured by taNavViewModel.configured.collectAsStateWithLifecycle()
+    val taInterfaceEnabled by taNavViewModel.interfaceEnabled.collectAsStateWithLifecycle()
     val taBaseUrl by taNavViewModel.baseUrl.collectAsStateWithLifecycle()
-    val tubeArchivistMode = taConfigured && !LocalOfflineMode.current
+    val taInterface = taConfigured && taInterfaceEnabled
+    val tubeArchivistMode = taInterface && !LocalOfflineMode.current
 
     val setupStartRoute: NavKey =
         when {
@@ -186,7 +181,7 @@ fun NavigationRoot(
     val navigator = remember(navigationState) { Navigator(navigationState) }
     // Downloaded TubeArchivist videos open on their TubeArchivist page, also offline
     navigator.episodeRedirect = { itemId ->
-        if (taConfigured) taNavViewModel.downloadedVideoId(itemId)?.let { TaVideoRoute(it) }
+        if (taInterface) taNavViewModel.downloadedVideoId(itemId)?.let { TaVideoRoute(it) }
         else null
     }
 
@@ -277,8 +272,7 @@ private fun MainNavigation(
     val navigationItems =
         when {
             isOfflineMode -> listOf(homeTab, downloadsTab)
-            tubeArchivistMode ->
-                listOf(taHomeTab, taChannelsTab, taQueueTab, jellyfinTab, downloadsTab)
+            tubeArchivistMode -> listOf(taHomeTab, taChannelsTab, taQueueTab, downloadsTab)
             else -> listOf(homeTab, mediaTab, downloadsTab, playlistsTab)
         }
     val tabRoutes = navigationItems.map { it.route }

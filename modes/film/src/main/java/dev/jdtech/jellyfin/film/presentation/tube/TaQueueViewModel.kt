@@ -48,6 +48,13 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
         refresh()
     }
 
+    /** Switches between the queue and the videos that were set aside. */
+    fun toggleIgnored() =
+        selectFilter(
+            if (_filter.value == TaQueueFilter.IGNORED) TaQueueFilter.PENDING
+            else TaQueueFilter.IGNORED
+        )
+
     fun loadMore() {
         val filter = _filter.value
         viewModelScope.launch {
@@ -90,11 +97,16 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
         pollJob = null
     }
 
-    /** Adds videos, playlists or whole channels, given as links or IDs. */
-    fun add(input: String, downloadNow: Boolean) {
+    /**
+     * Adds videos, playlists or whole channels, given as links or IDs. [fastAdd] skips looking up
+     * their details, [redownload] gets videos again that are already downloaded.
+     */
+    fun add(input: String, downloadNow: Boolean, fastAdd: Boolean, redownload: Boolean) {
         val urls = input.split(Regex("""[\s,]+""")).map { it.trim() }.filter { it.isNotEmpty() }
         if (urls.isEmpty()) return
-        runAction(TaMessages.ADDED_TO_QUEUE) { taApi.addToQueue(urls, autostart = downloadNow) }
+        runAction(TaMessages.ADDED_TO_QUEUE) {
+            taApi.addToQueue(urls, autostart = downloadNow, flat = fastAdd, force = redownload)
+        }
     }
 
     fun startDownloading() =

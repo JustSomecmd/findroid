@@ -1,6 +1,7 @@
 package dev.jdtech.jellyfin.presentation.tube
 
 import android.widget.Toast
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.foundation.layout.statusBars
@@ -22,19 +24,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -54,6 +57,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -74,8 +78,9 @@ fun TaQueueScreen(viewModel: TaQueueViewModel = hiltViewModel()) {
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val items by viewModel.items.collectAsStateWithLifecycle()
     val tasks by viewModel.tasks.collectAsStateWithLifecycle()
+    val showIgnored = filter == TaQueueFilter.IGNORED
 
-    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    var adding by rememberSaveable { mutableStateOf(false) }
     var showClearDialog by rememberSaveable { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -101,101 +106,48 @@ fun TaQueueScreen(viewModel: TaQueueViewModel = hiltViewModel()) {
                 .recalculateWindowInsets()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            Column {
-                TopAppBar(
-                    title = { Text(stringResource(CoreR.string.ta_queue)) },
-                    actions = {
-                        IconButton(onClick = { viewModel.rescanSubscriptions() }) {
+            TopAppBar(
+                title = { Text(stringResource(CoreR.string.ta_queue)) },
+                actions = {
+                    TaOpenInWebButton(path = "/downloads/")
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
                             Icon(
-                                painter = painterResource(CoreR.drawable.ic_refresh),
-                                contentDescription =
-                                    stringResource(CoreR.string.ta_rescan_subscriptions),
+                                painter = painterResource(CoreR.drawable.ic_more_vertical),
+                                contentDescription = null,
                             )
                         }
-                        IconButton(onClick = { viewModel.startDownloading() }) {
-                            Icon(
-                                painter = painterResource(CoreR.drawable.ic_download),
-                                contentDescription =
-                                    stringResource(CoreR.string.ta_start_downloading),
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(CoreR.string.ta_show_ignored)) },
+                                trailingIcon = {
+                                    Checkbox(checked = showIgnored, onCheckedChange = null)
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    viewModel.toggleIgnored()
+                                },
                             )
-                        }
-                        Box {
-                            IconButton(onClick = { menuOpen = true }) {
-                                Icon(
-                                    painter = painterResource(CoreR.drawable.ic_more_vertical),
-                                    contentDescription = null,
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = menuOpen,
-                                onDismissRequest = { menuOpen = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(stringResource(CoreR.string.ta_rescan_subscriptions))
-                                    },
-                                    onClick = {
-                                        menuOpen = false
-                                        viewModel.rescanSubscriptions()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(stringResource(CoreR.string.ta_start_downloading))
-                                    },
-                                    onClick = {
-                                        menuOpen = false
-                                        viewModel.startDownloading()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            stringResource(
-                                                if (filter == TaQueueFilter.PENDING)
-                                                    CoreR.string.ta_clear_pending
-                                                else CoreR.string.ta_clear_ignored
-                                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            if (showIgnored) CoreR.string.ta_clear_ignored
+                                            else CoreR.string.ta_clear_pending
                                         )
-                                    },
-                                    onClick = {
-                                        menuOpen = false
-                                        showClearDialog = true
-                                    },
-                                )
-                            }
-                        }
-                    },
-                    windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-                    scrollBehavior = scrollBehavior,
-                )
-                PrimaryTabRow(selectedTabIndex = filter.ordinal) {
-                    TaQueueFilter.entries.forEach { entry ->
-                        Tab(
-                            selected = filter == entry,
-                            onClick = { viewModel.selectFilter(entry) },
-                            text = {
-                                Text(
-                                    stringResource(
-                                        when (entry) {
-                                            TaQueueFilter.PENDING -> CoreR.string.ta_pending
-                                            TaQueueFilter.IGNORED -> CoreR.string.ta_ignored
-                                        }
                                     )
-                                )
-                            },
-                        )
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    showClearDialog = true
+                                },
+                            )
+                        }
                     }
-                }
-            }
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
-                Icon(
-                    painter = painterResource(CoreR.drawable.ic_plus),
-                    contentDescription = stringResource(CoreR.string.ta_add_to_queue),
-                )
-            }
+                },
+                windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+                scrollBehavior = scrollBehavior,
+            )
         },
         contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
     ) { innerPadding ->
@@ -212,18 +164,67 @@ fun TaQueueScreen(viewModel: TaQueueViewModel = hiltViewModel()) {
                         start = MaterialTheme.spacings.medium,
                         end = MaterialTheme.spacings.medium,
                         top = MaterialTheme.spacings.small,
-                        bottom = 88.dp,
+                        bottom = MaterialTheme.spacings.large,
                     ),
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
             ) {
-                // Keeps the list at the top while pages load below, instead of following the
-                // loading indicator to the bottom
-                item(key = "top") { Spacer(Modifier) }
+                item(key = "actions") {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)
+                    ) {
+                        TaQueueAction(
+                            icon = CoreR.drawable.ic_refresh,
+                            label = stringResource(CoreR.string.ta_rescan_subscriptions),
+                            onClick = { viewModel.rescanSubscriptions() },
+                            modifier = Modifier.weight(1f),
+                        )
+                        TaQueueAction(
+                            icon = CoreR.drawable.ic_download,
+                            label = stringResource(CoreR.string.ta_start_downloading),
+                            onClick = { viewModel.startDownloading() },
+                            modifier = Modifier.weight(1f),
+                        )
+                        TaQueueAction(
+                            icon = CoreR.drawable.ic_plus,
+                            label = stringResource(CoreR.string.ta_add_to_queue),
+                            onClick = { adding = !adding },
+                            selected = adding,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                if (adding) {
+                    item(key = "add") {
+                        TaAddToQueueCard(
+                            onAdd = { text, downloadNow, fastAdd, redownload ->
+                                viewModel.add(text, downloadNow, fastAdd, redownload)
+                                adding = false
+                            },
+                            onCancel = { adding = false },
+                        )
+                    }
+                }
                 items(tasks, key = { "task" + it.id }) { task -> TaTaskCard(task) }
+                item(key = "count") {
+                    val total = items.total
+                    Text(
+                        text =
+                            when {
+                                showIgnored && total != null ->
+                                    stringResource(CoreR.string.ta_ignored_count, total)
+                                showIgnored -> stringResource(CoreR.string.ta_ignored)
+                                total != null ->
+                                    stringResource(CoreR.string.ta_pending_count, total)
+                                else -> stringResource(CoreR.string.ta_pending)
+                            },
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+                    )
+                }
                 items(items.items, key = { it.youtubeId }) { item ->
                     TaQueueItem(
                         item = item,
-                        ignored = filter == TaQueueFilter.IGNORED,
+                        ignored = showIgnored,
                         onDownloadNow = { viewModel.downloadNow(item) },
                         onIgnore = { viewModel.ignore(item) },
                         onUnignore = { viewModel.unignore(item) },
@@ -242,37 +243,14 @@ fun TaQueueScreen(viewModel: TaQueueViewModel = hiltViewModel()) {
         }
     }
 
-    if (showAddDialog) {
-        var downloadNow by rememberSaveable { mutableStateOf(false) }
-        TaUrlDialog(
-            title = stringResource(CoreR.string.ta_add_to_queue),
-            hint = stringResource(CoreR.string.ta_add_to_queue_hint),
-            confirmText = stringResource(CoreR.string.add),
-            onConfirm = { text ->
-                viewModel.add(text, downloadNow)
-                showAddDialog = false
-            },
-            onDismiss = { showAddDialog = false },
-            extraContent = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().clickable { downloadNow = !downloadNow },
-                ) {
-                    Checkbox(checked = downloadNow, onCheckedChange = { downloadNow = it })
-                    Text(stringResource(CoreR.string.ta_download_right_away))
-                }
-            },
-        )
-    }
-
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = {
                 Text(
                     stringResource(
-                        if (filter == TaQueueFilter.PENDING) CoreR.string.ta_clear_pending
-                        else CoreR.string.ta_clear_ignored
+                        if (showIgnored) CoreR.string.ta_clear_ignored
+                        else CoreR.string.ta_clear_pending
                     )
                 )
             },
@@ -293,6 +271,107 @@ fun TaQueueScreen(viewModel: TaQueueViewModel = hiltViewModel()) {
                 }
             },
         )
+    }
+}
+
+/** One of the buttons at the top of the queue: an icon with its label below, as on the web. */
+@Composable
+private fun TaQueueAction(
+    @DrawableRes icon: Int,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+) {
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        color =
+            if (selected) MaterialTheme.colorScheme.secondaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(MaterialTheme.spacings.small),
+        ) {
+            Icon(painter = painterResource(icon), contentDescription = null)
+            Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+            )
+        }
+    }
+}
+
+/** Links to add, with the same options as on the web. */
+@Composable
+private fun TaAddToQueueCard(
+    onAdd: (text: String, downloadNow: Boolean, fastAdd: Boolean, redownload: Boolean) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var text by rememberSaveable { mutableStateOf("") }
+    var fastAdd by rememberSaveable { mutableStateOf(false) }
+    var redownload by rememberSaveable { mutableStateOf(false) }
+    var downloadNow by rememberSaveable { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(MaterialTheme.spacings.medium)) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text(stringResource(CoreR.string.ta_add_to_queue_hint)) },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            TaSwitchRow(
+                label = stringResource(CoreR.string.ta_fast_add),
+                checked = fastAdd,
+                onCheckedChange = { fastAdd = it },
+            )
+            TaSwitchRow(
+                label = stringResource(CoreR.string.ta_redownload),
+                checked = redownload,
+                onCheckedChange = { redownload = it },
+            )
+            TaSwitchRow(
+                label = stringResource(CoreR.string.ta_download_right_away),
+                checked = downloadNow,
+                onCheckedChange = { downloadNow = it },
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+                modifier = Modifier.align(Alignment.End),
+            ) {
+                TextButton(onClick = onCancel) { Text(stringResource(CoreR.string.cancel)) }
+                Button(
+                    onClick = { onAdd(text, downloadNow, fastAdd, redownload) },
+                    enabled = text.isNotBlank(),
+                ) {
+                    Text(stringResource(CoreR.string.ta_add_to_queue))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaSwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier.fillMaxWidth()
+                .clickable { onCheckedChange(!checked) }
+                .padding(vertical = MaterialTheme.spacings.extraSmall),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

@@ -32,6 +32,16 @@ constructor(
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, taApi.isConfigured)
 
+    /** Whether the TubeArchivist interface is on, rather than the regular Jellyfin one. */
+    val interfaceEnabled =
+        appPreferences
+            .observe(appPreferences.tubeArchivistInterface)
+            .stateIn(
+                viewModelScope,
+                SharingStarted.Eagerly,
+                appPreferences.getValue(appPreferences.tubeArchivistInterface),
+            )
+
     /** The server address, for the images it serves. */
     val baseUrl =
         appPreferences

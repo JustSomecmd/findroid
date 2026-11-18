@@ -2,6 +2,7 @@ package dev.jdtech.jellyfin.tubearchivist
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 // What the TubeArchivist API sends back. Almost everything is optional, so a field TubeArchivist
 // leaves out or adds in a later version doesn't break a whole page.
@@ -76,6 +77,11 @@ data class TaChannel(
     @SerialName("channel_thumb_url") val thumbUrl: String? = null,
     @SerialName("channel_banner_url") val bannerUrl: String? = null,
     @SerialName("channel_tvart_url") val tvArtUrl: String? = null,
+    /**
+     * Settings of this channel that replace the global ones, such as download_format. A missing key
+     * means the global setting is used.
+     */
+    @SerialName("channel_overwrites") val overwrites: JsonObject? = null,
 )
 
 @Serializable

@@ -20,7 +20,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,7 +32,6 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -251,11 +249,10 @@ fun TaSettingsScreen(navigateBack: () -> Unit, viewModel: TaSettingsViewModel = 
     }
 
     editing?.let { setting ->
-        val config = state.config
-        val current = config?.let { setting.read(it) }
-        TaSettingEditDialog(
+        TaSettingDialog(
             setting = setting,
-            current = current,
+            current = state.config?.let { setting.read(it) },
+            noneLabel = setting.noneLabel?.let { stringResource(it) },
             onSave = { value ->
                 viewModel.setConfigValue(setting.section, setting.key, value)
                 editing = null
@@ -265,12 +262,11 @@ fun TaSettingsScreen(navigateBack: () -> Unit, viewModel: TaSettingsViewModel = 
     }
 
     editingSchedule?.let { (name, current) ->
-        TaTextDialog(
+        TaScheduleDialog(
             title = stringResource(scheduleLabel(name)),
-            label = stringResource(CoreR.string.ta_schedule_hint),
-            initial = current.orEmpty(),
-            onSave = { text ->
-                viewModel.setSchedule(name, text)
+            current = current,
+            onSave = { schedule ->
+                viewModel.setSchedule(name, schedule.orEmpty())
                 editingSchedule = null
             },
             onDismiss = { editingSchedule = null },
@@ -278,25 +274,37 @@ fun TaSettingsScreen(navigateBack: () -> Unit, viewModel: TaSettingsViewModel = 
     }
 }
 
-private enum class TaSettingType {
+/** How a setting is changed. */
+enum class TaEditor {
     BOOL,
-    INT,
-    TEXT,
+    NUMBER,
     CHOICE,
+    FORMAT,
+    FORMAT_SORT,
+    LANGUAGES,
+    LANGUAGE,
+    COMMENTS,
 }
 
-/** One of TubeArchivist's settings, as found in its config under [section] / [key]. */
-private data class TaSetting(
+/**
+ * One of TubeArchivist's settings, as found in its config under [section] / [key]. [noneLabel]
+ * names the empty value, when it may be empty.
+ */
+data class TaSetting(
     val section: String,
     val key: String,
     @param:StringRes val label: Int,
-    val type: TaSettingType,
-    @param:StringRes val hint: Int? = null,
+    val editor: TaEditor,
+    @param:StringRes val noneLabel: Int? = null,
+    val presets: List<Long> = emptyList(),
+    @param:StringRes val unit: Int? = null,
     /** For CHOICE: the value (null for none) and its label. */
     val options: List<Pair<String?, Int>> = emptyList(),
 ) {
     fun read(config: JsonObject): JsonElement? = (config[section] as? JsonObject)?.get(key)
 }
+
+private val sizePresets = listOf(0L, 5L, 10L, 25L, 50L, 100L, 250L, 500L)
 
 private val subscriptionSettings =
     listOf(
@@ -304,87 +312,90 @@ private val subscriptionSettings =
             "subscriptions",
             "channel_size",
             CoreR.string.ta_set_channel_size,
-            TaSettingType.INT,
+            TaEditor.NUMBER,
+            presets = sizePresets,
         ),
         TaSetting(
             "subscriptions",
             "live_channel_size",
             CoreR.string.ta_set_live_channel_size,
-            TaSettingType.INT,
+            TaEditor.NUMBER,
+            presets = sizePresets,
         ),
         TaSetting(
             "subscriptions",
             "shorts_channel_size",
             CoreR.string.ta_set_shorts_channel_size,
-            TaSettingType.INT,
+            TaEditor.NUMBER,
+            presets = sizePresets,
         ),
         TaSetting(
             "subscriptions",
             "playlist_size",
             CoreR.string.ta_set_playlist_size,
-            TaSettingType.INT,
+            TaEditor.NUMBER,
+            presets = sizePresets,
         ),
-        TaSetting(
-            "subscriptions",
-            "auto_start",
-            CoreR.string.ta_set_auto_start,
-            TaSettingType.BOOL,
-        ),
-        TaSetting(
-            "subscriptions",
-            "extract_flat",
-            CoreR.string.ta_set_extract_flat,
-            TaSettingType.BOOL,
-        ),
+        TaSetting("subscriptions", "auto_start", CoreR.string.ta_set_auto_start, TaEditor.BOOL),
+        TaSetting("subscriptions", "extract_flat", CoreR.string.ta_set_extract_flat, TaEditor.BOOL),
     )
 
 private val downloadSettings =
     listOf(
-        TaSetting("downloads", "limit_speed", CoreR.string.ta_set_limit_speed, TaSettingType.INT),
+        TaSetting(
+            "downloads",
+            "limit_speed",
+            CoreR.string.ta_set_limit_speed,
+            TaEditor.NUMBER,
+            noneLabel = CoreR.string.ta_no_limit,
+            presets = listOf(1000L, 2500L, 5000L, 10000L, 25000L),
+            unit = CoreR.string.ta_unit_kbs,
+        ),
         TaSetting(
             "downloads",
             "sleep_interval",
             CoreR.string.ta_set_sleep_interval,
-            TaSettingType.INT,
+            TaEditor.NUMBER,
+            noneLabel = CoreR.string.ta_no_pause,
+            presets = listOf(3L, 5L, 10L, 30L, 60L),
+            unit = CoreR.string.ta_unit_seconds,
         ),
         TaSetting(
             "downloads",
             "autodelete_days",
             CoreR.string.ta_set_autodelete_days,
-            TaSettingType.INT,
+            TaEditor.NUMBER,
+            noneLabel = CoreR.string.ta_never,
+            presets = listOf(1L, 3L, 7L, 14L, 30L, 90L),
+            unit = CoreR.string.ta_unit_days,
         ),
         TaSetting(
             "downloads",
             "format",
             CoreR.string.ta_set_format,
-            TaSettingType.TEXT,
-            hint = CoreR.string.ta_set_format_hint,
+            TaEditor.FORMAT,
+            noneLabel = CoreR.string.ta_ytdlp_default,
         ),
         TaSetting(
             "downloads",
             "format_sort",
             CoreR.string.ta_set_format_sort,
-            TaSettingType.TEXT,
-            hint = CoreR.string.ta_set_format_sort_hint,
+            TaEditor.FORMAT_SORT,
+            noneLabel = CoreR.string.ta_ytdlp_default,
         ),
-        TaSetting(
-            "downloads",
-            "add_metadata",
-            CoreR.string.ta_set_add_metadata,
-            TaSettingType.BOOL,
-        ),
+        TaSetting("downloads", "add_metadata", CoreR.string.ta_set_add_metadata, TaEditor.BOOL),
         TaSetting(
             "downloads",
             "subtitle",
             CoreR.string.ta_set_subtitle,
-            TaSettingType.TEXT,
-            hint = CoreR.string.ta_set_subtitle_hint,
+            TaEditor.LANGUAGES,
+            noneLabel = CoreR.string.ta_no_subtitles,
         ),
         TaSetting(
             "downloads",
             "subtitle_source",
             CoreR.string.ta_set_subtitle_source,
-            TaSettingType.CHOICE,
+            TaEditor.CHOICE,
             options =
                 listOf(
                     null to CoreR.string.ta_option_none,
@@ -392,24 +403,19 @@ private val downloadSettings =
                     "auto" to CoreR.string.ta_option_subtitle_auto,
                 ),
         ),
-        TaSetting(
-            "downloads",
-            "subtitle_index",
-            CoreR.string.ta_set_subtitle_index,
-            TaSettingType.BOOL,
-        ),
+        TaSetting("downloads", "subtitle_index", CoreR.string.ta_set_subtitle_index, TaEditor.BOOL),
         TaSetting(
             "downloads",
             "comment_max",
             CoreR.string.ta_set_comment_max,
-            TaSettingType.TEXT,
-            hint = CoreR.string.ta_set_comment_max_hint,
+            TaEditor.COMMENTS,
+            noneLabel = CoreR.string.ta_no_comments_saved,
         ),
         TaSetting(
             "downloads",
             "comment_sort",
             CoreR.string.ta_set_comment_sort,
-            TaSettingType.CHOICE,
+            TaEditor.CHOICE,
             options =
                 listOf(
                     "top" to CoreR.string.ta_option_comments_top,
@@ -420,20 +426,15 @@ private val downloadSettings =
             "downloads",
             "integrate_sponsorblock",
             CoreR.string.ta_set_integrate_sponsorblock,
-            TaSettingType.BOOL,
+            TaEditor.BOOL,
         ),
-        TaSetting(
-            "downloads",
-            "integrate_ryd",
-            CoreR.string.ta_set_integrate_ryd,
-            TaSettingType.BOOL,
-        ),
+        TaSetting("downloads", "integrate_ryd", CoreR.string.ta_set_integrate_ryd, TaEditor.BOOL),
         TaSetting(
             "downloads",
             "extractor_lang",
             CoreR.string.ta_set_extractor_lang,
-            TaSettingType.TEXT,
-            hint = CoreR.string.ta_set_extractor_lang_hint,
+            TaEditor.LANGUAGE,
+            noneLabel = CoreR.string.ta_original_language,
         ),
     )
 
@@ -443,7 +444,7 @@ private val applicationSettings =
             "application",
             "enable_snapshot",
             CoreR.string.ta_set_enable_snapshot,
-            TaSettingType.BOOL,
+            TaEditor.BOOL,
         )
     )
 
@@ -471,7 +472,7 @@ private fun TaServerSettings(
                 }
                 .forEach { setting ->
                     val value = setting.read(config)
-                    if (setting.type == TaSettingType.BOOL) {
+                    if (setting.editor == TaEditor.BOOL) {
                         val checked = (value as? JsonPrimitive)?.booleanOrNull == true
                         TaSettingRow(
                             label = stringResource(setting.label),
@@ -491,7 +492,12 @@ private fun TaServerSettings(
                     } else {
                         TaSettingRow(
                             label = stringResource(setting.label),
-                            value = settingValueText(setting, value),
+                            value =
+                                taSettingValueText(
+                                    setting,
+                                    value,
+                                    setting.noneLabel?.let { stringResource(it) },
+                                ),
                             onClick = { onEdit(setting) },
                         )
                     }
@@ -533,19 +539,105 @@ private fun scheduleLabel(name: String): Int =
         else -> CoreR.string.ta_task_other
     }
 
+/** How a setting's value reads in a list. */
 @Composable
-private fun settingValueText(setting: TaSetting, value: JsonElement?): String {
+fun taSettingValueText(setting: TaSetting, value: JsonElement?, noneLabel: String?): String {
     val primitive = value as? JsonPrimitive
     val content = if (primitive == null || primitive is JsonNull) null else primitive.contentOrNull
-    if (setting.type == TaSettingType.CHOICE) {
-        val option = setting.options.firstOrNull { it.first == content }
-        if (option != null) return stringResource(option.second)
+    return when (setting.editor) {
+        TaEditor.CHOICE ->
+            setting.options.firstOrNull { it.first == content }?.let { stringResource(it.second) }
+                ?: content
+                ?: noneLabel
+                ?: stringResource(CoreR.string.ta_not_set)
+        TaEditor.NUMBER -> {
+            val unit = setting.unit?.let { stringResource(it) }
+            content?.let { if (unit != null) "$it $unit" else it }
+                ?: noneLabel
+                ?: stringResource(CoreR.string.ta_not_set)
+        }
+        else ->
+            content?.takeIf { it.isNotBlank() }
+                ?: noneLabel
+                ?: stringResource(CoreR.string.ta_not_set)
     }
-    return content?.takeIf { it.isNotBlank() } ?: stringResource(CoreR.string.ta_not_set)
+}
+
+/** Opens the editor that fits a setting. */
+@Composable
+fun TaSettingDialog(
+    setting: TaSetting,
+    current: JsonElement?,
+    noneLabel: String?,
+    onSave: (JsonElement) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val primitive = current as? JsonPrimitive
+    val text = if (primitive == null || primitive is JsonNull) null else primitive.contentOrNull
+    val title = stringResource(setting.label)
+    val none = noneLabel ?: stringResource(CoreR.string.ta_not_set)
+    val saveText: (String?) -> Unit = { value ->
+        onSave(value?.let { JsonPrimitive(it) } ?: JsonNull)
+    }
+    when (setting.editor) {
+        TaEditor.BOOL -> Unit
+        TaEditor.NUMBER ->
+            TaNumberDialog(
+                title = title,
+                current = text?.toLongOrNull(),
+                presets = setting.presets,
+                noneLabel = noneLabel,
+                unit = setting.unit?.let { stringResource(it) },
+                onSave = { value -> onSave(value?.let { JsonPrimitive(it) } ?: JsonNull) },
+                onDismiss = onDismiss,
+            )
+        TaEditor.CHOICE ->
+            TaChoiceDialog(
+                title = title,
+                options = setting.options.map { (value, label) -> value to stringResource(label) },
+                current = text,
+                onSave = saveText,
+                onDismiss = onDismiss,
+            )
+        TaEditor.FORMAT ->
+            TaFormatDialog(
+                title = title,
+                current = text,
+                noneLabel = none,
+                onSave = saveText,
+                onDismiss = onDismiss,
+            )
+        TaEditor.FORMAT_SORT ->
+            TaFormatSortDialog(
+                title = title,
+                current = text,
+                noneLabel = none,
+                onSave = saveText,
+                onDismiss = onDismiss,
+            )
+        TaEditor.LANGUAGES,
+        TaEditor.LANGUAGE ->
+            TaLanguagesDialog(
+                title = title,
+                current = text,
+                multiple = setting.editor == TaEditor.LANGUAGES,
+                noneLabel = none,
+                onSave = saveText,
+                onDismiss = onDismiss,
+            )
+        TaEditor.COMMENTS ->
+            TaCommentsDialog(
+                title = title,
+                current = text,
+                noneLabel = none,
+                onSave = saveText,
+                onDismiss = onDismiss,
+            )
+    }
 }
 
 @Composable
-private fun TaSettingRow(
+fun TaSettingRow(
     label: String,
     value: String?,
     onClick: () -> Unit,
@@ -570,107 +662,4 @@ private fun TaSettingRow(
         }
         trailing()
     }
-}
-
-@Composable
-private fun TaSettingEditDialog(
-    setting: TaSetting,
-    current: JsonElement?,
-    onSave: (JsonElement) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val primitive = current as? JsonPrimitive
-    val currentText =
-        if (primitive == null || primitive is JsonNull) null else primitive.contentOrNull
-    if (setting.type == TaSettingType.CHOICE) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text(stringResource(setting.label)) },
-            text = {
-                Column {
-                    setting.options.forEach { (value, label) ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier =
-                                Modifier.fillMaxWidth()
-                                    .selectable(
-                                        selected = currentText == value,
-                                        onClick = {
-                                            onSave(value?.let { JsonPrimitive(it) } ?: JsonNull)
-                                        },
-                                        role = Role.RadioButton,
-                                    )
-                                    .padding(vertical = MaterialTheme.spacings.small),
-                        ) {
-                            RadioButton(selected = currentText == value, onClick = null)
-                            Text(
-                                text = stringResource(label),
-                                modifier = Modifier.padding(start = MaterialTheme.spacings.small),
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = onDismiss) { Text(stringResource(CoreR.string.cancel)) }
-            },
-        )
-        return
-    }
-    TaTextDialog(
-        title = stringResource(setting.label),
-        label =
-            setting.hint?.let { stringResource(it) }
-                ?: stringResource(CoreR.string.ta_empty_to_clear),
-        initial = currentText.orEmpty(),
-        numeric = setting.type == TaSettingType.INT,
-        onSave = { text ->
-            val trimmed = text.trim()
-            val value =
-                when {
-                    trimmed.isEmpty() -> JsonNull
-                    setting.type == TaSettingType.INT ->
-                        trimmed.toLongOrNull()?.let { JsonPrimitive(it) } ?: return@TaTextDialog
-                    else -> JsonPrimitive(trimmed)
-                }
-            onSave(value)
-        },
-        onDismiss = onDismiss,
-    )
-}
-
-@Composable
-private fun TaTextDialog(
-    title: String,
-    label: String,
-    initial: String,
-    onSave: (String) -> Unit,
-    onDismiss: () -> Unit,
-    numeric: Boolean = false,
-) {
-    var text by rememberSaveable { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                label = { Text(label) },
-                singleLine = true,
-                keyboardOptions =
-                    KeyboardOptions(
-                        keyboardType = if (numeric) KeyboardType.Number else KeyboardType.Text
-                    ),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(text) }) { Text(stringResource(CoreR.string.ta_save)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(CoreR.string.cancel)) }
-        },
-    )
 }
