@@ -183,7 +183,7 @@ fun PlaylistScreen(playlistId: String) {
                             Button(
                                 onClick = {
                                     next?.let {
-                                        navigator.play(PlayerRequest(it.youtubeId, playlistId))
+                                        navigator.play(PlayerRequest.Ta(it.youtubeId, playlistId))
                                     }
                                 },
                                 enabled = next != null,

@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.compose.compiler)
     alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 java { toolchain { languageVersion = Versions.JAVA } }
@@ -18,6 +19,8 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.jna.platform)
+    // Jellyfin's own library, as the phone app uses
+    implementation(libs.jellyfin.core)
 }
 
 // The phone app's icons, so both look the same

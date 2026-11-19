@@ -2,12 +2,18 @@ package dev.jdtech.tubedroid.desktop
 
 import androidx.compose.runtime.staticCompositionLocalOf
 import dev.jdtech.jellyfin.tubearchivist.TaApi
+import dev.jdtech.tubedroid.desktop.jellyfin.JellyfinClient
 import dev.jdtech.tubedroid.desktop.player.PlayerRequest
 
-/** What the pages share: the settings, TubeArchivist and the downloads to this computer. */
+/**
+ * What the pages share: the settings, TubeArchivist, Jellyfin, the downloads to this computer and
+ * the check for a newer Winchivist.
+ */
 class AppGraph(val settings: AppSettings) {
     val api = TaApi(settings)
+    val jellyfin = JellyfinClient(settings)
     val downloads = Downloads(settings, api)
+    val updates = Updates()
 }
 
 val LocalApp = staticCompositionLocalOf<AppGraph> { error("No app") }

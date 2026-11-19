@@ -37,6 +37,18 @@ class AppSettings(private val prefs: Preferences = Preferences.userRoot().node("
     val isConfigured: Boolean
         get() = !url.isNullOrBlank() && !token.isNullOrBlank()
 
+    /** The Jellyfin server and the user signed in to it. The password itself isn't kept. */
+    var jellyfinUrl: String? by stored<String?>("jellyfin_url", null)
+    var jellyfinToken: String? by stored<String?>("jellyfin_token", null)
+    var jellyfinUserId: String? by stored<String?>("jellyfin_user_id", null)
+    var jellyfinUserName: String? by stored<String?>("jellyfin_user_name", null)
+
+    /** This computer, as Jellyfin's list of devices shows it; made up once. */
+    val deviceId: String
+        get() =
+            prefs.get("device_id", null)
+                ?: java.util.UUID.randomUUID().toString().also { prefs.put("device_id", it) }
+
     /** Where mpv.conf, input.conf and mpv scripts can be put, like Jellyfin Media Player has. */
     val mpvConfigFolder: File
         get() {

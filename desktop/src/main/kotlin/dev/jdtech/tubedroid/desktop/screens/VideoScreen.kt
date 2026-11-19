@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -67,7 +68,6 @@ import dev.jdtech.tubedroid.desktop.ui.PageState
 import dev.jdtech.tubedroid.desktop.ui.SectionCard
 import dev.jdtech.tubedroid.desktop.ui.SectionTitle
 import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
-import dev.jdtech.tubedroid.desktop.ui.SideSwitch
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.TaAvatar
 import dev.jdtech.tubedroid.desktop.ui.VideoRow
@@ -221,11 +221,18 @@ fun VideoScreen(videoId: String, playlistId: String?) {
         Surface(color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.fillMaxSize()) {
                 PageBar(title = null, onBack = if (canGoBack) navigator::back else null) {
-                    SideSwitch(
-                        onServer = model.onServer,
-                        onToggle = { model.onServer = !model.onServer },
-                        localLabel = "Video",
-                        localIcon = "ic_film",
+                    // The video on the server, in the server's colors
+                    FilterChip(
+                        selected = model.onServer,
+                        onClick = { model.onServer = !model.onServer },
+                        label = { Text("Manage") },
+                        leadingIcon = {
+                            AppIcon(
+                                name = "ic_server",
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        },
                     )
                     OpenInWebButton("/video/$videoId/")
                 }
@@ -254,7 +261,7 @@ fun VideoScreen(videoId: String, playlistId: String?) {
                                     video = video,
                                     onPlay = { fromStart ->
                                         navigator.play(
-                                            PlayerRequest(video.youtubeId, playlistId, fromStart)
+                                            PlayerRequest.Ta(video.youtubeId, playlistId, fromStart)
                                         )
                                     },
                                 )

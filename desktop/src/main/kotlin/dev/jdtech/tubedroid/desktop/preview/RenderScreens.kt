@@ -35,8 +35,6 @@ import dev.jdtech.tubedroid.desktop.Section
 import dev.jdtech.tubedroid.desktop.Shell
 import dev.jdtech.tubedroid.desktop.ShellContent
 import dev.jdtech.tubedroid.desktop.screens.ChannelModel
-import dev.jdtech.tubedroid.desktop.screens.HomeModel
-import dev.jdtech.tubedroid.desktop.screens.QueueModel
 import dev.jdtech.tubedroid.desktop.screens.SearchModel
 import dev.jdtech.tubedroid.desktop.screens.SettingsScreen
 import dev.jdtech.tubedroid.desktop.screens.VideoModel
@@ -97,28 +95,30 @@ fun main(args: Array<String>) {
         }
 
         capture("home")
-        shell.current.retain<HomeModel>("home") { error("no home") }.onServer = true
-        capture("home-server")
         shell.select(Section.CHANNELS)
         capture("channels")
         shell.open(Route.Channel(SampleData.channels[0].id))
         capture("channel")
         shell.current.retain<ChannelModel>("channel") { error("no channel") }.onServer = true
-        capture("channel-server")
+        capture("channel-manage")
         shell.open(Route.Video(SampleData.videos[0].youtubeId))
         capture("video")
         shell.current.retain<VideoModel>("video") { error("no video") }.onServer = true
-        capture("video-server")
+        capture("video-manage")
         shell.open(Route.Playlist(SampleData.playlists[0].id))
         capture("playlist")
+        shell.select(Section.PLAYLISTS)
+        capture("playlists")
         shell.select(Section.DOWNLOADS)
         capture("downloads")
-        shell.current.retain<QueueModel>("queue") { error("no queue") }.onServer = true
-        capture("downloads-server")
         shell.select(Section.SEARCH)
         capture("search-empty")
         shell.current.retain<SearchModel>("search") { error("no search") }.onQueryChange("sample")
         capture("search")
+        shell.select(Section.STATS)
+        capture("stats")
+        shell.select(Section.QUEUE)
+        capture("queue")
         shell.select(Section.SETTINGS)
         capture("settings")
         scene.close()

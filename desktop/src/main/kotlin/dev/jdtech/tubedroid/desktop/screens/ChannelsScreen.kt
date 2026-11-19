@@ -32,7 +32,6 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
-import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.tubedroid.desktop.LocalApp
 import dev.jdtech.tubedroid.desktop.LocalNavigator
 import dev.jdtech.tubedroid.desktop.Route
@@ -43,7 +42,6 @@ import dev.jdtech.tubedroid.desktop.ui.ListFooter
 import dev.jdtech.tubedroid.desktop.ui.LoadMoreEffect
 import dev.jdtech.tubedroid.desktop.ui.PageBar
 import dev.jdtech.tubedroid.desktop.ui.PagedList
-import dev.jdtech.tubedroid.desktop.ui.PlaylistCard
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.errorText
 import kotlin.coroutines.cancellation.CancellationException
@@ -53,7 +51,6 @@ import kotlinx.coroutines.launch
 enum class ChannelsTab(val label: String) {
     SUBSCRIBED("Subscribed"),
     ALL("All channels"),
-    PLAYLISTS("Playlists"),
 }
 
 class ChannelsModel(private val api: TaApi, private val scope: CoroutineScope) {
@@ -64,7 +61,6 @@ class ChannelsModel(private val api: TaApi, private val scope: CoroutineScope) {
             api.getChannels(page = page, subscribedOnly = true)
         }
     val all = PagedList(scope, key = TaChannel::id) { page -> api.getChannels(page = page) }
-    val playlists = PagedList(scope, key = TaPlaylist::id) { page -> api.getPlaylists(page = page) }
 
     val grids = ChannelsTab.entries.associateWith { LazyGridState() }
 
@@ -72,38 +68,16 @@ class ChannelsModel(private val api: TaApi, private val scope: CoroutineScope) {
         when (tab) {
             ChannelsTab.SUBSCRIBED -> subscribed.reload()
             ChannelsTab.ALL -> all.reload()
-            ChannelsTab.PLAYLISTS -> playlists.reload()
         }
     }
 
-    /** Subscribes to channels or playlists by their links. Returns the message to show. */
+    /** Subscribes to channels by their links. */
     fun subscribe(links: List<String>, onDone: (String) -> Unit) {
         scope.launch {
             val message =
                 try {
-                    if (tab == ChannelsTab.PLAYLISTS) {
-                        api.subscribeToPlaylists(links)
-                        "TubeArchivist is subscribing to the playlists"
-                    } else {
-                        api.subscribeToChannels(links)
-                        "TubeArchivist is subscribing to the channels"
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    errorText(e)
-                }
-            onDone(message)
-        }
-    }
-
-    fun createPlaylist(name: String, onDone: (String) -> Unit) {
-        scope.launch {
-            val message =
-                try {
-                    api.createCustomPlaylist(name)
-                    playlists.reload()
-                    "Made the playlist $name"
+                    api.subscribeToChannels(links)
+                    "TubeArchivist is subscribing to the channels"
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -119,33 +93,14 @@ fun ChannelsScreen() {
     val app = LocalApp.current
     val navigator = LocalNavigator.current
     val model = rememberPageModel("channels") { scope -> ChannelsModel(app.api, scope) }
-    var dialog by remember { mutableStateOf<ChannelsDialog?>(null) }
+    var subscribing by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         PageBar(title = "Channels", onBack = null) {
-            if (model.tab == ChannelsTab.PLAYLISTS) {
-                TextButton(onClick = { dialog = ChannelsDialog.NEW_PLAYLIST }) {
-                    Text("New playlist")
-                }
-            }
-            FilledTonalButton(onClick = { dialog = ChannelsDialog.SUBSCRIBE }) {
-                Text(
-                    if (model.tab == ChannelsTab.PLAYLISTS) "Subscribe to a playlist"
-                    else "Subscribe"
-                )
-            }
+            FilledTonalButton(onClick = { subscribing = true }) { Text("Subscribe") }
             RefreshButton(onClick = model::refresh)
         }
-        // The same tint of the accent as the phone app's tab row
-        PrimaryTabRow(
-            selectedTabIndex = model.tab.ordinal,
-            containerColor =
-                lerp(
-                    MaterialTheme.colorScheme.surfaceContainer,
-                    MaterialTheme.colorScheme.primary,
-                    0.1f,
-                ),
-        ) {
+        TintedTabRow(selected = model.tab.ordinal) {
             ChannelsTab.entries.forEach { tab ->
                 Tab(
                     selected = model.tab == tab,
@@ -169,65 +124,37 @@ fun ChannelsScreen() {
                     emptyText = "No channels yet",
                     onClick = { navigator.open(Route.Channel(it)) },
                 )
-            ChannelsTab.PLAYLISTS -> {
-                val state = model.grids.getValue(ChannelsTab.PLAYLISTS)
-                LoadMoreEffect(state) { model.playlists.loadMore() }
-                Box(modifier = Modifier.fillMaxSize()) {
-                    LazyVerticalGrid(
-                        state = state,
-                        columns = GridCells.Adaptive(minSize = VIDEO_CARD_MIN_WIDTH),
-                        contentPadding = PaddingValues(Spacings.default),
-                        horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
-                        verticalArrangement = Arrangement.spacedBy(Spacings.small),
-                    ) {
-                        items(model.playlists.items, key = { it.id }) { playlist ->
-                            PlaylistCard(
-                                playlist = playlist,
-                                onClick = { navigator.open(Route.Playlist(playlist.id)) },
-                            )
-                        }
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            ListFooter(model.playlists, emptyText = "No playlists yet")
-                        }
-                    }
-                    GridScrollbar(state)
-                }
-            }
         }
     }
 
-    when (dialog) {
-        ChannelsDialog.SUBSCRIBE ->
-            TextInputDialog(
-                title =
-                    if (model.tab == ChannelsTab.PLAYLISTS) "Subscribe to playlists"
-                    else "Subscribe to channels",
-                label = "Links, one per line",
-                confirmLabel = "Subscribe",
-                multiLine = true,
-                onConfirm = { text ->
-                    val links = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
-                    if (links.isNotEmpty()) model.subscribe(links, navigator::message)
-                },
-                onDismiss = { dialog = null },
-            )
-        ChannelsDialog.NEW_PLAYLIST ->
-            TextInputDialog(
-                title = "New playlist",
-                label = "Name",
-                confirmLabel = "Make",
-                onConfirm = { name ->
-                    if (name.isNotBlank()) model.createPlaylist(name.trim(), navigator::message)
-                },
-                onDismiss = { dialog = null },
-            )
-        null -> {}
+    if (subscribing) {
+        TextInputDialog(
+            title = "Subscribe to channels",
+            label = "Links, one per line",
+            confirmLabel = "Subscribe",
+            multiLine = true,
+            onConfirm = { text ->
+                val links = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                if (links.isNotEmpty()) model.subscribe(links, navigator::message)
+            },
+            onDismiss = { subscribing = false },
+        )
     }
 }
 
-private enum class ChannelsDialog {
-    SUBSCRIBE,
-    NEW_PLAYLIST,
+/** A tab row in the same tint of the accent as the phone app's. */
+@Composable
+fun TintedTabRow(selected: Int, tabs: @Composable () -> Unit) {
+    PrimaryTabRow(
+        selectedTabIndex = selected,
+        containerColor =
+            lerp(
+                MaterialTheme.colorScheme.surfaceContainer,
+                MaterialTheme.colorScheme.primary,
+                0.1f,
+            ),
+        tabs = tabs,
+    )
 }
 
 @Composable

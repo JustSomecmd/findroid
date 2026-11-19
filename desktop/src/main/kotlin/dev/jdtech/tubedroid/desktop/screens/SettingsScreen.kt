@@ -107,6 +107,7 @@ fun SettingsScreen(firstRun: Boolean, onDone: () -> Unit) {
                         SettingsSection("TubeArchivist") {
                             ServerForm(settings = settings, onSaved = onDone)
                         }
+                        SettingsSection("Jellyfin") { JellyfinForm() }
                         SettingsSection("Downloads") { DownloadSettings(settings) }
                         SettingsSection("Playback") { PlaybackSettings(settings) }
                         SettingsSection("Appearance") { AccentPicker(settings) }
@@ -120,6 +121,7 @@ fun SettingsScreen(firstRun: Boolean, onDone: () -> Unit) {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            UpdateCheck()
                         }
                     }
                     ColumnScrollbar(scroll)
@@ -439,3 +441,148 @@ internal fun openFolder(folder: File) {
 /** The installed version, which jpackage passes on, or "dev" when run from Gradle. */
 private fun appVersion(): String =
     System.getProperty("jpackage.app-version") ?: "(development build)"
+
+/**
+ * Signs in to a Jellyfin server, for its movies and shows. Only the access token Jellyfin gives is
+ * kept, not the password.
+ */
+@Composable
+private fun JellyfinForm() {
+    val client = LocalApp.current.jellyfin
+    val scope = rememberCoroutineScope()
+    if (client.isSignedIn) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Signed in as ${client.userName.orEmpty()}",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = client.serverUrl.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            OutlinedButton(onClick = client::signOut) { Text("Sign out") }
+        }
+        return
+    }
+    var url by remember { mutableStateOf(client.serverUrl.orEmpty()) }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var working by remember { mutableStateOf(false) }
+    var failure by remember { mutableStateOf<String?>(null) }
+
+    fun signIn() {
+        if (working || url.isBlank() || username.isBlank()) return
+        working = true
+        failure = null
+        scope.launch {
+            try {
+                client.signIn(url, username, password)
+                password = ""
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failure = e.message ?: "Couldn't sign in"
+            } finally {
+                working = false
+            }
+        }
+    }
+
+    Text(
+        text = "For your movies and shows. They show up in the bar on the left once you're in.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    OutlinedTextField(
+        value = url,
+        onValueChange = { url = it },
+        label = { Text("Server address") },
+        placeholder = { Text("https://jellyfin.example.com") },
+        singleLine = true,
+        keyboardOptions =
+            KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    OutlinedTextField(
+        value = username,
+        onValueChange = { username = it },
+        label = { Text("User name") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    OutlinedTextField(
+        value = password,
+        onValueChange = { password = it },
+        label = { Text("Password") },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions =
+            KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { signIn() }),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Button(
+            onClick = ::signIn,
+            enabled = !working && url.isNotBlank() && username.isNotBlank(),
+        ) {
+            Text("Sign in")
+        }
+        Spacer(Modifier.width(Spacings.medium))
+        if (working) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        }
+        failure?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+/** Looks on GitHub for a newer Winchivist; the bar on the left offers to install it. */
+@Composable
+private fun UpdateCheck() {
+    val updates = LocalApp.current.updates
+    val scope = rememberCoroutineScope()
+    var result by remember { mutableStateOf<String?>(null) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TextButton(
+            onClick = {
+                scope.launch {
+                    result =
+                        try {
+                            if (updates.checkForUpdate()) {
+                                "Winchivist ${updates.available?.version} is out: " +
+                                    "Update in the bar on the left installs it"
+                            } else if (updates.current == null) {
+                                "This copy wasn't installed, so it can't be updated"
+                            } else {
+                                "This is the newest version"
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            "Couldn't reach GitHub"
+                        }
+                }
+            },
+            enabled = !updates.checking,
+        ) {
+            Text("Check for updates")
+        }
+        result?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}

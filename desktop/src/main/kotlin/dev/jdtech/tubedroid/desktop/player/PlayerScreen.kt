@@ -44,12 +44,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPlacement
 import com.sun.jna.Native
-import dev.jdtech.jellyfin.tubearchivist.TaApi
-import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.tubedroid.desktop.AppSettings
 import dev.jdtech.tubedroid.desktop.LocalApp
 import dev.jdtech.tubedroid.desktop.LocalWindowState
-import dev.jdtech.tubedroid.desktop.screens.loadPlaylist
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.errorText
@@ -64,13 +61,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** What to play: a video, and the playlist it's played from, if any. */
-data class PlayerRequest(
-    val videoId: String,
-    val playlistId: String? = null,
-    val fromStart: Boolean = false,
-)
-
 /** A SponsorBlock segment that can be skipped, in seconds. */
 internal data class SkipSegment(val start: Double, val end: Double, val category: String)
 
@@ -78,20 +68,20 @@ internal data class SkipSegment(val start: Double, val end: Double, val category
 private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 /**
- * The video playing, mpv's state as last read, and what happens around it: saving progress in
- * TubeArchivist, SponsorBlock and going on through a playlist.
+ * The video playing, mpv's state as last read, and what happens around it: saving progress where
+ * the video came from, SponsorBlock, and going on to the next video or episode.
  */
 internal class PlayerSession(
-    private val api: TaApi,
+    private val source: PlaybackSource,
     private val settings: AppSettings,
     private val scope: CoroutineScope,
-    private val request: PlayerRequest,
 ) {
     var player by mutableStateOf<MpvPlayer?>(null)
-    var video by mutableStateOf<TaVideo?>(null)
+    var item by mutableStateOf<PlayItem?>(null)
         private set
 
-    var playlist by mutableStateOf<List<TaVideo>>(emptyList())
+    /** The title of what plays next, if anything does. */
+    var upNext by mutableStateOf<String?>(null)
         private set
 
     var error by mutableStateOf<String?>(null)
@@ -109,33 +99,14 @@ internal class PlayerSession(
     var ended by mutableStateOf(false)
         private set
 
-    private var segments: List<SkipSegment> = emptyList()
     private var skippedSegment: SkipSegment? = null
     private var lastReport = 0L
     private var lastReported = -1.0
     private var started: String? = null
 
-    val nextVideo: TaVideo?
-        get() {
-            val current = video ?: return null
-            val index = playlist.indexOfFirst { it.youtubeId == current.youtubeId }
-            return if (index >= 0) playlist.getOrNull(index + 1) else null
-        }
-
     suspend fun load() {
         try {
-            val first = api.getVideo(request.videoId)
-            request.playlistId?.let { id ->
-                playlist =
-                    try {
-                        api.loadPlaylist(id).second
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-            }
-            video = first
+            item = source.first()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -144,58 +115,57 @@ internal class PlayerSession(
         }
     }
 
-    /** Starts the video once both it and mpv are ready. */
+    /** Starts the item once both it and mpv are ready. */
     fun startIfReady() {
         val player = player ?: return
-        val video = video ?: return
-        if (started == video.youtubeId) return
-        started = video.youtubeId
-        val url = api.mediaUrl(video.mediaUrl)
-        if (url == null) {
-            error = "TubeArchivist has no file for this video"
-            loading = false
-            return
-        }
-        val resume =
-            video.player?.position?.takeIf { position ->
-                val length = video.player?.duration ?: 0.0
-                !request.fromStart &&
-                    video.player?.watched != true &&
-                    position > 5 &&
-                    (length <= 0 || position < length - 10)
-            }
-        segments =
-            if (settings.sponsorBlock == AppSettings.SPONSORBLOCK_OFF) emptyList()
-            else video.skipSegments()
+        val item = item ?: return
+        if (started == item.id) return
+        started = item.id
         skippedSegment = null
         segment = null
         ended = false
-        position = resume ?: 0.0
+        upNext = null
+        position = item.resumeSeconds ?: 0.0
         lastReported = -1.0
         lastReport = System.currentTimeMillis()
         loading = true
         error = null
-        player.set("start", resume?.let { String.format(Locale.ROOT, "%.1f", it) } ?: "none")
-        player.set("force-media-title", video.title)
-        player.command("loadfile", url, "replace")
+        player.set(
+            "start",
+            item.resumeSeconds?.let { String.format(Locale.ROOT, "%.1f", it) } ?: "none",
+        )
+        player.set("force-media-title", item.title)
+        // One header as it is, commas and all, rather than a list split at the commas
+        player.command("change-list", "http-header-fields", "clr", "")
+        item.header?.let { player.command("change-list", "http-header-fields", "append", it) }
+        player.command("loadfile", item.url, "replace")
+        scope.launch {
+            upNext =
+                try {
+                    source.nextTitle(item)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+        }
     }
 
-    /** Adds the video's subtitles from TubeArchivist, once the file has loaded. */
+    /** Adds the subtitle files next to the video, once it has loaded, and says it started. */
     fun onFileLoaded() {
         loading = false
         val player = player ?: return
-        video?.subtitles.orEmpty().forEach { subtitle ->
-            val url = api.mediaUrl(subtitle.mediaUrl) ?: return@forEach
-            val title =
-                (subtitle.name ?: subtitle.lang) +
-                    if (subtitle.source == "auto") " (automatic)" else ""
-            player.command("sub-add", url, "auto", title, subtitle.lang)
+        val item = item ?: return
+        item.subtitles.forEach { subtitle ->
+            player.command("sub-add", subtitle.url, "auto", subtitle.title, subtitle.language ?: "")
         }
+        val at = item.resumeSeconds ?: 0.0
+        backgroundScope.launch { runCatching { source.started(item, at) } }
     }
 
     fun onLoadFailed(message: String) {
         loading = false
-        error = "Couldn't play this video: $message"
+        error = "Couldn't play this: $message"
     }
 
     /** Reads mpv's state, then acts on it. Called a few times a second. */
@@ -208,14 +178,14 @@ internal class PlayerSession(
             fullscreen = wantsFullscreen
             onFullscreen(wantsFullscreen)
         }
-        // Until the new file has loaded, mpv's state can still be the last video's
+        // Until the new file has loaded, mpv's state can still be the last one's
         if (loading) return
         checkSegment(player)
         val paused = player.getFlag("pause")
         val now = System.currentTimeMillis()
         if (!paused && now - lastReport > PROGRESS_INTERVAL_MS) {
             lastReport = now
-            reportProgress(position)
+            reportProgress(position, paused = false)
         }
         val atEnd = player.getFlag("eof-reached")
         if (atEnd && !ended) {
@@ -228,6 +198,7 @@ internal class PlayerSession(
     }
 
     private fun checkSegment(player: MpvPlayer) {
+        val segments = item?.segments.orEmpty()
         val current = segments.firstOrNull { position >= it.start && position < it.end - 0.5 }
         if (current == null) {
             segment = null
@@ -259,32 +230,25 @@ internal class PlayerSession(
     }
 
     private fun onEnded() {
-        val current = video ?: return
+        val current = item ?: return
         val length = duration.takeIf { it > 0 } ?: position
-        reportProgress(length)
-        scope.launch {
-            try {
-                api.setWatched(current.youtubeId, true)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {}
-        }
-        val next = nextVideo
-        if (settings.autoplay && next != null) {
+        reportProgress(length, paused = true)
+        backgroundScope.launch { runCatching { source.ended(current) } }
+        if (settings.autoplay && upNext != null) {
             scope.launch {
                 delay(1500)
-                if (ended && video == current) playNext()
+                if (ended && item == current) playNext()
             }
         }
     }
 
     fun playNext() {
-        val next = nextVideo ?: return
-        reportProgress(position)
+        val current = item ?: return
+        reportProgress(position, paused = true)
         scope.launch {
             try {
-                // The playlist's entries are short; the player needs the whole video
-                video = api.getVideo(next.youtubeId)
+                val next = source.next(current) ?: return@launch
+                item = next
                 startIfReady()
             } catch (e: CancellationException) {
                 throw e
@@ -294,17 +258,11 @@ internal class PlayerSession(
         }
     }
 
-    private fun reportProgress(seconds: Double) {
-        val videoId = video?.youtubeId ?: return
+    private fun reportProgress(seconds: Double, paused: Boolean) {
+        val current = item ?: return
         if (seconds <= 0 || seconds == lastReported) return
         lastReported = seconds
-        backgroundScope.launch {
-            try {
-                api.postProgress(videoId, seconds)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {}
-        }
+        backgroundScope.launch { runCatching { source.progress(current, seconds, paused) } }
     }
 
     /** Saves where it got to and stops mpv. Called before its window goes. */
@@ -312,18 +270,12 @@ internal class PlayerSession(
         val player = player ?: return
         this.player = null
         val last = player.getDouble("time-pos")
-        if (last != null && !ended) reportProgress(last)
+        val current = item
+        if (last != null && current != null) {
+            backgroundScope.launch { runCatching { source.stopped(current, last) } }
+        }
         player.destroy()
     }
-
-    private fun TaVideo.skipSegments(): List<SkipSegment> =
-        sponsorblock?.segments.orEmpty().mapNotNull { segment ->
-            val start = segment.segment.getOrNull(0) ?: return@mapNotNull null
-            val end = segment.segment.getOrNull(1) ?: return@mapNotNull null
-            // Segments that only mark a point, such as highlights, can't be skipped
-            if (end - start < 1.0 || segment.actionType == "poi") return@mapNotNull null
-            SkipSegment(start, end, segment.category)
-        }
 
     companion object {
         private const val PROGRESS_INTERVAL_MS = 10_000L
@@ -353,7 +305,15 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
     val app = LocalApp.current
     val windowState = LocalWindowState.current
     val scope = rememberCoroutineScope()
-    val session = remember(request) { PlayerSession(app.api, app.settings, scope, request) }
+    val session =
+        remember(request) {
+            val source =
+                when (request) {
+                    is PlayerRequest.Ta -> TaPlaybackSource(app.api, app.settings, request)
+                    is PlayerRequest.Jellyfin -> JellyfinPlaybackSource(app.jellyfin, request)
+                }
+            PlayerSession(source, app.settings, scope)
+        }
     val close by rememberUpdatedState(onClose)
     val lib = remember { MpvLoader.load() }
     val focus = remember { FocusRequester() }
@@ -372,7 +332,7 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
     }
 
     LaunchedEffect(session) { session.load() }
-    LaunchedEffect(session, session.player, session.video) { session.startIfReady() }
+    LaunchedEffect(session, session.player, session.item) { session.startIfReady() }
     LaunchedEffect(session, session.player) {
         if (session.player == null) return@LaunchedEffect
         while (isActive) {
@@ -435,7 +395,7 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
                                         MpvPlayer.create(
                                             lib = lib,
                                             wid = Native.getComponentID(canvas),
-                                            options = mpvOptions(app.settings, app.api),
+                                            options = mpvOptions(app.settings),
                                             onEvent = { event ->
                                                 scope.launch(Dispatchers.Main) {
                                                     when (event) {
@@ -464,7 +424,7 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
 /** The bar above the video: back, the title, and what's next. Hidden in full screen. */
 @Composable
 private fun PlayerBar(session: PlayerSession, onClose: () -> Unit) {
-    val video = session.video
+    val item = session.item
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacings.small),
@@ -478,14 +438,14 @@ private fun PlayerBar(session: PlayerSession, onClose: () -> Unit) {
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = video?.title.orEmpty(),
+                text = item?.title.orEmpty(),
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             val details =
                 listOfNotNull(
-                        video?.channel?.name,
+                        item?.subtitle,
                         session.duration
                             .takeIf { it > 0 }
                             ?.let { formatDuration(session.position) + " / " + formatDuration(it) },
@@ -521,10 +481,10 @@ private fun PlayerBar(session: PlayerSession, onClose: () -> Unit) {
                 Text("Skip ${PlayerSession.categoryName(segment.category).lowercase()}")
             }
         }
-        session.nextVideo?.let { next ->
+        session.upNext?.let { next ->
             TextButton(onClick = session::playNext) {
                 Text(
-                    text = "Next: ${next.title}",
+                    text = "Next: $next",
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.width(220.dp),
@@ -556,7 +516,7 @@ private fun Message(text: String) {
 /**
  * mpv's settings, as on its command line. A user's own mpv.conf in the config folder comes on top.
  */
-private fun mpvOptions(settings: AppSettings, api: TaApi): List<Pair<String, String>> = buildList {
+private fun mpvOptions(settings: AppSettings): List<Pair<String, String>> = buildList {
     add("config-dir" to settings.mpvConfigFolder.path)
     add("config" to "yes")
     add("terminal" to "no")
@@ -569,7 +529,6 @@ private fun mpvOptions(settings: AppSettings, api: TaApi): List<Pair<String, Str
     add("hwdec" to settings.hardwareDecoding)
     add("osd-font-size" to "38")
     add("cursor-autohide" to "1000")
-    api.authHeader?.let { add("http-header-fields" to "Authorization: $it") }
 }
 
 /** The native window mpv draws into. Starts mpv once it exists and stops it before it goes. */

@@ -1,11 +1,5 @@
 package dev.jdtech.tubedroid.desktop.screens
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -62,7 +56,6 @@ import dev.jdtech.tubedroid.desktop.ui.PageBar
 import dev.jdtech.tubedroid.desktop.ui.PagedList
 import dev.jdtech.tubedroid.desktop.ui.SectionTitle
 import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
-import dev.jdtech.tubedroid.desktop.ui.SideSwitch
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.TaImage
 import dev.jdtech.tubedroid.desktop.ui.VideoCard
@@ -80,17 +73,11 @@ class HomeModel(private val api: TaApi, private val scope: CoroutineScope) {
     var continueWatching by mutableStateOf<List<TaVideo>>(emptyList())
         private set
 
-    var version by mutableStateOf<String?>(null)
-        private set
-
-    var onServer by mutableStateOf(false)
-
     val latest =
         PagedList(scope, key = TaVideo::youtubeId) { page ->
             api.getVideos(page = page, sort = "downloaded", order = "desc")
         }
 
-    val stats = StatsModel(api, scope)
     val gridState = LazyGridState()
 
     init {
@@ -125,13 +112,6 @@ class HomeModel(private val api: TaApi, private val scope: CoroutineScope) {
                 throw e
             } catch (e: Exception) {}
         }
-        scope.launch {
-            try {
-                version = api.ping(api.baseUrl.orEmpty(), api.token.orEmpty())
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {}
-        }
     }
 
     companion object {
@@ -143,48 +123,54 @@ class HomeModel(private val api: TaApi, private val scope: CoroutineScope) {
 fun HomeScreen() {
     val app = LocalApp.current
     val model = rememberPageModel("home") { scope -> HomeModel(app.api, scope) }
-    LaunchedEffect(model.onServer) { if (model.onServer) model.stats.onShown() }
-    ServerSideTheme(onServer = model.onServer) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        PageBar(title = "Home", onBack = null) { RefreshButton(onClick = model::refresh) }
+        HomeContent(
+            featured = model.featured,
+            continueWatching = model.continueWatching,
+            latest = model.latest,
+            gridState = model.gridState,
+        )
+    }
+}
+
+/** TubeArchivist's numbers: what's archived, how much was watched, downloads and channels. */
+class StatsPageModel(private val api: TaApi, scope: CoroutineScope) {
+    val stats = StatsModel(api, scope)
+    var version by mutableStateOf<String?>(null)
+        private set
+
+    init {
+        scope.launch {
+            try {
+                version = api.ping(api.baseUrl.orEmpty(), api.token.orEmpty())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {}
+        }
+    }
+}
+
+/** The server's stats, in the server's colors as all of the server's pages. */
+@Composable
+fun StatsScreen() {
+    val app = LocalApp.current
+    val navigator = LocalNavigator.current
+    val model = rememberPageModel("stats") { scope -> StatsPageModel(app.api, scope) }
+    LaunchedEffect(Unit) { model.stats.onShown() }
+    ServerSideTheme(onServer = true) {
         Surface(color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.fillMaxSize()) {
-                PageBar(title = "Home", onBack = null) {
-                    SideSwitch(
-                        onServer = model.onServer,
-                        onToggle = { model.onServer = !model.onServer },
-                        localLabel = "Home",
-                        localIcon = "ic_home",
-                    )
-                    RefreshButton(
-                        onClick = { if (model.onServer) model.stats.refresh() else model.refresh() }
-                    )
+                PageBar(title = "Stats", onBack = null) {
+                    RefreshButton(onClick = model.stats::refresh)
                 }
-                AnimatedContent(
-                    targetState = model.onServer,
-                    transitionSpec = {
-                        val direction = if (targetState) 1 else -1
-                        (slideInHorizontally { it / 8 * direction } + fadeIn()) togetherWith
-                            (slideOutHorizontally { -it / 8 * direction } + fadeOut())
-                    },
-                    label = "home side",
-                ) { server ->
-                    if (server) {
-                        val navigator = LocalNavigator.current
-                        TaHomeStatsPage(
-                            stats = model.stats.stats,
-                            version = model.version,
-                            onRefresh = model.stats::refresh,
-                            onChannelClick = { navigator.open(Route.Channel(it)) },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        HomeContent(
-                            featured = model.featured,
-                            continueWatching = model.continueWatching,
-                            latest = model.latest,
-                            gridState = model.gridState,
-                        )
-                    }
-                }
+                TaHomeStatsPage(
+                    stats = model.stats.stats,
+                    version = model.version,
+                    onRefresh = model.stats::refresh,
+                    onChannelClick = { navigator.open(Route.Channel(it)) },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }

@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -62,7 +63,6 @@ import dev.jdtech.tubedroid.desktop.ui.PagedList
 import dev.jdtech.tubedroid.desktop.ui.PlaylistCard
 import dev.jdtech.tubedroid.desktop.ui.SectionCard
 import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
-import dev.jdtech.tubedroid.desktop.ui.SideSwitch
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.TaAvatar
 import dev.jdtech.tubedroid.desktop.ui.TaImage
@@ -277,12 +277,6 @@ fun ChannelScreen(channelId: String) {
         Surface(color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.fillMaxSize()) {
                 PageBar(title = null, onBack = if (canGoBack) navigator::back else null) {
-                    SideSwitch(
-                        onServer = model.onServer,
-                        onToggle = { model.onServer = !model.onServer },
-                        localLabel = "Channel",
-                        localIcon = "ic_users",
-                    )
                     OpenInWebButton("/channel/$channelId/")
                 }
                 val channel = model.channel
@@ -326,73 +320,7 @@ private fun ChannelContent(model: ChannelModel, channel: TaChannel) {
             verticalArrangement = Arrangement.spacedBy(Spacings.small),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
-                Column {
-                    channel.bannerUrl?.let { banner ->
-                        TaImage(
-                            path = banner,
-                            modifier =
-                                Modifier.bleed(Spacings.default)
-                                    .fillMaxWidth()
-                                    .aspectRatio(BANNER_ASPECT_RATIO),
-                        )
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(vertical = Spacings.medium),
-                    ) {
-                        TaAvatar(path = channel.thumbUrl, size = 88.dp)
-                        Spacer(Modifier.width(Spacings.medium))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = channel.name,
-                                style = MaterialTheme.typography.headlineSmall,
-                            )
-                            channel.subs?.let {
-                                Text(
-                                    text = "${formatCount(it)} subscribers",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            model.totals?.let { totals ->
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
-                                    modifier = Modifier.padding(top = Spacings.extraSmall),
-                                ) {
-                                    Total("ic_film", "${formatNumber(totals.count)} videos")
-                                    Total("ic_clock", formatPlaytime(totals.duration))
-                                    Total(
-                                        "ic_database",
-                                        formatSize(totals.mediaSize, model.metricSizes),
-                                    )
-                                }
-                            }
-                        }
-                        if (channel.subscribed) {
-                            OutlinedButton(
-                                onClick = { model.setSubscribed(false, navigator::message) }
-                            ) {
-                                Text("Unsubscribe")
-                            }
-                        } else {
-                            Button(onClick = { model.setSubscribed(true, navigator::message) }) {
-                                Text("Subscribe")
-                            }
-                        }
-                    }
-                    if (model.tabs.size > 1) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(Spacings.small)) {
-                            model.tabs.forEach { option ->
-                                androidx.compose.material3.FilterChip(
-                                    selected = option == tab,
-                                    onClick = { model.tab = option },
-                                    label = { Text(option.label) },
-                                )
-                            }
-                        }
-                        Spacer(Modifier.size(Spacings.small))
-                    }
-                }
+                ChannelHeader(model, channel)
             }
             if (videos != null) {
                 items(videos.items, key = { it.youtubeId }) { video ->
@@ -418,6 +346,92 @@ private fun ChannelContent(model: ChannelModel, channel: TaChannel) {
             }
         }
         GridScrollbar(state)
+    }
+}
+
+/** The banner, name, numbers and subscribe button, then the tabs and Manage. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChannelHeader(model: ChannelModel, channel: TaChannel) {
+    val navigator = LocalNavigator.current
+    Column {
+        channel.bannerUrl?.let { banner ->
+            TaImage(
+                path = banner,
+                modifier =
+                    Modifier.bleed(Spacings.default)
+                        .fillMaxWidth()
+                        .aspectRatio(BANNER_ASPECT_RATIO),
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(vertical = Spacings.medium),
+        ) {
+            TaAvatar(path = channel.thumbUrl, size = 88.dp)
+            Spacer(Modifier.width(Spacings.medium))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = channel.name,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                channel.subs?.let {
+                    Text(
+                        text = "${formatCount(it)} subscribers",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                model.totals?.let { totals ->
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
+                        modifier = Modifier.padding(top = Spacings.extraSmall),
+                    ) {
+                        Total("ic_film", "${formatNumber(totals.count)} videos")
+                        Total("ic_clock", formatPlaytime(totals.duration))
+                        Total(
+                            "ic_database",
+                            formatSize(totals.mediaSize, model.metricSizes),
+                        )
+                    }
+                }
+            }
+            if (channel.subscribed) {
+                OutlinedButton(onClick = { model.setSubscribed(false, navigator::message) }) {
+                    Text("Unsubscribe")
+                }
+            } else {
+                Button(onClick = { model.setSubscribed(true, navigator::message) }) {
+                    Text("Subscribe")
+                }
+            }
+        }
+        // The channel's tabs, then Manage, which shows the channel on the server in its colors
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacings.small)) {
+            model.tabs.forEach { option ->
+                FilterChip(
+                    selected = !model.onServer && option == model.tab,
+                    onClick = {
+                        model.tab = option
+                        model.onServer = false
+                    },
+                    label = { Text(option.label) },
+                )
+            }
+            FilterChip(
+                selected = model.onServer,
+                onClick = { model.onServer = true },
+                label = { Text("Manage") },
+                leadingIcon = {
+                    AppIcon(
+                        name = "ic_server",
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+            )
+        }
+        Spacer(Modifier.size(Spacings.small))
     }
 }
 
@@ -452,10 +466,18 @@ private fun ChannelServerSide(model: ChannelModel, channel: TaChannel) {
         LazyVerticalGrid(
             state = model.serverGrid,
             columns = GridCells.Adaptive(minSize = 520.dp),
-            contentPadding = PaddingValues(Spacings.default),
+            contentPadding =
+                PaddingValues(
+                    start = Spacings.default,
+                    end = Spacings.default,
+                    bottom = Spacings.default,
+                ),
             horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
             verticalArrangement = Arrangement.spacedBy(Spacings.small),
         ) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+                ChannelHeader(model, channel)
+            }
             item(span = { GridItemSpan(maxLineSpan) }, key = "details") {
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacings.medium)) {
                     SectionCard("Details", modifier = Modifier.weight(1f)) {

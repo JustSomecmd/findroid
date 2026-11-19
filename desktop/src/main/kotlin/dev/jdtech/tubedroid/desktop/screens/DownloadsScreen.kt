@@ -1,9 +1,5 @@
 package dev.jdtech.tubedroid.desktop.screens
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,7 +52,6 @@ import dev.jdtech.tubedroid.desktop.ui.LoadMoreEffect
 import dev.jdtech.tubedroid.desktop.ui.PageBar
 import dev.jdtech.tubedroid.desktop.ui.PagedList
 import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
-import dev.jdtech.tubedroid.desktop.ui.SideSwitch
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.TaImage
 import dev.jdtech.tubedroid.desktop.ui.errorText
@@ -75,7 +70,6 @@ class QueueModel(private val api: TaApi, private val scope: CoroutineScope) {
     var filter by mutableStateOf(QueueFilter.PENDING)
         private set
 
-    var onServer by mutableStateOf(false)
     var notifications by mutableStateOf<List<TaNotification>>(emptyList())
         private set
 
@@ -86,7 +80,6 @@ class QueueModel(private val api: TaApi, private val scope: CoroutineScope) {
             }
         }
     val listState = LazyListState()
-    val localListState = LazyListState()
 
     fun select(next: QueueFilter) {
         filter = next
@@ -176,25 +169,25 @@ class QueueModel(private val api: TaApi, private val scope: CoroutineScope) {
 
 @Composable
 fun DownloadsScreen() {
+    val state = rememberPageModel("downloads") { LazyListState() }
+    Column(modifier = Modifier.fillMaxSize()) {
+        PageBar(title = "Downloads", onBack = null)
+        LocalDownloads(state)
+    }
+}
+
+/** TubeArchivist's download queue, in the server's colors as all of the server's pages. */
+@Composable
+fun QueueScreen() {
     val app = LocalApp.current
     val model = rememberPageModel("queue") { scope -> QueueModel(app.api, scope) }
-    ServerSideTheme(onServer = model.onServer) {
+    ServerSideTheme(onServer = true) {
         Surface(color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.fillMaxSize()) {
-                PageBar(title = "Downloads", onBack = null) {
-                    SideSwitch(
-                        onServer = model.onServer,
-                        onToggle = { model.onServer = !model.onServer },
-                        localLabel = "This PC",
-                    )
+                PageBar(title = "Download queue", onBack = null) {
+                    RefreshButton(onClick = { model.lists.getValue(model.filter).reload() })
                 }
-                AnimatedContent(
-                    targetState = model.onServer,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    label = "downloads side",
-                ) { server ->
-                    if (server) QueueContent(model) else LocalDownloads(model.localListState)
-                }
+                QueueContent(model)
             }
         }
     }
