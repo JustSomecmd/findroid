@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -664,11 +665,31 @@ fun TaSidePager(
     modifier: Modifier = Modifier,
     /** Puts the server side to the left of the phone side. */
     serverFirst: Boolean = false,
+    /**
+     * Keeps the side out of view built, for busy pages such as Home, so a swipe doesn't wait for
+     * the other side to be built first. Its effects keep running too, so not for pages that check
+     * the server while shown.
+     */
+    keepBothSides: Boolean = false,
 ) {
-    HorizontalPager(state = state, modifier = modifier, key = { page -> page }) { page ->
+    HorizontalPager(
+        state = state,
+        modifier = modifier,
+        beyondViewportPageCount = if (keepBothSides) 1 else 0,
+        // Turns over after a shorter drag than the default of half the screen
+        flingBehavior =
+            PagerDefaults.flingBehavior(
+                state = state,
+                snapPositionalThreshold = SIDE_SWIPE_THRESHOLD,
+            ),
+        key = { page -> page },
+    ) { page ->
         if ((page == 0) != serverFirst) phone() else server()
     }
 }
+
+// How far a slow drag has to go, as part of the screen's width, to turn to the other side
+private const val SIDE_SWIPE_THRESHOLD = 0.3f
 
 /** A label and its value on a server page, such as "Size" and "1.2 GB". */
 @Composable

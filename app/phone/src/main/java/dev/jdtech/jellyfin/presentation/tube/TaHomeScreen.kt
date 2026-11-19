@@ -69,6 +69,7 @@ import dev.jdtech.jellyfin.presentation.film.components.ServerSelectionBottomShe
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,12 +119,16 @@ fun TaHomeScreen(
     val gridState = rememberLazyGridState()
     LoadMoreEffect(gridState) { viewModel.loadMore() }
 
-    // The stats load as soon as a swipe starts towards them
+    // The stats load a moment after Home, so they're there before a swipe rather than arriving
+    // during one, and again once the stats are turned to and have settled, if they're old
     val scope = rememberCoroutineScope()
     val stats by statsViewModel.stats.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        delay(STATS_PRELOAD_DELAY_MS)
+        statsViewModel.onShown()
+    }
     LaunchedEffect(sides) {
-        snapshotFlow { sides.currentPage + sides.currentPageOffsetFraction < 0.99f }
-            .collect { if (it) statsViewModel.onShown() }
+        snapshotFlow { sides.settledPage == 0 }.collect { if (it) statsViewModel.onShown() }
     }
 
     ServerSideTheme(pagerState = sides, serverFirst = true) {
@@ -172,6 +177,7 @@ fun TaHomeScreen(
             TaSidePager(
                 state = sides,
                 serverFirst = true,
+                keepBothSides = true,
                 modifier = Modifier.padding(innerPadding).fillMaxSize(),
                 phone = {
                     PullToRefreshBox(
@@ -500,3 +506,6 @@ private fun TaPlaylistResumeCard(
         }
     }
 }
+
+// How long after Home shows the stats start loading, so Home itself comes first
+private const val STATS_PRELOAD_DELAY_MS = 1_500L

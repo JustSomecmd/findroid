@@ -7,6 +7,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
@@ -14,6 +15,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.ColorUtils
+import kotlin.math.roundToInt
 
 /**
  * Shows the content in the server colors when [onServer] is true, fading between the two. The
@@ -28,7 +30,7 @@ fun ServerSideTheme(onServer: Boolean, content: @Composable () -> Unit) {
             animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
             label = "server colors",
         )
-    ServerSideColors(fraction = progress, content = content)
+    ServerSideColors(step = colorStep(progress), content = content)
 }
 
 /**
@@ -41,20 +43,39 @@ fun ServerSideTheme(
     serverFirst: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val position = (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
-    ServerSideColors(fraction = if (serverFirst) 1f - position else position, content = content)
+    // Read through derived state, so only a new step of the colors redraws anything, rather than
+    // every frame of the swipe
+    val step by
+        remember(pagerState, serverFirst) {
+            derivedStateOf {
+                val position =
+                    (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
+                colorStep(if (serverFirst) 1f - position else position)
+            }
+        }
+    ServerSideColors(step = step, content = content)
 }
 
+// The colors change in this many steps between the two sides. New colors redraw the whole page,
+// which on a busy page such as Home takes longer than a frame, so a swipe that changed them on
+// every frame would stutter and stick
+private const val COLOR_STEPS = 10
+
+private fun colorStep(fraction: Float): Int = (fraction * COLOR_STEPS).roundToInt()
+
 @Composable
-private fun ServerSideColors(fraction: Float, content: @Composable () -> Unit) {
+private fun ServerSideColors(step: Int, content: @Composable () -> Unit) {
     val base = MaterialTheme.colorScheme
     val dark = base.background.luminance() < 0.5f
     val server = remember(base, dark) { base.serverSide(dark) }
+    // The same colors for the same step, so nothing below draws again until the step changes
     val scheme =
-        when (fraction) {
-            0f -> base
-            1f -> server
-            else -> base.blendTo(server, fraction)
+        remember(base, server, step) {
+            when (step) {
+                0 -> base
+                COLOR_STEPS -> server
+                else -> base.blendTo(server, step / COLOR_STEPS.toFloat())
+            }
         }
     MaterialTheme(
         colorScheme = scheme,
