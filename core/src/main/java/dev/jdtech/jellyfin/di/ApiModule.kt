@@ -10,6 +10,7 @@ import dev.jdtech.jellyfin.api.JellyfinApi
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaApi
+import dev.jdtech.jellyfin.tubearchivist.TaConfig
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
@@ -57,7 +58,16 @@ object ApiModule {
 
     @Singleton
     @Provides
-    fun provideTaApi(appPreferences: AppPreferences): TaApi = TaApi(appPreferences)
+    fun provideTaApi(appPreferences: AppPreferences): TaApi =
+        TaApi(
+            object : TaConfig {
+                override val url: String?
+                    get() = appPreferences.getValue(appPreferences.tubeArchivistUrl)
+
+                override val token: String?
+                    get() = appPreferences.getValue(appPreferences.tubeArchivistToken)
+            }
+        )
 
     @Singleton
     @Provides

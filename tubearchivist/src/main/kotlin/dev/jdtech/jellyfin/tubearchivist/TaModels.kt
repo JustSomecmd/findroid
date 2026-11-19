@@ -69,6 +69,8 @@ data class TaSubtitle(
     /** user for subtitles from the uploader, auto for automatic ones */
     val source: String? = null,
     val ext: String? = null,
+    /** Where the subtitle file is on the server, such as /media/UC.../abc.en.vtt. */
+    @SerialName("media_url") val mediaUrl: String? = null,
 )
 
 @Serializable

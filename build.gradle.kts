@@ -9,6 +9,8 @@ plugins {
     alias(libs.plugins.aboutlibraries.android) apply false
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.ktfmt) apply false
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.compose.multiplatform) apply false
 }
 
 allprojects {

@@ -1,6 +1,5 @@
 package dev.jdtech.jellyfin.tubearchivist
 
-import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
@@ -30,7 +29,16 @@ class TaApiException(val code: Int, message: String) : IOException(message)
  * Talks to a TubeArchivist server with the address and API token from the settings. Everything
  * apart from playing the videos themselves comes from here.
  */
-class TaApi(private val appPreferences: AppPreferences) {
+/**
+ * Where TubeArchivist is and the token to reach it with, read each time they're needed so a change
+ * in settings applies right away. The phone keeps them in its settings, the desktop app in its own.
+ */
+interface TaConfig {
+    val url: String?
+    val token: String?
+}
+
+class TaApi(private val config: TaConfig) {
     private val client =
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -46,16 +54,10 @@ class TaApi(private val appPreferences: AppPreferences) {
 
     /** The server address without a trailing slash, or null when it isn't set up. */
     val baseUrl: String?
-        get() =
-            appPreferences.getValue(appPreferences.tubeArchivistUrl)?.trim()?.trimEnd('/')?.takeIf {
-                it.isNotEmpty()
-            }
+        get() = config.url?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
 
     val token: String?
-        get() =
-            appPreferences.getValue(appPreferences.tubeArchivistToken)?.trim()?.takeIf {
-                it.isNotEmpty()
-            }
+        get() = config.token?.trim()?.takeIf { it.isNotEmpty() }
 
     val isConfigured: Boolean
         get() = baseUrl != null && token != null

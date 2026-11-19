@@ -33,6 +33,8 @@ room3 { schemaDirectory("$projectDir/schemas") }
 
 dependencies {
     implementation(projects.settings)
+    // The TubeArchivist API, shared with the desktop app
+    api(projects.tubearchivist)
     implementation(libs.androidx.paging)
     implementation(libs.androidx.room3.runtime)
     ksp(libs.androidx.room3.compiler)
