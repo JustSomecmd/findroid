@@ -166,9 +166,9 @@ private fun TaStatsHero(stats: TaServerStats, version: String?) {
                     .clip(MaterialTheme.shapes.large)
                     .background(accent)
         ) {
-            // The logo's mark, large and faint, behind the numbers
+            // The logo's ring, large and faint, behind the numbers
             Icon(
-                painter = painterResource(CoreR.drawable.ic_ta_logo_mark),
+                painter = painterResource(CoreR.drawable.ic_ta_logo_ring),
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.22f),
                 modifier =
