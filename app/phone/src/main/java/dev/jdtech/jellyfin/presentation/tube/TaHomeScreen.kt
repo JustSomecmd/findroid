@@ -50,14 +50,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -68,7 +68,6 @@ import dev.jdtech.jellyfin.film.presentation.tube.TaContinueItem
 import dev.jdtech.jellyfin.film.presentation.tube.TaHomeViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.TaServersInfo
 import dev.jdtech.jellyfin.film.presentation.tube.TaStatsViewModel
-import dev.jdtech.jellyfin.film.presentation.tube.TaWatchLater
 import dev.jdtech.jellyfin.presentation.film.components.HomeHeader
 import dev.jdtech.jellyfin.presentation.film.components.ServerSelectionBottomSheet
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
@@ -114,7 +113,6 @@ fun TaHomeScreen(
         Toast.makeText(context, taMessageText(context, message), Toast.LENGTH_LONG).show()
     }
     ObserveAsEvents(viewModel.openPlaylist) { playlistId -> onPlaylistClick(playlistId) }
-    val watchLater by viewModel.watchLater.collectAsStateWithLifecycle()
     val watchLaterBusy by viewModel.watchLaterBusy.collectAsStateWithLifecycle()
     val offerWatchLater by viewModel.offerWatchLater.collectAsStateWithLifecycle()
     val latest by viewModel.latest.collectAsStateWithLifecycle()
@@ -218,19 +216,17 @@ fun TaHomeScreen(
                                     )
                                 }
                             }
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "watch_later") {
-                                TaWatchLaterButton(
-                                    state = watchLater,
-                                    busy = watchLaterBusy,
-                                    onClick = { viewModel.openWatchLater() },
-                                )
-                            }
                             if (continueWatching.isNotEmpty()) {
                                 item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
                                     Column {
-                                        TaSectionTitle(
-                                            stringResource(CoreR.string.ta_continue_watching)
-                                        )
+                                        TaSectionTitleRow(
+                                            text = stringResource(CoreR.string.ta_continue_watching)
+                                        ) {
+                                            TaWatchLaterButton(
+                                                busy = watchLaterBusy,
+                                                onClick = { viewModel.openWatchLater() },
+                                            )
+                                        }
                                         LazyRow(
                                             horizontalArrangement =
                                                 Arrangement.spacedBy(MaterialTheme.spacings.medium)
@@ -261,7 +257,17 @@ fun TaHomeScreen(
                                 }
                             }
                             item(span = { GridItemSpan(maxLineSpan) }, key = "latest_title") {
-                                TaSectionTitle(stringResource(CoreR.string.ta_latest_videos))
+                                // Watch Later sits on the first title down the page
+                                TaSectionTitleRow(
+                                    text = stringResource(CoreR.string.ta_latest_videos)
+                                ) {
+                                    if (continueWatching.isEmpty()) {
+                                        TaWatchLaterButton(
+                                            busy = watchLaterBusy,
+                                            onClick = { viewModel.openWatchLater() },
+                                        )
+                                    }
+                                }
                             }
                             items(latest.items, key = { it.youtubeId }) { video ->
                                 TaVideoCard(
@@ -354,61 +360,38 @@ fun TaSectionTitle(text: String, modifier: Modifier = Modifier) {
     )
 }
 
+/** A section title with something at its right end, such as the Watch Later button. */
+@Composable
+private fun TaSectionTitleRow(text: String, trailing: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TaSectionTitle(text = text, modifier = Modifier.weight(1f))
+        trailing()
+    }
+}
+
 /**
- * Opens the Watch Later playlist, with how many videos are in it once that's known. A spinner takes
- * the place of the arrow while it's being looked up or made.
+ * A small square with a clock that opens the Watch Later playlist, the same height as the title
+ * beside it so the row doesn't grow. A spinner takes the clock's place while the playlist is being
+ * looked up or made.
  */
 @Composable
-private fun TaWatchLaterButton(state: TaWatchLater, busy: Boolean, onClick: () -> Unit) {
+private fun TaWatchLaterButton(busy: Boolean, onClick: () -> Unit) {
+    val label = stringResource(CoreR.string.ta_watch_later)
     Surface(
         onClick = onClick,
-        shape = MaterialTheme.shapes.large,
+        shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.size(40.dp).semantics { contentDescription = label },
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier =
-                Modifier.padding(
-                    horizontal = MaterialTheme.spacings.medium,
-                    vertical = MaterialTheme.spacings.medium,
-                ),
-        ) {
-            Icon(
-                painter = painterResource(CoreR.drawable.ic_clock),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.width(MaterialTheme.spacings.medium))
-            Text(
-                text = stringResource(CoreR.string.ta_watch_later),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
-            if (state is TaWatchLater.Found) {
-                Text(
-                    text =
-                        pluralStringResource(
-                            CoreR.plurals.ta_video_count,
-                            state.count,
-                            state.count.toString(),
-                        ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Box(contentAlignment = Alignment.Center) {
+            if (busy) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    painter = painterResource(CoreR.drawable.ic_clock),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
                 )
-                Spacer(Modifier.width(MaterialTheme.spacings.small))
-            }
-            Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                if (busy) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(
-                        painter = painterResource(CoreR.drawable.ic_chevron_down),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.rotate(-90f),
-                    )
-                }
             }
         }
     }

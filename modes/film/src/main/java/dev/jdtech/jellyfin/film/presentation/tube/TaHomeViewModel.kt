@@ -62,9 +62,8 @@ constructor(
     /** A few channels picked at random for the carousel at the top. */
     val featured = _featured.asStateFlow()
 
-    private val _watchLater = MutableStateFlow<TaWatchLater>(TaWatchLater.Unknown)
     /** The playlist behind Home's Watch Later button, once looked up. */
-    val watchLater = _watchLater.asStateFlow()
+    private val _watchLater = MutableStateFlow<TaWatchLater>(TaWatchLater.Unknown)
 
     private val _watchLaterBusy = MutableStateFlow(false)
     /** True while Watch Later is being looked up or made after a tap. */
@@ -145,7 +144,7 @@ constructor(
         }
     }
 
-    /** Looks up Watch Later for the button, which shows how many videos are in it. */
+    /** Looks up Watch Later ahead of time, so the button opens it straight away. */
     private fun loadWatchLater() {
         viewModelScope.launch {
             _watchLater.value =
