@@ -716,6 +716,27 @@ class PlayerActivity : BasePlayerActivity() {
                         openPlaylistPage(playlistId)
                     }
                 )
+                add(
+                    PlayerMenuItem(
+                        icon = CoreR.drawable.ic_repeat,
+                        title = getString(PlayerR.string.player_loop_playlist),
+                        value =
+                            getString(
+                                if (state.loopPlaylist) PlayerR.string.player_on
+                                else PlayerR.string.player_sleep_off
+                            ),
+                    ) {
+                        val on = !state.loopPlaylist
+                        viewModel.setLoopPlaylist(on)
+                        Toast.makeText(
+                                this@PlayerActivity,
+                                if (on) PlayerR.string.player_loop_on
+                                else PlayerR.string.player_loop_off,
+                                Toast.LENGTH_SHORT,
+                            )
+                            .show()
+                    }
+                )
             }
             addAll(menuButtons.mapNotNull { menuItem(it, state) })
             // For finding out why sound and picture drift apart

@@ -1,5 +1,7 @@
 package dev.jdtech.tubedroid.desktop.player
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,9 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -84,6 +88,21 @@ internal class PlayerSession(
     var upNext by mutableStateOf<String?>(null)
         private set
 
+    /** Whether the playlist starts over after its last video, as on YouTube. */
+    var loop by mutableStateOf(false)
+        private set
+
+    /** Whether a playlist is playing, which can loop. */
+    val canLoop: Boolean
+        get() = item != null && source.isPlaylist
+
+    /** Turns starting the playlist over after its last video on or off. */
+    fun changeLoop(on: Boolean) {
+        loop = on
+        source.loop = on
+        item?.let(::loadUpNext)
+    }
+
     var error by mutableStateOf<String?>(null)
     var loading by mutableStateOf(true)
     var position by mutableStateOf(0.0)
@@ -139,6 +158,11 @@ internal class PlayerSession(
         player.command("change-list", "http-header-fields", "clr", "")
         item.header?.let { player.command("change-list", "http-header-fields", "append", it) }
         player.command("loadfile", item.url, "replace")
+        loadUpNext(item)
+    }
+
+    /** Finds what plays after [item], for the button that plays it and for autoplay. */
+    private fun loadUpNext(item: PlayItem) {
         scope.launch {
             upNext =
                 try {
@@ -249,6 +273,8 @@ internal class PlayerSession(
             try {
                 val next = source.next(current) ?: return@launch
                 item = next
+                // A looping playlist of one video plays the same one again
+                started = null
                 startIfReady()
             } catch (e: CancellationException) {
                 throw e
@@ -423,6 +449,7 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
 }
 
 /** The bar above the video: back, the title, and what's next. Hidden in full screen. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlayerBar(session: PlayerSession, onClose: () -> Unit) {
     val item = session.item
@@ -496,6 +523,34 @@ private fun PlayerBar(session: PlayerSession, onClose: () -> Unit) {
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
+            }
+        }
+        if (session.canLoop) {
+            TooltipArea(
+                tooltip = {
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.inverseSurface,
+                    ) {
+                        Text(
+                            text =
+                                if (session.loop) "Looping the playlist" else "Loop the playlist",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            ) {
+                FilledIconToggleButton(
+                    checked = session.loop,
+                    onCheckedChange = session::changeLoop,
+                ) {
+                    AppIcon(
+                        name = "ic_repeat",
+                        contentDescription = "Loop the playlist",
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
         IconButton(onClick = { session.player?.set("fullscreen", "yes") }) {

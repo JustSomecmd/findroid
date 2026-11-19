@@ -68,6 +68,27 @@ internal constructor(
     val nextTaVideoId: String?
         get() = taQueue?.getOrNull(taIndex + 1)?.videoId
 
+    /** The title of the playlist's first video, which a looping playlist goes back to. */
+    val firstTaTitle: String?
+        get() = taQueue?.firstOrNull()?.title
+
+    /**
+     * Goes back to the playlist's first video that Jellyfin has, from its start, for a playlist
+     * that loops. What was queued before is forgotten, as the player starts a new queue with it.
+     */
+    suspend fun restartTaQueue(): PlayerItem? {
+        val queue = taQueue ?: return null
+        playerItems.clear()
+        for (index in queue.indices) {
+            val id = resolve(queue[index]) ?: continue
+            val item = repository.getEpisode(id).toPlayerItem(null, 0L)
+            taIndex = index
+            playerItems.add(item)
+            return item
+        }
+        return null
+    }
+
     /** The Jellyfin episode of a playlist video, found by its title or else through its channel. */
     private suspend fun resolve(entry: TaQueueEntry): UUID? {
         taEpisodeIds[entry.videoId]?.let {

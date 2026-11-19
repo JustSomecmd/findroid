@@ -60,6 +60,15 @@ internal interface PlaybackSource {
 
     /** Played to the end: marked as watched. */
     suspend fun ended(item: PlayItem)
+
+    /** Whether this plays a playlist, which can start over after its last video. */
+    val isPlaylist: Boolean
+        get() = false
+
+    /** Whether the playlist starts over after its last video. */
+    var loop: Boolean
+        get() = false
+        set(_) {}
 }
 
 internal class TaPlaybackSource(
@@ -70,6 +79,11 @@ internal class TaPlaybackSource(
 ) : PlaybackSource {
     private var playlist: List<TaVideo> = emptyList()
     private var playlistName = ""
+
+    override val isPlaylist: Boolean
+        get() = playlist.isNotEmpty()
+
+    override var loop = false
 
     override suspend fun first(): PlayItem {
         val video = api.getVideo(request.videoId)
@@ -91,17 +105,21 @@ internal class TaPlaybackSource(
         history.updatePlaylist(playlistId, playlistName, item.id)
     }
 
+    /** The playlist's video after [current], or its first after its last when it loops. */
     private fun nextVideo(current: PlayItem): TaVideo? {
         val index = playlist.indexOfFirst { it.youtubeId == current.id }
-        return if (index >= 0) playlist.getOrNull(index + 1) else null
+        if (index < 0) return null
+        return playlist.getOrNull(index + 1) ?: playlist.firstOrNull()?.takeIf { loop }
     }
 
     override suspend fun nextTitle(current: PlayItem): String? = nextVideo(current)?.title
 
     override suspend fun next(current: PlayItem): PlayItem? {
         val next = nextVideo(current) ?: return null
+        // Starting over plays each video from its start again
+        val startingOver = playlist.lastOrNull()?.youtubeId == current.id
         // The playlist's entries are short; the player needs the whole video
-        return api.getVideo(next.youtubeId).toPlayItem(fromStart = false)
+        return api.getVideo(next.youtubeId).toPlayItem(fromStart = startingOver)
     }
 
     override suspend fun progress(item: PlayItem, seconds: Double, paused: Boolean) {

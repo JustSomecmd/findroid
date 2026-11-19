@@ -121,6 +121,8 @@ constructor(
         /** The TubeArchivist playlist playing, and its name. */
         val taPlaylistId: String? = null,
         val taPlaylistName: String? = null,
+        /** Whether the playlist starts over after its last video. */
+        val loopPlaylist: Boolean = false,
     )
 
     /**
@@ -153,6 +155,10 @@ constructor(
     // Whether the next video plays when one ends, and the video for which that was called off
     private var autoplay = appPreferences.getValue(appPreferences.playerAutoplay)
     private var upNextCancelledFor: String? = null
+
+    // Whether the playlist starts over after its last video, as on YouTube. Only for this time
+    // the player is open
+    private var loopPlaylist = false
 
     // The TubeArchivist playlist being played through, if the video was started from one
     // Also told to the menu, which offers to open the playlist
@@ -692,12 +698,15 @@ constructor(
                 val cancelled = upNextCancelledFor == mediaId
                 // The sleep timer was set to stop here
                 val sleep = _uiState.value.sleepTimer == SleepTimer.EndOfVideo
+                val startOver = loopsAfter(mediaId)
                 _uiState.update {
                     it.copy(upNext = null, sleepTimer = if (sleep) null else it.sleepTimer)
                 }
                 if (autoplay && !cancelled && !sleep && player.hasNextMediaItem()) {
                     player.seekToNextMediaItem()
                     player.play()
+                } else if (startOver) {
+                    restartTaPlaylist()
                 } else {
                     // The playlist carries on from the next video next time
                     taPlaylistId?.let { playlistId ->
@@ -711,6 +720,50 @@ constructor(
                     eventsChannel.trySend(PlayerEvents.NavigateBack)
                 }
             }
+        }
+    }
+
+    /**
+     * Whether the playlist starts over once [mediaId], its last video, ends: it loops, and the next
+     * video would have played on its own.
+     */
+    private fun loopsAfter(mediaId: String?): Boolean =
+        loopPlaylist &&
+            autoplay &&
+            taPlaylistId != null &&
+            playlistManager.firstTaTitle != null &&
+            !player.hasNextMediaItem() &&
+            mediaId != upNextCancelledFor &&
+            _uiState.value.sleepTimer != SleepTimer.EndOfVideo
+
+    /** Turns starting the playlist over after its last video on or off. */
+    fun setLoopPlaylist(enabled: Boolean) {
+        loopPlaylist = enabled
+        _uiState.update { it.copy(loopPlaylist = enabled) }
+        updateUpNext()
+    }
+
+    /** Starts the playlist over from its first video, once its last one has ended. */
+    private fun restartTaPlaylist() {
+        viewModelScope.launch {
+            val first =
+                try {
+                    playlistManager.restartTaQueue()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.e(e, "Could not start the playlist over")
+                    null
+                }
+            if (first == null) {
+                eventsChannel.trySend(PlayerEvents.NavigateBack)
+                return@launch
+            }
+            items = mutableListOf(first)
+            currentMediaItemIndex = 0
+            player.setMediaItems(listOf(first.toMediaItem()), 0, 0L)
+            player.prepare()
+            player.play()
         }
     }
 
@@ -736,22 +789,31 @@ constructor(
         val mediaId = player.currentMediaItem?.mediaId
         val duration = player.duration
         val remaining = duration - player.currentPosition
+        // A looping playlist's first video comes after its last
+        val startOver = loopsAfter(mediaId)
         val upNext =
             if (
                 autoplay &&
                     _uiState.value.sleepTimer != SleepTimer.EndOfVideo &&
                     mediaId != null &&
                     mediaId != upNextCancelledFor &&
-                    player.hasNextMediaItem() &&
+                    (player.hasNextMediaItem() || startOver) &&
                     duration > 0 &&
                     remaining in 0..UP_NEXT_MS
             ) {
-                val next = player.getMediaItemAt(player.nextMediaItemIndex)
-                UpNext(
-                    title = next.mediaMetadata.title?.toString().orEmpty(),
-                    secondsLeft = ceil(remaining / 1000.0).toInt(),
-                    image = upNextImage(next.mediaId),
-                )
+                if (player.hasNextMediaItem()) {
+                    val next = player.getMediaItemAt(player.nextMediaItemIndex)
+                    UpNext(
+                        title = next.mediaMetadata.title?.toString().orEmpty(),
+                        secondsLeft = ceil(remaining / 1000.0).toInt(),
+                        image = upNextImage(next.mediaId),
+                    )
+                } else {
+                    UpNext(
+                        title = playlistManager.firstTaTitle.orEmpty(),
+                        secondsLeft = ceil(remaining / 1000.0).toInt(),
+                    )
+                }
             } else {
                 null
             }
@@ -787,8 +849,9 @@ constructor(
     /** Plays the next video right away, saving where this one was left first. */
     fun playNextNow() {
         _uiState.update { it.copy(upNext = null) }
-        if (!player.hasNextMediaItem()) return
         val mediaId = player.currentMediaItem?.mediaId
+        val startOver = loopsAfter(mediaId)
+        if (!player.hasNextMediaItem() && !startOver) return
         val position = player.currentPosition
         val duration = player.duration
         reportTaProgress(force = true)
@@ -807,8 +870,12 @@ constructor(
                 }
             }
         }
-        player.seekToNextMediaItem()
-        player.play()
+        if (startOver) {
+            restartTaPlaylist()
+        } else {
+            player.seekToNextMediaItem()
+            player.play()
+        }
     }
 
     /**
@@ -881,11 +948,18 @@ constructor(
             }
             ExoPlayer.STATE_ENDED -> {
                 stateString = "ExoPlayer.STATE_ENDED     -"
-                // Watched to the end of the playlist
-                taPlaylistId?.let { playlistId ->
-                    if (playlistManager.nextTaVideoId == null) taPlaylistSessions.remove(playlistId)
+                if (loopsAfter(player.currentMediaItem?.mediaId)) {
+                    // A looping playlist starts over instead
+                    restartTaPlaylist()
+                } else {
+                    // Watched to the end of the playlist
+                    taPlaylistId?.let { playlistId ->
+                        if (playlistManager.nextTaVideoId == null) {
+                            taPlaylistSessions.remove(playlistId)
+                        }
+                    }
+                    eventsChannel.trySend(PlayerEvents.NavigateBack)
                 }
-                eventsChannel.trySend(PlayerEvents.NavigateBack)
             }
         }
         Timber.d("Changed player state to $stateString")
