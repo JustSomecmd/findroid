@@ -26,6 +26,7 @@ import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.utils.isWideLayout
 import dev.jdtech.jellyfin.presentation.utils.parallaxLayoutModifier
 
 @Composable
@@ -126,7 +127,9 @@ private fun ItemHeaderBase(
             else -> item.images.logo
         }
 
-    Box(modifier = Modifier.height(288.dp).clipToBounds()) {
+    // Lower when held sideways, so the backdrop doesn't fill the screen
+    val headerHeight = if (isWideLayout()) 180.dp else 288.dp
+    Box(modifier = Modifier.height(headerHeight).clipToBounds()) {
         backdropImage()
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawRect(Color.Black.copy(alpha = 0.1f))
@@ -146,7 +149,7 @@ private fun ItemHeaderBase(
                 modifier =
                     Modifier.align(Alignment.BottomCenter)
                         .padding(MaterialTheme.spacings.default)
-                        .height(100.dp)
+                        .height(if (headerHeight < 288.dp) 72.dp else 100.dp)
                         .fillMaxWidth(),
                 contentScale = ContentScale.Fit,
             )

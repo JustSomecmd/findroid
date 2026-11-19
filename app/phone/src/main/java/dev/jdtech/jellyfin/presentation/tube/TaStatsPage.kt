@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -58,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaServerStats
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.utils.isWideLayout
 import dev.jdtech.jellyfin.tubearchivist.TaBiggestChannel
 import dev.jdtech.jellyfin.tubearchivist.TaBiggestOrder
 import dev.jdtech.jellyfin.tubearchivist.TaCountStats
@@ -151,18 +151,19 @@ private fun TaStatsHero(stats: TaServerStats, version: String?) {
             0.5f to Color.Black.copy(alpha = 0.5f),
             1f to Color.Black.copy(alpha = 0.65f),
         )
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+    // Where the channel carousel is on the other side: as tall as its pages, a little lower
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth().padding(top = MaterialTheme.spacings.small)
+    ) {
         val spacing = MaterialTheme.spacings.medium
-        val pages =
-            when {
-                maxWidth >= 840.dp -> 3
-                maxWidth >= 600.dp -> 2
-                else -> 1
-            }
+        val pages = carouselPages(maxWidth, isWideLayout())
+        val pageWidth = (maxWidth - spacing * (pages - 1)) / pages
+        // Two pages wide when three fit, so the numbers have room
+        val width = if (pages >= 3) pageWidth * 2 + spacing else pageWidth
         Box(
             modifier =
-                Modifier.width((maxWidth - spacing * (pages - 1)) / pages)
-                    .aspectRatio(1.77f)
+                Modifier.width(width)
+                    .height(pageWidth / 1.77f)
                     .clip(MaterialTheme.shapes.large)
                     .background(accent)
         ) {

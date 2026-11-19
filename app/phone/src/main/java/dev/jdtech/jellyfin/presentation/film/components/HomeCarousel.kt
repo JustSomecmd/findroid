@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -17,17 +18,15 @@ import dev.jdtech.jellyfin.film.presentation.home.HomeAction
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.tube.carouselPages
+import dev.jdtech.jellyfin.presentation.utils.isWideLayout
 import kotlinx.coroutines.delay
 
-private val dynamicPageSize =
+// Three pages side by side when held sideways, as in the TubeArchivist carousel
+private fun dynamicPageSize(wide: Boolean) =
     object : PageSize {
         override fun Density.calculateMainAxisPageSize(availableSpace: Int, pageSpacing: Int): Int {
-            val nPages =
-                when {
-                    availableSpace.toDp() >= 840.dp -> 3
-                    availableSpace.toDp() >= 600.dp -> 2
-                    else -> 1
-                }
+            val nPages = carouselPages(availableSpace.toDp(), wide)
 
             return (availableSpace - (nPages - 1) * pageSpacing) / nPages
         }
@@ -40,6 +39,8 @@ fun HomeCarousel(
     onAction: (HomeAction) -> Unit,
 ) {
     val pagerState = rememberPagerState(pageCount = { items.size })
+    val wide = isWideLayout()
+    val pageSize = remember(wide) { dynamicPageSize(wide) }
     val pagerIsDragged by pagerState.interactionSource.collectIsDraggedAsState()
 
     val autoScrollDelay = 5000L
@@ -62,7 +63,7 @@ fun HomeCarousel(
     HorizontalPager(
         state = pagerState,
         contentPadding = itemsPadding,
-        pageSize = dynamicPageSize,
+        pageSize = pageSize,
         pageSpacing = MaterialTheme.spacings.medium,
     ) { page ->
         val item = items[page]

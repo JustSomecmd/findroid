@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,22 +27,29 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.utils.isWideLayout
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import kotlinx.coroutines.delay
 
-/** One page on a phone, two or three side by side on wider screens, as on Findroid's home page. */
-private val carouselPageSize =
+/**
+ * How many carousel pages sit side by side: one on a phone, two or three on wider screens, as on
+ * Findroid's home page, and three when held sideways so they don't fill the screen.
+ */
+fun carouselPages(width: Dp, wide: Boolean): Int =
+    when {
+        width >= 840.dp -> 3
+        width >= 600.dp -> if (wide) 3 else 2
+        else -> 1
+    }
+
+private fun carouselPageSize(wide: Boolean) =
     object : PageSize {
         override fun Density.calculateMainAxisPageSize(availableSpace: Int, pageSpacing: Int): Int {
-            val pages =
-                when {
-                    availableSpace.toDp() >= 840.dp -> 3
-                    availableSpace.toDp() >= 600.dp -> 2
-                    else -> 1
-                }
+            val pages = carouselPages(availableSpace.toDp(), wide)
             return (availableSpace - (pages - 1) * pageSpacing) / pages
         }
     }
@@ -57,6 +65,8 @@ fun TaChannelCarousel(
     modifier: Modifier = Modifier,
 ) {
     val pagerState = rememberPagerState(pageCount = { channels.size })
+    val wide = isWideLayout()
+    val pageSize = remember(wide) { carouselPageSize(wide) }
     val dragged by pagerState.interactionSource.collectIsDraggedAsState()
 
     if (!dragged) {
@@ -72,7 +82,7 @@ fun TaChannelCarousel(
     HorizontalPager(
         state = pagerState,
         modifier = modifier,
-        pageSize = carouselPageSize,
+        pageSize = pageSize,
         pageSpacing = MaterialTheme.spacings.medium,
         key = { page -> channels[page].id },
     ) { page ->

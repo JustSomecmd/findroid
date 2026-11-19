@@ -88,6 +88,7 @@ import dev.jdtech.jellyfin.film.presentation.tube.TaChannelViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.TaVideoAction
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.utils.isWideLayout
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaChannelTotals
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
@@ -109,6 +110,7 @@ fun TaChannelScreen(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val wide = isWideLayout()
     val videos by viewModel.videos.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
 
@@ -227,7 +229,10 @@ fun TaChannelScreen(
                                                             )
                                                             .bleed(MaterialTheme.spacings.medium)
                                                             .fillMaxWidth()
-                                                            .aspectRatio(BANNER_ASPECT_RATIO),
+                                                            .aspectRatio(
+                                                                if (wide) WIDE_BANNER_ASPECT_RATIO
+                                                                else BANNER_ASPECT_RATIO
+                                                            ),
                                                 )
                                             }
                                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -398,6 +403,9 @@ fun TaChannelScreen(
  * so this shows it bigger, cutting a little off its ends.
  */
 private const val BANNER_ASPECT_RATIO = 4.5f
+
+// Sideways the banner gets flatter, so it doesn't fill the screen
+private const val WIDE_BANNER_ASPECT_RATIO = 7f
 
 /**
  * Reaches past the list's [padding] on the sides and the top, so the banner runs from edge to edge

@@ -55,6 +55,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -69,6 +70,7 @@ import dev.jdtech.jellyfin.film.presentation.tube.TaVideoViewModel
 import dev.jdtech.jellyfin.presentation.film.components.ItemButtonsBar
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.utils.isWideLayout
 import dev.jdtech.jellyfin.tubearchivist.TaComment
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
@@ -271,148 +273,165 @@ private fun TaVideoContent(
         }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = MaterialTheme.spacings.large),
-    ) {
-        item(key = "thumbnail") {
-            Box(
-                modifier =
-                    Modifier.padding(horizontal = padding).clickable(enabled = episode != null) {
-                        onPlay(false)
-                    }
-            ) {
-                TaVideoThumbnail(video = video, modifier = Modifier.fillMaxWidth())
-                if (episode != null) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-                        modifier = Modifier.align(Alignment.Center).size(56.dp),
-                    ) {
-                        Icon(
-                            painter = painterResource(CoreR.drawable.ic_play),
-                            contentDescription = stringResource(CoreR.string.ta_play),
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.padding(14.dp),
-                        )
-                    }
-                }
-            }
-        }
-        item(key = "info") {
-            Column(modifier = Modifier.padding(horizontal = padding, vertical = padding / 2)) {
-                Text(text = video.title, style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
-                Text(
-                    text = videoDetails(video),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (state.offline) {
-                    Text(
-                        text = stringResource(CoreR.string.ta_offline_copy),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.tertiary,
+    // Sideways, the thumbnail sits on the left with the title and buttons beside it
+    val wide = isWideLayout()
+    val thumbnail: @Composable (Modifier) -> Unit = { modifier ->
+        Box(modifier = modifier.clickable(enabled = episode != null) { onPlay(false) }) {
+            TaVideoThumbnail(video = video, modifier = Modifier.fillMaxWidth())
+            if (episode != null) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                    modifier = Modifier.align(Alignment.Center).size(56.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(CoreR.drawable.ic_play),
+                        contentDescription = stringResource(CoreR.string.ta_play),
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(14.dp),
                     )
                 }
             }
         }
+    }
+    val info: @Composable (side: Dp, top: Dp) -> Unit = { side, top ->
+        Column(
+            modifier = Modifier.padding(start = side, end = side, top = top, bottom = padding / 2)
+        ) {
+            Text(text = video.title, style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
+            Text(
+                text = videoDetails(video),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (state.offline) {
+                Text(
+                    text = stringResource(CoreR.string.ta_offline_copy),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
+        }
+    }
+    val channelRow: @Composable (side: Dp) -> Unit = { side ->
         video.channel?.let { channel ->
-            item(key = "channel") {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier =
-                        Modifier.fillMaxWidth()
-                            .clickable { onChannelClick(channel.id) }
-                            .padding(horizontal = padding, vertical = padding / 2),
-                ) {
-                    TaAvatar(path = channel.thumbUrl, size = 40.dp)
-                    Spacer(Modifier.width(MaterialTheme.spacings.medium))
-                    Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .clickable { onChannelClick(channel.id) }
+                        .padding(horizontal = side, vertical = padding / 2),
+            ) {
+                TaAvatar(path = channel.thumbUrl, size = 40.dp)
+                Spacer(Modifier.width(MaterialTheme.spacings.medium))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = channel.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    channel.subs?.let { subs ->
                         Text(
-                            text = channel.name,
-                            style = MaterialTheme.typography.titleSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            text = stringResource(CoreR.string.ta_subscribers, formatCount(subs)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        channel.subs?.let { subs ->
-                            Text(
-                                text =
-                                    stringResource(CoreR.string.ta_subscribers, formatCount(subs)),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    }
+                }
+            }
+        }
+    }
+    val buttons: @Composable (side: Dp) -> Unit = { side ->
+        Column(modifier = Modifier.padding(horizontal = side, vertical = padding / 2)) {
+            when {
+                episode != null && shownEpisode != null ->
+                    ItemButtonsBar(
+                        item = shownEpisode,
+                        downloaderState = downloaderState,
+                        onPlayClick = onPlay,
+                        onMarkAsPlayedClick = onToggleWatched,
+                        onMarkAsFavoriteClick = onToggleFavorite,
+                        onTrailerClick = {},
+                        onDownloadClick = { storageIndex ->
+                            onDownloaderAction(DownloaderAction.Download(episode, storageIndex))
+                        },
+                        onDownloadCancelClick = {
+                            onDownloaderAction(DownloaderAction.CancelDownload(episode))
+                        },
+                        onDownloadDeleteClick = {
+                            onDownloaderAction(DownloaderAction.DeleteDownload(episode))
+                        },
+                        onDownloadPauseClick = {
+                            onDownloaderAction(DownloaderAction.PauseDownload(episode))
+                        },
+                        onDownloadResumeClick = {
+                            onDownloaderAction(DownloaderAction.ResumeDownload(episode))
+                        },
+                        onPlaylistClick = onPlaylistClick,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                state.lookingUp ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(MaterialTheme.spacings.small))
+                        Text(
+                            text = stringResource(CoreR.string.ta_finding_in_jellyfin),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                else ->
+                    Text(
+                        text = stringResource(CoreR.string.ta_not_in_jellyfin),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+            }
+            if (episode == null && !state.lookingUp) {
+                Row {
+                    TextButton(onClick = onToggleWatched) {
+                        Text(
+                            stringResource(
+                                if (video.player?.watched == true) {
+                                    CoreR.string.ta_mark_unwatched
+                                } else {
+                                    CoreR.string.ta_mark_watched
+                                }
                             )
+                        )
+                    }
+                    onPlaylistClick?.let { onClick ->
+                        TextButton(onClick = onClick) {
+                            Text(stringResource(CoreR.string.ta_save_to_playlist))
                         }
                     }
                 }
             }
         }
-        item(key = "buttons") {
-            Column(modifier = Modifier.padding(horizontal = padding, vertical = padding / 2)) {
-                when {
-                    episode != null && shownEpisode != null ->
-                        ItemButtonsBar(
-                            item = shownEpisode,
-                            downloaderState = downloaderState,
-                            onPlayClick = onPlay,
-                            onMarkAsPlayedClick = onToggleWatched,
-                            onMarkAsFavoriteClick = onToggleFavorite,
-                            onTrailerClick = {},
-                            onDownloadClick = { storageIndex ->
-                                onDownloaderAction(DownloaderAction.Download(episode, storageIndex))
-                            },
-                            onDownloadCancelClick = {
-                                onDownloaderAction(DownloaderAction.CancelDownload(episode))
-                            },
-                            onDownloadDeleteClick = {
-                                onDownloaderAction(DownloaderAction.DeleteDownload(episode))
-                            },
-                            onDownloadPauseClick = {
-                                onDownloaderAction(DownloaderAction.PauseDownload(episode))
-                            },
-                            onDownloadResumeClick = {
-                                onDownloaderAction(DownloaderAction.ResumeDownload(episode))
-                            },
-                            onPlaylistClick = onPlaylistClick,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    state.lookingUp ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(MaterialTheme.spacings.small))
-                            Text(
-                                text = stringResource(CoreR.string.ta_finding_in_jellyfin),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
-                    else ->
-                        Text(
-                            text = stringResource(CoreR.string.ta_not_in_jellyfin),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                }
-                if (episode == null && !state.lookingUp) {
-                    Row {
-                        TextButton(onClick = onToggleWatched) {
-                            Text(
-                                stringResource(
-                                    if (video.player?.watched == true) {
-                                        CoreR.string.ta_mark_unwatched
-                                    } else {
-                                        CoreR.string.ta_mark_watched
-                                    }
-                                )
-                            )
-                        }
-                        onPlaylistClick?.let { onClick ->
-                            TextButton(onClick = onClick) {
-                                Text(stringResource(CoreR.string.ta_save_to_playlist))
-                            }
-                        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = MaterialTheme.spacings.large),
+    ) {
+        if (wide) {
+            item(key = "header") {
+                Row(modifier = Modifier.padding(horizontal = padding)) {
+                    thumbnail(Modifier.weight(0.42f))
+                    Spacer(Modifier.width(padding))
+                    Column(modifier = Modifier.weight(0.58f)) {
+                        info(0.dp, 0.dp)
+                        channelRow(0.dp)
+                        buttons(0.dp)
                     }
                 }
             }
+        } else {
+            item(key = "thumbnail") { thumbnail(Modifier.padding(horizontal = padding)) }
+            item(key = "info") { info(padding, padding / 2) }
+            if (video.channel != null) item(key = "channel") { channelRow(padding) }
+            item(key = "buttons") { buttons(padding) }
         }
         video.description
             ?.takeIf { it.isNotBlank() }
