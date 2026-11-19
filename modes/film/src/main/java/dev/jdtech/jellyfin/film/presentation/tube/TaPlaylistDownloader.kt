@@ -1,10 +1,13 @@
 package dev.jdtech.jellyfin.film.presentation.tube
 
+import dev.jdtech.jellyfin.database.ServerDatabaseDao
+import dev.jdtech.jellyfin.models.FindroidSourceType
 import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.models.isDownloading
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
+import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.utils.Downloader
 import javax.inject.Inject
@@ -19,7 +22,20 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
+
+/** How much of a playlist is on the phone. */
+enum class TaPlaylistPhoneStatus {
+    /** Some videos aren't on the phone or in its download queue. */
+    MISSING,
+
+    /** Every video is on the phone or downloading to it. */
+    DOWNLOADING,
+
+    /** Every video is on the phone. */
+    DOWNLOADED,
+}
 
 /** How far adding a playlist to the phone's downloads has come. */
 data class TaPlaylistDownloadProgress(val done: Int, val total: Int)
@@ -47,6 +63,8 @@ constructor(
     private val lookup: TaJellyfinLookup,
     private val repository: JellyfinRepository,
     private val downloader: Downloader,
+    private val taOfflineStore: TaOfflineStore,
+    private val database: ServerDatabaseDao,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -56,6 +74,27 @@ constructor(
 
     private val _results = MutableSharedFlow<TaPlaylistDownloadResult>(extraBufferCapacity = 8)
     val results = _results.asSharedFlow()
+
+    /** Whether all of the playlist's videos are on the phone, from what's stored on it. */
+    suspend fun phoneStatus(playlist: TaPlaylist): TaPlaylistPhoneStatus =
+        withContext(Dispatchers.IO) {
+            val entries = playlist.entries.filter { it.downloaded }
+            if (entries.isEmpty()) return@withContext TaPlaylistPhoneStatus.MISSING
+            var downloading = false
+            for (entry in entries) {
+                val itemId =
+                    taOfflineStore.savedItemId(entry.youtubeId)
+                        ?: return@withContext TaPlaylistPhoneStatus.MISSING
+                val local =
+                    database.getSources(itemId).filter { it.type == FindroidSourceType.LOCAL }
+                when {
+                    local.any { !it.path.endsWith(".download") } -> {}
+                    local.isNotEmpty() -> downloading = true
+                    else -> return@withContext TaPlaylistPhoneStatus.MISSING
+                }
+            }
+            if (downloading) TaPlaylistPhoneStatus.DOWNLOADING else TaPlaylistPhoneStatus.DOWNLOADED
+        }
 
     fun downloadAll(playlist: TaPlaylist, storageIndex: Int = 0) {
         if (playlist.id in _progress.value) return

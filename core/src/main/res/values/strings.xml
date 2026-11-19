@@ -349,6 +349,8 @@
     <string name="ta_info_actions">Actions</string>
     <string name="ta_playlist_position">%1$d of %2$d</string>
     <string name="ta_playlist_download">Download to phone</string>
+    <string name="ta_playlist_on_phone">On this phone</string>
+    <string name="ta_playlist_downloading_to_phone">Downloading to phone…</string>
     <string name="ta_save_to_playlist">Save to playlist</string>
     <string name="ta_new_playlist">New playlist</string>
     <string name="ta_create">Create</string>

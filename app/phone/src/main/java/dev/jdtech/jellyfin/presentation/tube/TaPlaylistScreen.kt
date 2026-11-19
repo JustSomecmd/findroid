@@ -25,14 +25,17 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,9 +58,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaPlaylistDownloadResult
+import dev.jdtech.jellyfin.film.presentation.tube.TaPlaylistPhoneStatus
 import dev.jdtech.jellyfin.film.presentation.tube.TaPlaylistViewModel
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
@@ -78,6 +83,13 @@ fun TaPlaylistScreen(
     val videos by viewModel.videos.collectAsStateWithLifecycle()
     val offline by viewModel.offline.collectAsStateWithLifecycle()
     val downloadProgress by viewModel.downloadProgress.collectAsStateWithLifecycle()
+    val phoneStatus by viewModel.phoneStatus.collectAsStateWithLifecycle()
+
+    // Downloads may have finished or been deleted while away
+    LifecycleResumeEffect(Unit) {
+        viewModel.checkPhoneStatus()
+        onPauseOrDispose {}
+    }
     var descriptionExpanded by rememberSaveable { mutableStateOf(false) }
     var confirmDownload by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
@@ -177,38 +189,64 @@ fun TaPlaylistScreen(
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
-                                    } else {
-                                        // Every video of the playlist onto this phone
-                                        val progress = downloadProgress
-                                        FilledTonalButton(
-                                            onClick = { confirmDownload = true },
-                                            enabled = progress == null,
-                                            modifier =
-                                                Modifier.padding(
-                                                    top = MaterialTheme.spacings.small
-                                                ),
-                                        ) {
-                                            Icon(
-                                                painter =
-                                                    painterResource(CoreR.drawable.ic_download),
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                            Spacer(Modifier.width(MaterialTheme.spacings.small))
-                                            Text(
-                                                if (progress == null) {
-                                                    stringResource(
-                                                        CoreR.string.ta_playlist_download
-                                                    )
-                                                } else {
+                                    }
+                                    // Every video of the playlist onto this phone, or how far
+                                    // that's come
+                                    val progress = downloadProgress
+                                    val buttonModifier =
+                                        Modifier.padding(top = MaterialTheme.spacings.small)
+                                    when {
+                                        progress != null ->
+                                            FilledTonalButton(
+                                                onClick = {},
+                                                enabled = false,
+                                                modifier = buttonModifier,
+                                            ) {
+                                                Text(
                                                     stringResource(
                                                         CoreR.string.ta_playlist_downloading,
                                                         progress.done,
                                                         progress.total,
                                                     )
-                                                }
+                                                )
+                                            }
+                                        phoneStatus == TaPlaylistPhoneStatus.DOWNLOADED ->
+                                            TaPhoneStatusPill(
+                                                text =
+                                                    stringResource(
+                                                        CoreR.string.ta_playlist_on_phone
+                                                    ),
+                                                done = true,
+                                                modifier = buttonModifier,
                                             )
-                                        }
+                                        phoneStatus == TaPlaylistPhoneStatus.DOWNLOADING ->
+                                            TaPhoneStatusPill(
+                                                text =
+                                                    stringResource(
+                                                        CoreR.string
+                                                            .ta_playlist_downloading_to_phone
+                                                    ),
+                                                done = false,
+                                                modifier = buttonModifier,
+                                            )
+                                        !offline ->
+                                            FilledTonalButton(
+                                                onClick = { confirmDownload = true },
+                                                modifier = buttonModifier,
+                                            ) {
+                                                Icon(
+                                                    painter =
+                                                        painterResource(CoreR.drawable.ic_download),
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                                Spacer(Modifier.width(MaterialTheme.spacings.small))
+                                                Text(
+                                                    stringResource(
+                                                        CoreR.string.ta_playlist_download
+                                                    )
+                                                )
+                                            }
                                     }
                                     playlist.description
                                         ?.takeIf { it.isNotBlank() }
@@ -396,4 +434,39 @@ private fun playlistDownloadText(context: Context, result: TaPlaylistDownloadRes
             )
     }
     return parts.joinToString(" ")
+}
+
+/**
+ * Where the Download to phone button goes once the playlist is on the phone, or on its way: a pill
+ * of the same shape, with a tick or a spinner, that can't be pressed.
+ */
+@Composable
+private fun TaPhoneStatusPill(text: String, done: Boolean, modifier: Modifier = Modifier) {
+    Surface(
+        shape = ButtonDefaults.shape,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = modifier,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(ButtonDefaults.ContentPadding),
+        ) {
+            if (done) {
+                Icon(
+                    painter = painterResource(CoreR.drawable.ic_check),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            } else {
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    color = LocalContentColor.current,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            Spacer(Modifier.width(MaterialTheme.spacings.small))
+            Text(text = text, style = MaterialTheme.typography.labelLarge)
+        }
+    }
 }

@@ -12,7 +12,9 @@ import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,10 +63,35 @@ constructor(
 
     private var playlistId: String? = null
 
+    private val _phoneStatus = MutableStateFlow<TaPlaylistPhoneStatus?>(null)
+    /** How much of the playlist is on the phone; null until checked. */
+    val phoneStatus = _phoneStatus.asStateFlow()
+
+    private var statusJob: Job? = null
+
+    /**
+     * Checks how much of the playlist is on the phone, and keeps checking while its videos are
+     * downloading, so the button changes once they're all in.
+     */
+    fun checkPhoneStatus() {
+        statusJob?.cancel()
+        statusJob = viewModelScope.launch {
+            while (true) {
+                val playlist = _playlist.value ?: return@launch
+                val status = playlistDownloader.phoneStatus(playlist)
+                _phoneStatus.value = status
+                val adding = playlistId?.let { it in playlistDownloader.progress.value } == true
+                if (status != TaPlaylistPhoneStatus.DOWNLOADING && !adding) return@launch
+                delay(STATUS_CHECK_MS)
+            }
+        }
+    }
+
     /** Adds all of the playlist's videos to the phone's download queue. */
     fun downloadAll() {
         val playlist = _playlist.value ?: return
         playlistDownloader.downloadAll(playlist)
+        checkPhoneStatus()
     }
 
     fun setSubscribed(subscribed: Boolean) =
@@ -119,6 +146,7 @@ constructor(
                 val playlist = taApi.getPlaylist(playlistId)
                 _playlist.value = playlist
                 cache.updatePlaylist(playlist)
+                checkPhoneStatus()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -138,6 +166,7 @@ constructor(
         _videos.value = TaListState(items = videos, page = 1, hasMore = false)
         _offline.value = true
         _error.value = null
+        checkPhoneStatus()
         return true
     }
 
@@ -162,3 +191,6 @@ constructor(
         }
     }
 }
+
+// How often the phone's copy is checked while the playlist downloads
+private const val STATUS_CHECK_MS = 3_000L
