@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.tubearchivist.TA_WATCH_LATER
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSession
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
@@ -60,6 +62,22 @@ constructor(
     /** A few channels picked at random for the carousel at the top. */
     val featured = _featured.asStateFlow()
 
+    private val _watchLater = MutableStateFlow<TaWatchLater>(TaWatchLater.Unknown)
+    /** The playlist behind Home's Watch Later button, once looked up. */
+    val watchLater = _watchLater.asStateFlow()
+
+    private val _watchLaterBusy = MutableStateFlow(false)
+    /** True while Watch Later is being looked up or made after a tap. */
+    val watchLaterBusy = _watchLaterBusy.asStateFlow()
+
+    private val _offerWatchLater = MutableStateFlow(false)
+    /** True when Watch Later was tapped but there's no such playlist, to offer to make it. */
+    val offerWatchLater = _offerWatchLater.asStateFlow()
+
+    /** Asks the page to open a playlist. */
+    private val _openPlaylist = Channel<String>(Channel.BUFFERED)
+    val openPlaylist = _openPlaylist.receiveAsFlow()
+
     private var lastLoad = 0L
 
     /** Loads the page the first time, and refreshes it when coming back after a while. */
@@ -73,11 +91,13 @@ constructor(
             loadMore()
             loadContinueWatching()
             loadFeatured()
+            loadWatchLater()
         } else if (now - lastLoad > STALE_AFTER_MS) {
             refresh()
         } else {
-            // Progress may have changed while watching
+            // Progress may have changed while watching, and videos may have been saved for later
             loadContinueWatching()
+            loadWatchLater()
         }
     }
 
@@ -87,6 +107,7 @@ constructor(
         loadMore()
         loadContinueWatching()
         loadFeatured()
+        loadWatchLater()
     }
 
     /**
@@ -120,6 +141,100 @@ constructor(
         viewModelScope.launch {
             _latest.loadNextPage(key = { it.youtubeId }) { page ->
                 taApi.getVideos(page = page, sort = "downloaded", order = "desc")
+            }
+        }
+    }
+
+    /** Looks up Watch Later for the button, which shows how many videos are in it. */
+    private fun loadWatchLater() {
+        viewModelScope.launch {
+            _watchLater.value =
+                try {
+                    lookUpWatchLater()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "Couldn't look up Watch Later")
+                    savedWatchLater() ?: TaWatchLater.Unknown
+                }
+        }
+    }
+
+    private suspend fun lookUpWatchLater(): TaWatchLater =
+        taApi.findCustomPlaylist(TA_WATCH_LATER)?.let { TaWatchLater.Found(it) }
+            ?: TaWatchLater.Missing
+
+    /**
+     * Watch Later from the playlists saved on the phone, for when TubeArchivist can't be reached.
+     */
+    private suspend fun savedWatchLater(): TaWatchLater.Found? =
+        playlistCache
+            .loadPlaylists()
+            .firstOrNull {
+                it.type != "regular" && it.name.trim().equals(TA_WATCH_LATER, ignoreCase = true)
+            }
+            ?.let { TaWatchLater.Found(it) }
+
+    /**
+     * Opens Watch Later. When it isn't known yet it's looked up first, and when there's no such
+     * playlist the page is asked to offer to make it.
+     */
+    fun openWatchLater() {
+        val known = _watchLater.value
+        if (known is TaWatchLater.Found) {
+            viewModelScope.launch { _openPlaylist.send(known.playlistId) }
+            return
+        }
+        if (_watchLaterBusy.value) return
+        _watchLaterBusy.value = true
+        viewModelScope.launch {
+            try {
+                val state = lookUpWatchLater()
+                _watchLater.value = state
+                if (state is TaWatchLater.Found) {
+                    _openPlaylist.send(state.playlistId)
+                } else {
+                    _offerWatchLater.value = true
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val saved = savedWatchLater()
+                if (saved != null) {
+                    _watchLater.value = saved
+                    _openPlaylist.send(saved.playlistId)
+                } else {
+                    _messages.send(e.errorText())
+                }
+            } finally {
+                _watchLaterBusy.value = false
+            }
+        }
+    }
+
+    fun dismissWatchLaterOffer() {
+        _offerWatchLater.value = false
+    }
+
+    /** Makes the Watch Later playlist and opens it. */
+    fun createWatchLater() {
+        _offerWatchLater.value = false
+        if (_watchLaterBusy.value) return
+        _watchLaterBusy.value = true
+        viewModelScope.launch {
+            try {
+                // One may have been made somewhere else since the button was tapped
+                val playlist =
+                    taApi.findCustomPlaylist(TA_WATCH_LATER)
+                        ?: taApi.createCustomPlaylist(TA_WATCH_LATER)
+                _watchLater.value = TaWatchLater.Found(playlist)
+                _openPlaylist.send(playlist.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            } finally {
+                _watchLaterBusy.value = false
             }
         }
     }
@@ -328,6 +443,19 @@ sealed interface TaContinueItem {
     ) : TaContinueItem {
         override val key: String
             get() = "playlist:$playlistId"
+    }
+}
+
+/** The playlist behind Home's Watch Later button. */
+sealed interface TaWatchLater {
+    /** Not looked up yet, or TubeArchivist couldn't be reached. */
+    data object Unknown : TaWatchLater
+
+    /** TubeArchivist has no playlist of its own called Watch Later. */
+    data object Missing : TaWatchLater
+
+    data class Found(val playlistId: String, val count: Int) : TaWatchLater {
+        constructor(playlist: TaPlaylist) : this(playlist.id, playlist.entries.size)
     }
 }
 

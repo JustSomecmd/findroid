@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,6 +24,9 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,14 +45,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.jdtech.jellyfin.tubearchivist.TA_WATCH_LATER
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.tubedroid.desktop.LocalApp
 import dev.jdtech.tubedroid.desktop.LocalNavigator
 import dev.jdtech.tubedroid.desktop.Route
 import dev.jdtech.tubedroid.desktop.rememberPageModel
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
+import dev.jdtech.tubedroid.desktop.ui.ConfirmDialog
 import dev.jdtech.tubedroid.desktop.ui.GridScrollbar
 import dev.jdtech.tubedroid.desktop.ui.ListFooter
 import dev.jdtech.tubedroid.desktop.ui.LoadMoreEffect
@@ -59,6 +66,7 @@ import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.TaImage
 import dev.jdtech.tubedroid.desktop.ui.VideoCard
+import dev.jdtech.tubedroid.desktop.ui.errorText
 import dev.jdtech.tubedroid.desktop.ui.formatCount
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -80,12 +88,85 @@ class HomeModel(private val api: TaApi, private val scope: CoroutineScope) {
 
     val gridState = LazyGridState()
 
+    /** The playlist behind the Watch Later button, once it's been found. */
+    var watchLater by mutableStateOf<TaPlaylist?>(null)
+        private set
+
+    /** True while Watch Later is being looked up or made after a click. */
+    var watchLaterBusy by mutableStateOf(false)
+        private set
+
+    /** True when Watch Later was clicked but there's no such playlist, to offer to make it. */
+    var offerWatchLater by mutableStateOf(false)
+
     init {
         refresh()
     }
 
+    /** Looks up Watch Later for the button, which shows how many videos are in it. */
+    fun loadWatchLater() {
+        scope.launch {
+            try {
+                watchLater = api.findCustomPlaylist(TA_WATCH_LATER)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Looked up again when the button is clicked
+            }
+        }
+    }
+
+    /**
+     * Opens Watch Later. When it isn't known yet it's looked up first, and when there's no such
+     * playlist the page offers to make it.
+     */
+    fun openWatchLater(onOpen: (playlistId: String) -> Unit, onError: (String) -> Unit) {
+        watchLater?.let {
+            onOpen(it.id)
+            return
+        }
+        watchLaterAction(onError) {
+            val found = api.findCustomPlaylist(TA_WATCH_LATER)
+            watchLater = found
+            if (found != null) {
+                onOpen(found.id)
+            } else {
+                offerWatchLater = true
+            }
+        }
+    }
+
+    /** Makes the Watch Later playlist and opens it. */
+    fun createWatchLater(onOpen: (playlistId: String) -> Unit, onError: (String) -> Unit) {
+        offerWatchLater = false
+        watchLaterAction(onError) {
+            // One may have been made somewhere else since the button was clicked
+            val playlist =
+                api.findCustomPlaylist(TA_WATCH_LATER) ?: api.createCustomPlaylist(TA_WATCH_LATER)
+            watchLater = playlist
+            onOpen(playlist.id)
+        }
+    }
+
+    private fun watchLaterAction(onError: (String) -> Unit, action: suspend () -> Unit) {
+        if (watchLaterBusy) return
+        watchLaterBusy = true
+        scope.launch {
+            try {
+                action()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onError(errorText(e))
+            } finally {
+                watchLaterBusy = false
+            }
+        }
+    }
+
     fun refresh() {
         latest.reload()
+        loadWatchLater()
         scope.launch {
             try {
                 val first = api.getChannels(page = 1)
@@ -122,15 +203,72 @@ class HomeModel(private val api: TaApi, private val scope: CoroutineScope) {
 @Composable
 fun HomeScreen() {
     val app = LocalApp.current
+    val navigator = LocalNavigator.current
     val model = rememberPageModel("home") { scope -> HomeModel(app.api, scope) }
+    // Videos may have been saved for later since Home was last shown
+    LaunchedEffect(Unit) { model.loadWatchLater() }
+    val openPlaylist: (String) -> Unit = { navigator.open(Route.Playlist(it)) }
     Column(modifier = Modifier.fillMaxSize()) {
-        PageBar(title = "Home", onBack = null) { RefreshButton(onClick = model::refresh) }
+        PageBar(title = "Home", onBack = null) {
+            WatchLaterButton(
+                playlist = model.watchLater,
+                busy = model.watchLaterBusy,
+                onClick = { model.openWatchLater(openPlaylist, navigator::message) },
+            )
+            RefreshButton(onClick = model::refresh)
+        }
         HomeContent(
             featured = model.featured,
             continueWatching = model.continueWatching,
             latest = model.latest,
             gridState = model.gridState,
         )
+    }
+
+    if (model.offerWatchLater) {
+        ConfirmDialog(
+            title = "No Watch Later playlist",
+            text =
+                "TubeArchivist doesn't have a playlist called $TA_WATCH_LATER yet. " +
+                    "Do you want to make it now?",
+            confirmLabel = "Make it",
+            onConfirm = { model.createWatchLater(openPlaylist, navigator::message) },
+            onDismiss = { model.offerWatchLater = false },
+        )
+    }
+}
+
+/**
+ * Opens the Watch Later playlist, with how many videos are in it once that's known. A spinner takes
+ * the place of the clock while it's being looked up or made.
+ */
+@Composable
+private fun WatchLaterButton(playlist: TaPlaylist?, busy: Boolean, onClick: () -> Unit) {
+    FilledTonalButton(onClick = onClick) {
+        Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = LocalContentColor.current,
+                )
+            } else {
+                AppIcon(
+                    name = "ic_clock",
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(Spacings.small))
+        Text(TA_WATCH_LATER)
+        if (playlist != null) {
+            val count = playlist.entries.size
+            Text(
+                text = "  ·  $count ${if (count == 1) "video" else "videos"}",
+                color = LocalContentColor.current.copy(alpha = 0.7f),
+            )
+        }
     }
 }
 

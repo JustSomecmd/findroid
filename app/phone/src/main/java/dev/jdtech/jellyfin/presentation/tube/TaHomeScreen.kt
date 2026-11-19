@@ -28,6 +28,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.PagerState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,11 +50,13 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +68,7 @@ import dev.jdtech.jellyfin.film.presentation.tube.TaContinueItem
 import dev.jdtech.jellyfin.film.presentation.tube.TaHomeViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.TaServersInfo
 import dev.jdtech.jellyfin.film.presentation.tube.TaStatsViewModel
+import dev.jdtech.jellyfin.film.presentation.tube.TaWatchLater
 import dev.jdtech.jellyfin.presentation.film.components.HomeHeader
 import dev.jdtech.jellyfin.presentation.film.components.ServerSelectionBottomSheet
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
@@ -108,6 +113,10 @@ fun TaHomeScreen(
     ObserveAsEvents(viewModel.messages) { message ->
         Toast.makeText(context, taMessageText(context, message), Toast.LENGTH_LONG).show()
     }
+    ObserveAsEvents(viewModel.openPlaylist) { playlistId -> onPlaylistClick(playlistId) }
+    val watchLater by viewModel.watchLater.collectAsStateWithLifecycle()
+    val watchLaterBusy by viewModel.watchLaterBusy.collectAsStateWithLifecycle()
+    val offerWatchLater by viewModel.offerWatchLater.collectAsStateWithLifecycle()
     val latest by viewModel.latest.collectAsStateWithLifecycle()
     val featured by viewModel.featured.collectAsStateWithLifecycle()
 
@@ -209,6 +218,13 @@ fun TaHomeScreen(
                                     )
                                 }
                             }
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "watch_later") {
+                                TaWatchLaterButton(
+                                    state = watchLater,
+                                    busy = watchLaterBusy,
+                                    onClick = { viewModel.openWatchLater() },
+                                )
+                            }
                             if (continueWatching.isNotEmpty()) {
                                 item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
                                     Column {
@@ -277,6 +293,27 @@ fun TaHomeScreen(
         }
     }
 
+    if (offerWatchLater) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissWatchLaterOffer() },
+            icon = {
+                Icon(painter = painterResource(CoreR.drawable.ic_clock), contentDescription = null)
+            },
+            title = { Text(stringResource(CoreR.string.ta_watch_later_missing_title)) },
+            text = { Text(stringResource(CoreR.string.ta_watch_later_missing_text)) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.createWatchLater() }) {
+                    Text(stringResource(CoreR.string.ta_create))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissWatchLaterOffer() }) {
+                    Text(stringResource(CoreR.string.cancel))
+                }
+            },
+        )
+    }
+
     if (showServers) {
         TaServersSheet(
             servers = servers,
@@ -315,6 +352,66 @@ fun TaSectionTitle(text: String, modifier: Modifier = Modifier) {
         style = MaterialTheme.typography.titleMedium,
         modifier = modifier.padding(vertical = MaterialTheme.spacings.small),
     )
+}
+
+/**
+ * Opens the Watch Later playlist, with how many videos are in it once that's known. A spinner takes
+ * the place of the arrow while it's being looked up or made.
+ */
+@Composable
+private fun TaWatchLaterButton(state: TaWatchLater, busy: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+                Modifier.padding(
+                    horizontal = MaterialTheme.spacings.medium,
+                    vertical = MaterialTheme.spacings.medium,
+                ),
+        ) {
+            Icon(
+                painter = painterResource(CoreR.drawable.ic_clock),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(MaterialTheme.spacings.medium))
+            Text(
+                text = stringResource(CoreR.string.ta_watch_later),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            if (state is TaWatchLater.Found) {
+                Text(
+                    text =
+                        pluralStringResource(
+                            CoreR.plurals.ta_video_count,
+                            state.count,
+                            state.count.toString(),
+                        ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(MaterialTheme.spacings.small))
+            }
+            Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                if (busy) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        painter = painterResource(CoreR.drawable.ic_chevron_down),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.rotate(-90f),
+                    )
+                }
+            }
+        }
+    }
 }
 
 /** Cards are at least this wide, so a phone shows one per row and a tablet several. */

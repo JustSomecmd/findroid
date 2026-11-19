@@ -400,6 +400,9 @@
     <string name="ta_playlist_name">Name</string>
     <string name="ta_subscribe_youtube_playlist">Subscribe to a YouTube playlist</string>
     <string name="ta_add_playlist">Add a playlist</string>
+    <string name="ta_watch_later">Watch Later</string>
+    <string name="ta_watch_later_missing_title">No Watch Later playlist</string>
+    <string name="ta_watch_later_missing_text">TubeArchivist doesn\'t have a playlist called Watch Later yet. Do you want to make it now?</string>
     <string name="ta_playlist_downloading">Adding %1$d of %2$d…</string>
     <string name="ta_confirm_playlist_download_text">They go into the phone\'s download queue, after anything already in it. Videos already on the phone are skipped.</string>
     <string name="ta_playlist_saved_copy">Saved copy: TubeArchivist can\'t be reached</string>

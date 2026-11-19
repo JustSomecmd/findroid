@@ -260,6 +260,25 @@ class TaApi(private val config: TaConfig) {
             }
         )
 
+    /**
+     * One of TubeArchivist's own playlists, found by its name with case and outer spaces ignored,
+     * or null if there's none by that name.
+     */
+    suspend fun findCustomPlaylist(name: String): TaPlaylist? {
+        val wanted = name.trim()
+        var page = 1
+        while (true) {
+            val result = getPlaylists(page = page, type = "custom")
+            result.data
+                .firstOrNull { it.name.trim().equals(wanted, ignoreCase = true) }
+                ?.let {
+                    return it
+                }
+            if (!result.hasMore) return null
+            page++
+        }
+    }
+
     /** Makes a new playlist of TubeArchivist's own, to put videos in. */
     suspend fun createCustomPlaylist(name: String): TaPlaylist =
         decode(post("api/playlist/custom/", buildJsonObject { put("playlist_name", name.trim()) }))

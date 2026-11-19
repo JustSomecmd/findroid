@@ -149,6 +149,9 @@ data class TaPlaylist(
     @SerialName("playlist_sort_order") val sortOrder: String? = null,
 )
 
+/** The name of the playlist that Home's Watch Later button opens, and makes if it's missing. */
+const val TA_WATCH_LATER = "Watch Later"
+
 @Serializable
 data class TaPlaylistEntry(
     @SerialName("youtube_id") val youtubeId: String,
