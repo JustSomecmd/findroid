@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.unit.Density
 import com.sun.net.httpserver.HttpServer
 import dev.jdtech.jellyfin.tubearchivist.TaBiggestChannel
@@ -145,7 +145,9 @@ fun main(args: Array<String>) {
                         Row(modifier = Modifier.fillMaxSize()) {
                             Box(
                                 modifier =
-                                    Modifier.weight(1f).fillMaxHeight().background(Color.Black)
+                                    Modifier.weight(1f)
+                                        .fillMaxHeight()
+                                        .background(ComposeColor.Black)
                             )
                             PlaylistPanel(
                                 name = SampleData.playlists[1].name,
