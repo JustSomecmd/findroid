@@ -17,10 +17,12 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -103,6 +105,7 @@ fun PlayerPlaylistPanel(
                     else Modifier.fillMaxWidth().fillMaxHeight(0.65f),
             ) {
                 PlaylistContent(
+                    wide = wide,
                     open = open,
                     name = name,
                     videos = videos,
@@ -119,6 +122,7 @@ fun PlayerPlaylistPanel(
 
 @Composable
 private fun PlaylistContent(
+    wide: Boolean,
     open: Boolean,
     name: String,
     videos: List<TaVideo>,
@@ -129,8 +133,12 @@ private fun PlaylistContent(
     onOpenPage: () -> Unit,
 ) {
     val currentIndex = videos.indexOfFirst { it.youtubeId == currentVideoId }
-    // Clear of a notch at the screen's edge
-    Column(modifier = Modifier.windowInsetsPadding(WindowInsets.displayCutout)) {
+    // Clear of a notch, on the sides that reach the screen's edges: a notch on the far side of
+    // the screen would only push the list in
+    val edges =
+        if (wide) WindowInsetsSides.End + WindowInsetsSides.Vertical
+        else WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal
+    Column(modifier = Modifier.windowInsetsPadding(WindowInsets.displayCutout.only(edges))) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),

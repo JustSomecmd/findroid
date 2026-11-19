@@ -4,7 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,11 +18,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,16 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isAltPressed
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPlacement
@@ -60,6 +55,13 @@ import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.errorText
 import dev.jdtech.tubedroid.desktop.ui.formatDuration
 import java.awt.Canvas
+import java.awt.GraphicsEnvironment
+import java.awt.HeadlessException
+import java.awt.KeyEventDispatcher
+import java.awt.KeyboardFocusManager
+import java.awt.MouseInfo
+import java.awt.Point
+import java.awt.event.KeyEvent
 import java.util.Locale
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -95,6 +97,91 @@ internal class PlayerSession(
     /** Whether the playlist starts over after its last video, as on YouTube. */
     var loop by mutableStateOf(false)
         private set
+
+    // What the controls under the video show, as last read from mpv
+    var paused by mutableStateOf(false)
+        private set
+
+    var volume by mutableStateOf(100.0)
+        private set
+
+    var muted by mutableStateOf(false)
+        private set
+
+    var speed by mutableStateOf(1.0)
+        private set
+
+    /** The subtitle showing, by its name or language, or null when they're off. */
+    var subtitle by mutableStateOf<String?>(null)
+        private set
+
+    /** Whether the video has subtitles to switch between. */
+    var hasSubtitles by mutableStateOf(false)
+        private set
+
+    fun togglePause() {
+        player?.command("cycle", "pause")
+    }
+
+    fun seekTo(seconds: Double) {
+        position = seconds
+        player?.command("seek", String.format(Locale.ROOT, "%.2f", seconds), "absolute")
+    }
+
+    fun seekBy(seconds: Double) {
+        player?.command("seek", String.format(Locale.ROOT, "%.2f", seconds), "relative")
+    }
+
+    fun changeVolume(value: Double) {
+        volume = value
+        player?.set("volume", String.format(Locale.ROOT, "%.0f", value))
+        if (muted) player?.set("mute", "no")
+    }
+
+    fun toggleMute() {
+        player?.command("cycle", "mute")
+    }
+
+    /** Goes to the next speed, from normal up to twice as fast and then down to half. */
+    fun cycleSpeed() {
+        val next = SPEEDS.firstOrNull { it > speed + 0.01 } ?: SPEEDS.first()
+        speed = next
+        player?.set("speed", next.toString())
+    }
+
+    /** Goes to the next subtitle, and after the last one turns them off. */
+    fun cycleSubtitles() {
+        player?.command("cycle", "sub")
+    }
+
+    /**
+     * The player's keys, as on YouTube and in mpv. Returns whether [keyCode] was one of them.
+     * Escape leaves full screen, or else closes the player.
+     */
+    fun onKey(keyCode: Int, onClose: () -> Unit): Boolean {
+        when (keyCode) {
+            KeyEvent.VK_SPACE,
+            KeyEvent.VK_K -> togglePause()
+            KeyEvent.VK_LEFT -> seekBy(-5.0)
+            KeyEvent.VK_RIGHT -> seekBy(5.0)
+            KeyEvent.VK_J -> seekBy(-10.0)
+            KeyEvent.VK_L -> seekBy(10.0)
+            KeyEvent.VK_UP -> changeVolume((volume + 5).coerceAtMost(100.0))
+            KeyEvent.VK_DOWN -> changeVolume((volume - 5).coerceAtLeast(0.0))
+            KeyEvent.VK_M -> toggleMute()
+            KeyEvent.VK_F -> toggleFullscreen()
+            KeyEvent.VK_C -> cycleSubtitles()
+            KeyEvent.VK_ENTER -> skip()
+            KeyEvent.VK_ESCAPE -> if (fullscreen) player?.set("fullscreen", "no") else onClose()
+            else -> return false
+        }
+        return true
+    }
+
+    /** Full screen on or off. mpv's own setting decides it, so the window follows mpv. */
+    fun toggleFullscreen() {
+        player?.set("fullscreen", if (fullscreen) "no" else "yes")
+    }
 
     /** Whether a playlist is playing, which can loop and be shown beside the video. */
     val hasPlaylist: Boolean
@@ -240,6 +327,8 @@ internal class PlayerSession(
         item.subtitles.forEach { subtitle ->
             player.command("sub-add", subtitle.url, "auto", subtitle.title, subtitle.language ?: "")
         }
+        val tracks = player.get("track-list/count")?.toIntOrNull() ?: 0
+        hasSubtitles = (0 until tracks).any { player.get("track-list/$it/type") == "sub" }
         val at = item.resumeSeconds ?: 0.0
         backgroundScope.launch { runCatching { source.started(item, at) } }
     }
@@ -259,6 +348,16 @@ internal class PlayerSession(
             fullscreen = wantsFullscreen
             onFullscreen(wantsFullscreen)
         }
+        paused = player.getFlag("pause")
+        muted = player.getFlag("mute")
+        player.getDouble("volume")?.let { volume = it }
+        player.getDouble("speed")?.let { speed = it }
+        subtitle =
+            if (player.get("sid") == "no") null
+            else
+                player.get("current-tracks/sub/title")?.takeIf { it.isNotBlank() }
+                    ?: player.get("current-tracks/sub/lang")?.takeIf { it.isNotBlank() }
+                    ?: "On"
         // Until the new file has loaded, mpv's state can still be the last one's
         if (loading) return
         checkSegment(player)
@@ -362,6 +461,7 @@ internal class PlayerSession(
 
     companion object {
         private const val PROGRESS_INTERVAL_MS = 10_000L
+        private val SPEEDS = listOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
 
         fun categoryName(category: String): String =
             when (category) {
@@ -401,7 +501,6 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
         }
     val close by rememberUpdatedState(onClose)
     val lib = remember { MpvLoader.load() }
-    val focus = remember { FocusRequester() }
     var placementBefore by remember { mutableStateOf(windowState.placement) }
 
     fun setFullscreen(on: Boolean) {
@@ -425,45 +524,56 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
             delay(250)
         }
     }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     DisposableEffect(Unit) { onDispose { setFullscreen(false) } }
 
-    Column(
-        modifier =
-            Modifier.fillMaxSize()
-                .background(Color.Black)
-                .focusRequester(focus)
-                .focusable()
-                .onKeyEvent { event ->
-                    if (
-                        event.type != KeyEventType.KeyDown ||
-                            event.isAltPressed ||
-                            event.isCtrlPressed
-                    ) {
-                        return@onKeyEvent false
-                    }
-                    val player = session.player ?: return@onKeyEvent false
-                    when (event.key) {
-                        Key.Spacebar,
-                        Key.K -> player.command("cycle", "pause")
-                        Key.DirectionLeft -> player.command("seek", "-5")
-                        Key.DirectionRight -> player.command("seek", "5")
-                        Key.J -> player.command("seek", "-10")
-                        Key.L -> player.command("seek", "10")
-                        Key.DirectionUp -> player.command("add", "volume", "5")
-                        Key.DirectionDown -> player.command("add", "volume", "-5")
-                        Key.M -> player.command("cycle", "mute")
-                        Key.F -> player.command("cycle", "fullscreen")
-                        Key.Enter -> session.skip()
-                        Key.Escape ->
-                            if (session.fullscreen) player.set("fullscreen", "no") else close()
-                        else -> return@onKeyEvent false
-                    }
-                    true
-                }
-    ) {
-        if (!session.fullscreen) {
-            PlayerBar(session = session, onClose = close)
+    // Keys work wherever the focus is in the window. mpv's own keys don't reach it when it draws
+    // inside Winchivist, and a button that had the focus can be gone, such as in full screen
+    DisposableEffect(session) {
+        val keys = KeyEventDispatcher { event ->
+            event.id == KeyEvent.KEY_PRESSED &&
+                !event.isAltDown &&
+                !event.isControlDown &&
+                session.onKey(event.keyCode, onClose = close)
+        }
+        // Without a screen, such as for the page renders, there are no keys
+        val focusManager =
+            if (GraphicsEnvironment.isHeadless()) null
+            else KeyboardFocusManager.getCurrentKeyboardFocusManager()
+        focusManager?.addKeyEventDispatcher(keys)
+        onDispose { focusManager?.removeKeyEventDispatcher(keys) }
+    }
+
+    // In full screen the bars hide until the mouse moves, which is read from the screen as mpv's
+    // window doesn't pass it on. They stay while the mouse is on them
+    val barsHover = remember { MutableInteractionSource() }
+    val onBars by barsHover.collectIsHoveredAsState()
+    var barsShown by remember { mutableStateOf(true) }
+    LaunchedEffect(session.fullscreen) {
+        barsShown = true
+        if (!session.fullscreen) return@LaunchedEffect
+        var last = pointerLocation()
+        var lastMove = System.currentTimeMillis()
+        while (isActive) {
+            delay(100)
+            val now = pointerLocation()
+            if (now != last) {
+                last = now
+                lastMove = System.currentTimeMillis()
+                barsShown = true
+            } else if (System.currentTimeMillis() - lastMove > BARS_HIDE_AFTER_MS) {
+                barsShown = onBars
+            }
+        }
+    }
+    val showBars = !session.fullscreen || barsShown
+
+    Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        if (showBars) {
+            PlayerBar(
+                session = session,
+                onClose = close,
+                modifier = Modifier.hoverable(barsHover),
+            )
         }
         Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
             Box(
@@ -528,18 +638,137 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
                 )
             }
         }
+        if (showBars) {
+            ControlBar(session = session, modifier = Modifier.hoverable(barsHover))
+        }
     }
+}
+
+/** Where the mouse is on the screen, or null when that can't be told. */
+private fun pointerLocation(): Point? =
+    try {
+        MouseInfo.getPointerInfo()?.location
+    } catch (e: HeadlessException) {
+        null
+    }
+
+private const val BARS_HIDE_AFTER_MS = 2_500L
+
+/**
+ * The controls under the video: a seek bar with the times, play and pause, ten seconds back and
+ * forward, the sound, speed, subtitles and full screen. They're Winchivist's own, as mpv's
+ * on-screen controls can't be used while it draws inside Winchivist.
+ */
+@Composable
+private fun ControlBar(session: PlayerSession, modifier: Modifier = Modifier) {
+    Column(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                .padding(horizontal = Spacings.medium, vertical = 4.dp)
+    ) {
+        SeekBar(session)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = session::togglePause) {
+                AppIcon(
+                    name = if (session.paused) "ic_play" else "ic_pause",
+                    contentDescription = if (session.paused) "Play" else "Pause",
+                )
+            }
+            IconButton(onClick = { session.seekBy(-10.0) }) {
+                AppIcon(
+                    name = "ic_rewind",
+                    contentDescription = "10 seconds back",
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            IconButton(onClick = { session.seekBy(10.0) }) {
+                AppIcon(
+                    name = "ic_fast_forward",
+                    contentDescription = "10 seconds forward",
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            IconButton(onClick = session::toggleMute) {
+                AppIcon(
+                    name = if (session.muted) "ic_volume_0" else "ic_volume",
+                    contentDescription = if (session.muted) "Sound on" else "Mute",
+                )
+            }
+            Slider(
+                value = if (session.muted) 0f else session.volume.toFloat().coerceIn(0f, 100f),
+                onValueChange = { session.changeVolume(it.toDouble()) },
+                valueRange = 0f..100f,
+                modifier = Modifier.width(110.dp),
+            )
+            Spacer(Modifier.width(Spacings.medium))
+            Text(
+                text =
+                    formatDuration(session.position) +
+                        " / " +
+                        formatDuration(session.duration.coerceAtLeast(0.0)),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = session::cycleSpeed) {
+                Text(String.format(Locale.ROOT, "%sx", session.speed.toString().removeSuffix(".0")))
+            }
+            if (session.hasSubtitles) {
+                TextButton(onClick = session::cycleSubtitles) {
+                    AppIcon(
+                        name = "ic_closed_caption",
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(Spacings.small))
+                    Text(
+                        text = session.subtitle ?: "Off",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 160.dp),
+                    )
+                }
+            }
+            IconButton(onClick = session::toggleFullscreen) {
+                AppIcon(
+                    name = if (session.fullscreen) "ic_minimize" else "ic_maximize",
+                    contentDescription =
+                        if (session.fullscreen) "Leave full screen" else "Full screen",
+                )
+            }
+        }
+    }
+}
+
+/** The bar to seek with. While it's dragged it shows where it's going and seeks on letting go. */
+@Composable
+private fun SeekBar(session: PlayerSession) {
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    val duration = session.duration.toFloat()
+    Slider(
+        value = (dragging ?: session.position.toFloat()).coerceIn(0f, duration.coerceAtLeast(0f)),
+        onValueChange = { dragging = it },
+        onValueChangeFinished = {
+            dragging?.let { session.seekTo(it.toDouble()) }
+            dragging = null
+        },
+        valueRange = 0f..duration.coerceAtLeast(1f),
+        enabled = duration > 0f,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 /** The bar above the video: back, the title, and what's next. Hidden in full screen. */
 @Composable
-private fun PlayerBar(session: PlayerSession, onClose: () -> Unit) {
+private fun PlayerBar(session: PlayerSession, onClose: () -> Unit, modifier: Modifier = Modifier) {
     val item = session.item
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacings.small),
         modifier =
-            Modifier.fillMaxWidth()
+            modifier
+                .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                 .padding(horizontal = Spacings.small, vertical = 6.dp),
     ) {
@@ -631,9 +860,6 @@ private fun PlayerBar(session: PlayerSession, onClose: () -> Unit) {
                 }
             }
         }
-        IconButton(onClick = { session.player?.set("fullscreen", "yes") }) {
-            AppIcon(name = "ic_maximize", contentDescription = "Full screen")
-        }
     }
 }
 
@@ -654,7 +880,8 @@ private fun mpvOptions(settings: AppSettings): List<Pair<String, String>> = buil
     add("config-dir" to settings.mpvConfigFolder.path)
     add("config" to "yes")
     add("terminal" to "no")
-    add("osc" to "yes")
+    // Winchivist has its own controls: mpv's don't get the mouse while it draws inside a window
+    add("osc" to "no")
     add("input-default-bindings" to "yes")
     add("input-vo-keyboard" to "yes")
     add("keep-open" to "yes")

@@ -36,6 +36,9 @@ internal interface MpvLib : Library {
 
 /** Loads libmpv-2.dll from the app's folder, once. */
 internal object MpvLoader {
+    /** Set to "true" to leave mpv out, such as when drawing the pages without a screen. */
+    const val NO_MPV_PROPERTY = "winchivist.noMpv"
+
     private var loaded: MpvLib? = null
 
     var loadError: String? = null
@@ -45,6 +48,11 @@ internal object MpvLoader {
     fun load(): MpvLib? {
         loaded?.let {
             return it
+        }
+        // The page renders on GitHub draw the player without a video
+        if (System.getProperty(NO_MPV_PROPERTY) == "true") {
+            loadError = "mpv isn't loaded here"
+            return null
         }
         val options = mapOf(Library.OPTION_STRING_ENCODING to "UTF-8")
         val candidates = buildList {

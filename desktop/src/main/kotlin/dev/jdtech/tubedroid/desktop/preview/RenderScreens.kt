@@ -10,6 +10,7 @@ import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.window.WindowState
 import com.sun.net.httpserver.HttpServer
 import dev.jdtech.jellyfin.tubearchivist.TaBiggestChannel
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
@@ -37,10 +38,13 @@ import dev.jdtech.jellyfin.tubearchivist.TaWatchStats
 import dev.jdtech.tubedroid.desktop.AppGraph
 import dev.jdtech.tubedroid.desktop.AppSettings
 import dev.jdtech.tubedroid.desktop.LocalApp
+import dev.jdtech.tubedroid.desktop.LocalWindowState
 import dev.jdtech.tubedroid.desktop.Route
 import dev.jdtech.tubedroid.desktop.Section
 import dev.jdtech.tubedroid.desktop.Shell
 import dev.jdtech.tubedroid.desktop.ShellContent
+import dev.jdtech.tubedroid.desktop.player.MpvLoader
+import dev.jdtech.tubedroid.desktop.player.PlayerRequest
 import dev.jdtech.tubedroid.desktop.player.PlaylistPanel
 import dev.jdtech.tubedroid.desktop.screens.ChannelModel
 import dev.jdtech.tubedroid.desktop.screens.SearchModel
@@ -71,6 +75,7 @@ import org.jetbrains.skia.EncodedImageFormat
  * on GitHub runs it so the layout can be looked at without Windows.
  */
 fun main(args: Array<String>) {
+    System.setProperty(MpvLoader.NO_MPV_PROPERTY, "true")
     val output = File(args.firstOrNull() ?: "build/screens").also { it.mkdirs() }
     val server = SampleServer()
     val settings =
@@ -91,7 +96,10 @@ fun main(args: Array<String>) {
         val shell = Shell()
         val scene =
             ImageComposeScene(width = 1360, height = 860, density = Density(1f)) {
-                CompositionLocalProvider(LocalApp provides graph) {
+                CompositionLocalProvider(
+                    LocalApp provides graph,
+                    LocalWindowState provides WindowState(),
+                ) {
                     TubedroidTheme(accent = settings.accent) { ShellContent(shell) }
                 }
             }
@@ -135,6 +143,15 @@ fun main(args: Array<String>) {
         capture("queue")
         shell.select(Section.SETTINGS)
         capture("settings")
+        // The player, from a playlist, with its controls; without mpv the video's place is empty
+        shell.play(
+            PlayerRequest.Ta(
+                videoId = SampleData.videos[2].youtubeId,
+                playlistId = SampleData.playlists[1].id,
+            )
+        )
+        capture("player")
+        shell.closePlayer()
         scene.close()
 
         // The playlist beside the video, as the player shows it, with the video's place left black
