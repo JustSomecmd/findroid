@@ -13,6 +13,11 @@ on:
   push:
     branches:
       - custom
+    # Changes to only the Windows app, the workflows or the README don't make a new phone release
+    paths-ignore:
+      - 'desktop/**'
+      - '.github/**'
+      - 'README.md'
   workflow_dispatch:
 
 permissions:

@@ -44,6 +44,8 @@ compose.desktop {
             // libmpv-2.dll goes in resources/windows-x64, put there by the build on GitHub
             appResourcesRootDir.set(project.layout.projectDirectory.dir("resources"))
             windows {
+                // Made from icons/tubedroid.svg
+                iconFile.set(project.file("icons/tubedroid.ico"))
                 menuGroup = "Tubedroid"
                 shortcut = true
                 dirChooser = true

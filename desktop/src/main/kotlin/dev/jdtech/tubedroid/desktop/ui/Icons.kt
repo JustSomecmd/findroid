@@ -1,8 +1,10 @@
 package dev.jdtech.tubedroid.desktop.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -11,6 +13,7 @@ import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
@@ -158,4 +161,26 @@ fun AppImage(name: String, contentDescription: String?, modifier: Modifier = Mod
         contentDescription = contentDescription,
         modifier = modifier,
     )
+}
+
+/**
+ * Tubedroid's logo, as on the phone: the ring of TubeArchivist's logo with the Android figure of
+ * Findroid's in the middle, white on dark themes and in the text color on light ones.
+ */
+@Composable
+fun TubedroidLogo(modifier: Modifier = Modifier) {
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    Box(modifier = modifier) {
+        AppImage(
+            name = "ic_ta_logo_ring",
+            contentDescription = null,
+            modifier = Modifier.matchParentSize(),
+        )
+        AppIcon(
+            name = "ic_tubedroid_head",
+            contentDescription = "Tubedroid",
+            tint = if (dark) Color.White else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.matchParentSize(),
+        )
+    }
 }

@@ -50,10 +50,10 @@ import androidx.compose.ui.unit.dp
 import dev.jdtech.tubedroid.desktop.AppSettings
 import dev.jdtech.tubedroid.desktop.LocalApp
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
-import dev.jdtech.tubedroid.desktop.ui.AppImage
 import dev.jdtech.tubedroid.desktop.ui.ColumnScrollbar
 import dev.jdtech.tubedroid.desktop.ui.PageBar
 import dev.jdtech.tubedroid.desktop.ui.Spacings
+import dev.jdtech.tubedroid.desktop.ui.TubedroidLogo
 import dev.jdtech.tubedroid.desktop.ui.accentSeeds
 import dev.jdtech.tubedroid.desktop.ui.errorText
 import java.io.File
@@ -76,11 +76,7 @@ fun SettingsScreen(firstRun: Boolean, onDone: () -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.widthIn(max = 520.dp).padding(Spacings.large),
                 ) {
-                    AppImage(
-                        name = "ic_ta_logo_mark",
-                        contentDescription = null,
-                        modifier = Modifier.size(72.dp),
-                    )
+                    TubedroidLogo(modifier = Modifier.size(72.dp))
                     Spacer(Modifier.height(Spacings.default))
                     Text("Welcome to Tubedroid", style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.height(Spacings.small))
