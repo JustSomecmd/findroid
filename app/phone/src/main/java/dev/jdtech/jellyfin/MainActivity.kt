@@ -84,4 +84,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        // A video playing on in the background comes back as a small window
+        PlayerActivity.reopenInPictureInPicture(this)
+    }
 }

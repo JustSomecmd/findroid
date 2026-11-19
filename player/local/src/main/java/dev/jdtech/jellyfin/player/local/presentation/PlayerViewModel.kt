@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin.player.local.presentation
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -38,6 +39,7 @@ import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
@@ -113,7 +115,8 @@ constructor(
     )
 
     /** The video that's about to play, and in how many seconds. */
-    data class UpNext(val title: String, val secondsLeft: Int)
+    /** The next video, with a picture of it to load: a downloaded copy or one on the server. */
+    data class UpNext(val title: String, val secondsLeft: Int, val image: String? = null)
 
     private var items: MutableList<PlayerItem> = mutableListOf()
 
@@ -697,18 +700,42 @@ constructor(
                     duration > 0 &&
                     remaining in 0..UP_NEXT_MS
             ) {
-                val title =
-                    player
-                        .getMediaItemAt(player.nextMediaItemIndex)
-                        .mediaMetadata
-                        .title
-                        ?.toString()
-                        .orEmpty()
-                UpNext(title = title, secondsLeft = ceil(remaining / 1000.0).toInt())
+                val next = player.getMediaItemAt(player.nextMediaItemIndex)
+                UpNext(
+                    title = next.mediaMetadata.title?.toString().orEmpty(),
+                    secondsLeft = ceil(remaining / 1000.0).toInt(),
+                    image = upNextImage(next.mediaId),
+                )
             } else {
                 null
             }
         if (upNext != _uiState.value.upNext) _uiState.update { it.copy(upNext = upNext) }
+    }
+
+    // The picture found for the next video, kept so the files aren't looked at on every update
+    private var upNextImageFor: Pair<String, String?>? = null
+
+    /**
+     * The next video's picture: the copy saved with its download, or else the one on the Jellyfin
+     * server, which TubeArchivist's plugin sets to the video's thumbnail.
+     */
+    private fun upNextImage(itemId: String): String? {
+        upNextImageFor?.let { (id, image) -> if (id == itemId) return image }
+        val image =
+            try {
+                val saved = File(application.filesDir, "images/$itemId/primary")
+                if (saved.exists()) {
+                    Uri.fromFile(saved).toString()
+                } else {
+                    repository.getBaseUrl().trimEnd('/') +
+                        "/items/$itemId/Images/Primary?fillWidth=$UP_NEXT_IMAGE_WIDTH&quality=90"
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "No picture for the next video")
+                null
+            }
+        upNextImageFor = itemId to image
+        return image
     }
 
     /** Plays the next video right away, saving where this one was left first. */
@@ -1155,6 +1182,8 @@ private const val RESYNC_DELAY_MS = 1_000L
 
 // How long before the end the next video is shown
 private const val UP_NEXT_MS = 10_000L
+// Pixels, about twice the thumbnail's size on screen
+private const val UP_NEXT_IMAGE_WIDTH = 320
 
 // What happens at a SponsorBlock segment
 private const val SPONSORBLOCK_OFF = "off"

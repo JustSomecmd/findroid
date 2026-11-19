@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin
 
+import android.app.Activity
 import android.app.AppOpsManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
@@ -48,6 +49,7 @@ import androidx.media3.common.C
 import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerControlView
 import androidx.media3.ui.PlayerView
+import coil3.load
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.databinding.ActivityPlayerBinding
@@ -65,6 +67,7 @@ import dev.jdtech.jellyfin.settings.domain.PlayerButtonLayout
 import dev.jdtech.jellyfin.settings.domain.PlayerButtonPlacement
 import dev.jdtech.jellyfin.utils.PlayerGestureHelper
 import dev.jdtech.jellyfin.utils.PreviewScrubListener
+import java.lang.ref.WeakReference
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -180,6 +183,10 @@ class PlayerActivity : BasePlayerActivity() {
         val upNextCard = binding.playerView.findViewById<View>(R.id.up_next_card)
         val upNextLabel = binding.playerView.findViewById<TextView>(R.id.up_next_label)
         val upNextTitle = binding.playerView.findViewById<TextView>(R.id.up_next_title)
+        val upNextThumbnail = binding.playerView.findViewById<ImageView>(R.id.up_next_thumbnail)
+        // The picture asked for last, so it's loaded once rather than on every update. Empty
+        // before the first, so a missing picture hides the thumbnail then too
+        var upNextImage: String? = ""
 
         autoplayButton.setOnClickListener {
             val enabled = !viewModel.uiState.value.autoplay
@@ -268,6 +275,20 @@ class PlayerActivity : BasePlayerActivity() {
                                 upNextLabel.text =
                                     getString(PlayerR.string.player_up_next_in, next.secondsLeft)
                                 upNextTitle.text = next.title
+                                if (next.image != upNextImage) {
+                                    upNextImage = next.image
+                                    upNextThumbnail.isVisible = next.image != null
+                                    upNextThumbnail.setImageDrawable(null)
+                                    next.image?.let { image ->
+                                        upNextThumbnail.load(image) {
+                                            listener(
+                                                onError = { _, _ ->
+                                                    upNextThumbnail.isVisible = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
                                 // Playing the next one now does what the skip button would
                                 skipSegmentButton.isVisible = false
                             }
@@ -491,6 +512,12 @@ class PlayerActivity : BasePlayerActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
 
+        // Brought back from the background as the app opened, to carry on in a small window
+        if (intent.getBooleanExtra(EXTRA_REOPEN_IN_PIP, false)) {
+            enterPipOnResume = true
+            return
+        }
+
         // Tapping the playback notification only brings the player back
         val itemIdString = intent.extras?.getString("itemId") ?: return
         setIntent(intent)
@@ -626,6 +653,50 @@ class PlayerActivity : BasePlayerActivity() {
                 controller.visibility = View.GONE
                 controller.alpha = 1f
             }
+        }
+    }
+
+    /** Set when the player was brought back to go straight into picture-in-picture. */
+    private var enterPipOnResume = false
+
+    // After picture-in-picture couldn't open, the player stays in the background from then on,
+    // rather than coming to the front each time the app is opened
+    private var pipReopenFailed = false
+
+    // Set while the player comes back as a small window in the phone's orientation, to turn to
+    // landscape again once it's made big
+    private var restoreOrientationAfterPip = false
+
+    override fun onStart() {
+        super.onStart()
+        if (backgroundPlayer?.get() === this) backgroundPlayer = null
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (enterPipOnResume) {
+            enterPipOnResume = false
+            val entered =
+                try {
+                    enterPictureInPictureMode(pipParams())
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not reopen picture-in-picture")
+                    false
+                }
+            if (!entered) {
+                pipReopenFailed = true
+                restoreOrientationAfterPip = false
+                requestedOrientation = playerOrientation()
+                moveTaskToBack(true)
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Playing on with nothing on screen: opening the app brings it back as a small window
+        if (!isFinishing && backgroundPlayback && isPipSupported && !pipReopenFailed) {
+            backgroundPlayer = WeakReference(this)
         }
     }
 
@@ -805,6 +876,7 @@ class PlayerActivity : BasePlayerActivity() {
     private var pipControlReceiverRegistered = false
 
     override fun onDestroy() {
+        if (backgroundPlayer?.get() === this) backgroundPlayer = null
         if (pipControlReceiverRegistered) {
             unregisterReceiver(pipControlReceiver)
             pipControlReceiverRegistered = false
@@ -847,6 +919,11 @@ class PlayerActivity : BasePlayerActivity() {
                 binding.playerView.useController = true
                 playerGestureHelper?.updateZoomMode(wasZoom)
 
+                if (restoreOrientationAfterPip) {
+                    restoreOrientationAfterPip = false
+                    requestedOrientation = playerOrientation()
+                }
+
                 // Override auto brightness
                 if (
                     appPreferences.getValue(appPreferences.playerGesturesVB) &&
@@ -861,9 +938,33 @@ class PlayerActivity : BasePlayerActivity() {
             }
         }
     }
+
+    companion object {
+        /** A player playing on in the background, with nothing on screen. */
+        private var backgroundPlayer: WeakReference<PlayerActivity>? = null
+
+        /**
+         * Brings a video playing on in the background back as a picture-in-picture window, for when
+         * the app is opened again. Does nothing when no video is playing that way.
+         */
+        fun reopenInPictureInPicture(from: Activity) {
+            val player = backgroundPlayer?.get() ?: return
+            backgroundPlayer = null
+            if (player.isFinishing || player.isDestroyed) return
+            // Paused from the notification, it stays out of the way
+            if (!player.viewModel.player.playWhenReady) return
+            // Comes back in the phone's orientation, so the screen doesn't turn for a moment
+            player.restoreOrientationAfterPip = true
+            player.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            from.startActivity(
+                Intent(from, PlayerActivity::class.java).putExtra(EXTRA_REOPEN_IN_PIP, true)
+            )
+        }
+    }
 }
 
 private const val ACTION_PIP_CONTROL = "dev.jdtech.jellyfin.PIP_CONTROL"
+private const val EXTRA_REOPEN_IN_PIP = "reopenInPip"
 private const val EXTRA_PIP_CONTROL = "control"
 private const val PIP_CONTROL_PLAY = 1
 private const val PIP_CONTROL_PAUSE = 2
