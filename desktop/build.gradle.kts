@@ -21,6 +21,10 @@ dependencies {
     implementation(libs.jna.platform)
     // Jellyfin's own library, as the phone app uses
     implementation(libs.jellyfin.core)
+    // The Jellyfin library logs through SLF4J but leaves adding it to the app. Its logs aren't
+    // kept, as the phone app keeps them only for Android's log
+    implementation(libs.slf4j.api)
+    runtimeOnly(libs.slf4j.nop)
 }
 
 // The phone app's icons, so both look the same

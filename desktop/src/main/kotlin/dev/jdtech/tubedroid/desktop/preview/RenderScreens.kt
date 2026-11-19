@@ -48,6 +48,7 @@ import java.io.File
 import java.net.InetSocketAddress
 import java.util.prefs.Preferences
 import javax.imageio.ImageIO
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.system.exitProcess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -72,6 +73,11 @@ fun main(args: Array<String>) {
         }
     val graph = AppGraph(settings)
     installImageLoader(graph.api)
+    checkJellyfinSignIn(graph, server.url)
+    // A playlist part way through, for Continue watching
+    SampleData.playlists[1].let { playlist ->
+        graph.history.updatePlaylist(playlist.id, playlist.name, SampleData.videos[2].youtubeId)
+    }
 
     runBlocking(Dispatchers.Main) {
         val shell = Shell()
@@ -275,6 +281,22 @@ private object SampleData {
 }
 
 /** Answers like TubeArchivist's API, with [SampleData], and draws a picture for every image. */
+/**
+ * Signs in to Jellyfin at the sample server, which has no Jellyfin, so this fails. It only has to
+ * fail the ordinary way: a library missing from the app stops it with an error instead, which fails
+ * the build here before it can stop the app.
+ */
+private fun checkJellyfinSignIn(graph: AppGraph, url: String) {
+    try {
+        runBlocking { graph.jellyfin.signIn(url, "preview", "preview") }
+        graph.jellyfin.signOut()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        println("Jellyfin sign-in reached the server: ${e.message}")
+    }
+}
+
 private class SampleServer {
     private val json = Json { encodeDefaults = true }
     private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)

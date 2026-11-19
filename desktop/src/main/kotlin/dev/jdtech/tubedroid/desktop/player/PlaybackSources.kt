@@ -3,6 +3,7 @@ package dev.jdtech.tubedroid.desktop.player
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.tubedroid.desktop.AppSettings
+import dev.jdtech.tubedroid.desktop.WatchHistory
 import dev.jdtech.tubedroid.desktop.jellyfin.JellyfinClient
 import dev.jdtech.tubedroid.desktop.screens.loadPlaylist
 import java.util.UUID
@@ -64,16 +65,30 @@ internal interface PlaybackSource {
 internal class TaPlaybackSource(
     private val api: TaApi,
     private val settings: AppSettings,
+    private val history: WatchHistory,
     private val request: PlayerRequest.Ta,
 ) : PlaybackSource {
     private var playlist: List<TaVideo> = emptyList()
+    private var playlistName = ""
 
     override suspend fun first(): PlayItem {
         val video = api.getVideo(request.videoId)
         request.playlistId?.let { id ->
-            playlist = runCatching { api.loadPlaylist(id).second }.getOrDefault(emptyList())
+            runCatching { api.loadPlaylist(id) }
+                .getOrNull()
+                ?.let { (loaded, videos) ->
+                    playlistName = loaded.name
+                    playlist = videos
+                }
         }
         return video.toPlayItem(fromStart = request.fromStart)
+    }
+
+    /** Notes the video as played, and the playlist as being at it, for Continue watching. */
+    override suspend fun started(item: PlayItem, seconds: Double) {
+        history.played(item.id)
+        val playlistId = request.playlistId ?: return
+        history.updatePlaylist(playlistId, playlistName, item.id)
     }
 
     private fun nextVideo(current: PlayItem): TaVideo? {
@@ -95,6 +110,15 @@ internal class TaPlaybackSource(
 
     override suspend fun ended(item: PlayItem) {
         api.setWatched(item.id, true)
+        // The playlist carries on from the next video next time, and is done after its last
+        val playlistId = request.playlistId ?: return
+        if (playlist.isEmpty()) return
+        val next = nextVideo(item)
+        if (next != null) {
+            history.updatePlaylist(playlistId, playlistName, next.youtubeId)
+        } else {
+            history.removePlaylist(playlistId)
+        }
     }
 
     private fun TaVideo.toPlayItem(fromStart: Boolean): PlayItem {

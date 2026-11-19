@@ -1,11 +1,15 @@
 package dev.jdtech.tubedroid.desktop.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ContextMenuArea
+import androidx.compose.foundation.ContextMenuItem
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,7 +56,10 @@ import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.tubedroid.desktop.LocalApp
 import dev.jdtech.tubedroid.desktop.LocalNavigator
+import dev.jdtech.tubedroid.desktop.PlaylistSession
 import dev.jdtech.tubedroid.desktop.Route
+import dev.jdtech.tubedroid.desktop.WatchHistory
+import dev.jdtech.tubedroid.desktop.player.PlayerRequest
 import dev.jdtech.tubedroid.desktop.rememberPageModel
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.ConfirmDialog
@@ -66,6 +73,7 @@ import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.TaImage
 import dev.jdtech.tubedroid.desktop.ui.VideoCard
+import dev.jdtech.tubedroid.desktop.ui.VideoThumbnail
 import dev.jdtech.tubedroid.desktop.ui.errorText
 import dev.jdtech.tubedroid.desktop.ui.formatCount
 import kotlin.coroutines.cancellation.CancellationException
@@ -73,13 +81,23 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** What Home shows: channels for the carousel, videos to carry on with, and the latest videos. */
-class HomeModel(private val api: TaApi, private val scope: CoroutineScope) {
+/**
+ * What Home shows: channels for the carousel, videos and playlists to carry on with, and the latest
+ * videos.
+ */
+class HomeModel(
+    private val api: TaApi,
+    private val history: WatchHistory,
+    private val scope: CoroutineScope,
+) {
     var featured by mutableStateOf<List<TaChannel>>(emptyList())
         private set
 
-    var continueWatching by mutableStateOf<List<TaVideo>>(emptyList())
+    /** Videos part way through, and playlists being watched through, most recent first. */
+    var continueWatching by mutableStateOf<List<ContinueItem>>(emptyList())
         private set
+
+    private var shown = false
 
     val latest =
         PagedList(scope, key = TaVideo::youtubeId) { page ->
@@ -186,17 +204,114 @@ class HomeModel(private val api: TaApi, private val scope: CoroutineScope) {
                 // The carousel is left out when TubeArchivist can't be reached
             }
         }
+        loadContinueWatching()
+    }
+
+    /**
+     * Catches up with what changed while Home was away, such as where videos and playlists were
+     * left off. The player saves its last position as it closes, so this waits a moment for that.
+     */
+    fun onShown() {
+        if (!shown) {
+            shown = true
+            return
+        }
+        loadWatchLater()
+        scope.launch {
+            delay(RETURN_DELAY_MS)
+            loadContinueWatching()
+        }
+    }
+
+    private fun loadContinueWatching() {
         scope.launch {
             try {
-                continueWatching = api.getVideos(watch = "continue").data.reversed()
+                val videos = api.getVideos(watch = "continue").data
+                // A playlist takes the place of its video. Each item is ranked by when it was last
+                // played here, with videos played elsewhere after, in TubeArchivist's order
+                val playlists =
+                    history.playlists.take(MAX_PLAYLISTS).mapNotNull { session ->
+                        resolvePlaylist(session)?.let { it to session.updatedAt }
+                    }
+                val inPlaylists = playlists.flatMap { (item, _) ->
+                    listOf(item.video.youtubeId, item.lastVideoId)
+                }
+                val single =
+                    videos
+                        .reversed()
+                        .filter { it.youtubeId !in inPlaylists }
+                        .map { ContinueItem.Video(it) to (history.lastPlayed(it.youtubeId) ?: 0L) }
+                continueWatching =
+                    (playlists + single).sortedByDescending { (_, time) -> time }.map { it.first }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {}
         }
     }
 
+    /**
+     * The video a playlist is at, or the next one if that was watched. Forgets the playlist when it
+     * was watched to the end or the video isn't in it anymore.
+     */
+    private suspend fun resolvePlaylist(session: PlaylistSession): ContinueItem.Playlist? =
+        try {
+            val playlist = api.getPlaylist(session.playlistId)
+            val entries = playlist.entries.filter { it.downloaded }
+            var index = entries.indexOfFirst { it.youtubeId == session.videoId }
+            var video = entries.getOrNull(index)?.let { api.getVideo(it.youtubeId) }
+            if (video?.player?.watched == true) {
+                index++
+                video = entries.getOrNull(index)?.let { api.getVideo(it.youtubeId) }
+            }
+            if (video == null) {
+                history.removePlaylist(session.playlistId)
+                null
+            } else {
+                ContinueItem.Playlist(
+                    playlistId = playlist.id,
+                    name = playlist.name.ifBlank { session.playlistName },
+                    video = video,
+                    number = index + 1,
+                    count = entries.size,
+                    lastVideoId = session.videoId,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+
     companion object {
         private const val FEATURED_COUNT = 10
+        private const val MAX_PLAYLISTS = 5
+        private const val RETURN_DELAY_MS = 1_000L
+    }
+}
+
+/** Something on Home's Continue watching row. */
+sealed interface ContinueItem {
+    val key: String
+
+    data class Video(val video: TaVideo) : ContinueItem {
+        override val key: String
+            get() = "video:" + video.youtubeId
+    }
+
+    /**
+     * A playlist being watched through, at [video], number [number] of its [count] videos.
+     * [lastVideoId] is the video last played in it.
+     */
+    data class Playlist(
+        val playlistId: String,
+        val name: String,
+        val video: TaVideo,
+        val number: Int,
+        val count: Int,
+        val lastVideoId: String,
+    ) : ContinueItem {
+        override val key: String
+            get() = "playlist:$playlistId"
     }
 }
 
@@ -204,9 +319,8 @@ class HomeModel(private val api: TaApi, private val scope: CoroutineScope) {
 fun HomeScreen() {
     val app = LocalApp.current
     val navigator = LocalNavigator.current
-    val model = rememberPageModel("home") { scope -> HomeModel(app.api, scope) }
-    // Videos may have been saved for later since Home was last shown
-    LaunchedEffect(Unit) { model.loadWatchLater() }
+    val model = rememberPageModel("home") { scope -> HomeModel(app.api, app.history, scope) }
+    LaunchedEffect(Unit) { model.onShown() }
     val openPlaylist: (String) -> Unit = { navigator.open(Route.Playlist(it)) }
     Column(modifier = Modifier.fillMaxSize()) {
         PageBar(title = "Home", onBack = null) {
@@ -317,7 +431,7 @@ fun StatsScreen() {
 @Composable
 fun HomeContent(
     featured: List<TaChannel>,
-    continueWatching: List<TaVideo>,
+    continueWatching: List<ContinueItem>,
     latest: PagedList<TaVideo>,
     gridState: LazyGridState,
 ) {
@@ -346,12 +460,33 @@ fun HomeContent(
                     if (continueWatching.isNotEmpty()) {
                         SectionTitle("Continue watching")
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacings.medium)) {
-                            items(continueWatching, key = { it.youtubeId }) { video ->
-                                VideoCard(
-                                    video = video,
-                                    onClick = { navigator.open(Route.Video(video.youtubeId)) },
-                                    modifier = Modifier.width(300.dp),
-                                )
+                            items(continueWatching, key = { it.key }) { item ->
+                                when (item) {
+                                    is ContinueItem.Video ->
+                                        VideoCard(
+                                            video = item.video,
+                                            onClick = {
+                                                navigator.open(Route.Video(item.video.youtubeId))
+                                            },
+                                            modifier = Modifier.width(CONTINUE_CARD_WIDTH),
+                                        )
+                                    is ContinueItem.Playlist ->
+                                        PlaylistResumeCard(
+                                            item = item,
+                                            onClick = {
+                                                navigator.play(
+                                                    PlayerRequest.Ta(
+                                                        videoId = item.video.youtubeId,
+                                                        playlistId = item.playlistId,
+                                                    )
+                                                )
+                                            },
+                                            onOpenPlaylist = {
+                                                navigator.open(Route.Playlist(item.playlistId))
+                                            },
+                                            modifier = Modifier.width(CONTINUE_CARD_WIDTH),
+                                        )
+                                }
                             }
                         }
                     }
@@ -368,6 +503,70 @@ fun HomeContent(
             }
         }
         GridScrollbar(gridState)
+    }
+}
+
+private val CONTINUE_CARD_WIDTH = 300.dp
+
+/**
+ * A playlist being watched through, on Continue watching: the video it's at, with the playlist's
+ * name and how far into it that is. Clicking carries on playing the playlist from there, and its
+ * right-click menu opens the playlist's page, as holding it does on the phone.
+ */
+@Composable
+private fun PlaylistResumeCard(
+    item: ContinueItem.Playlist,
+    onClick: () -> Unit,
+    onOpenPlaylist: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ContextMenuArea(items = { listOf(ContextMenuItem("Open playlist", onOpenPlaylist)) }) {
+        Column(modifier = modifier.clip(MaterialTheme.shapes.medium).clickable(onClick = onClick)) {
+            Box {
+                VideoThumbnail(video = item.video, modifier = Modifier.fillMaxWidth())
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier =
+                        Modifier.align(Alignment.TopStart)
+                            .padding(Spacings.small)
+                            .background(
+                                Color.Black.copy(alpha = 0.75f),
+                                MaterialTheme.shapes.extraSmall,
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    AppIcon(
+                        name = "ic_list_video",
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "${item.number} of ${item.count}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 10.dp)
+            ) {
+                Text(
+                    text = item.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = item.video.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 

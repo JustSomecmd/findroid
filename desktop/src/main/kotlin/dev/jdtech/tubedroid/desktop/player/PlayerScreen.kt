@@ -309,7 +309,8 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
         remember(request) {
             val source =
                 when (request) {
-                    is PlayerRequest.Ta -> TaPlaybackSource(app.api, app.settings, request)
+                    is PlayerRequest.Ta ->
+                        TaPlaybackSource(app.api, app.settings, app.history, request)
                     is PlayerRequest.Jellyfin -> JellyfinPlaybackSource(app.jellyfin, request)
                 }
             PlayerSession(source, app.settings, scope)

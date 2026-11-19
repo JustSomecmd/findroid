@@ -43,6 +43,9 @@ class AppSettings(private val prefs: Preferences = Preferences.userRoot().node("
     var jellyfinUserId: String? by stored<String?>("jellyfin_user_id", null)
     var jellyfinUserName: String? by stored<String?>("jellyfin_user_name", null)
 
+    /** What was watched here, as WatchHistory keeps it. */
+    var watchHistory: String? by stored<String?>("watch_history", null)
+
     /** This computer, as Jellyfin's list of devices shows it; made up once. */
     val deviceId: String
         get() =

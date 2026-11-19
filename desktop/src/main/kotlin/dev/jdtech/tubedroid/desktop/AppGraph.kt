@@ -14,6 +14,7 @@ class AppGraph(val settings: AppSettings) {
     val jellyfin = JellyfinClient(settings)
     val downloads = Downloads(settings, api)
     val updates = Updates()
+    val history = WatchHistory(settings)
 }
 
 val LocalApp = staticCompositionLocalOf<AppGraph> { error("No app") }
