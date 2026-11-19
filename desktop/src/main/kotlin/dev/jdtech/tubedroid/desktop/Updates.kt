@@ -43,37 +43,54 @@ class Updates {
 
     /**
      * Looks for a newer release. Returns whether there is one; throws when GitHub can't be read.
+     *
+     * GitHub doesn't list releases in date order, and the phone app's releases are in the same
+     * list, so the newest desktop tags are found first and then their releases.
      */
     suspend fun checkForUpdate(): Boolean =
         withContext(Dispatchers.IO) {
             checking = true
             try {
-                val request =
-                    Request.Builder()
-                        .url("https://api.github.com/repos/$REPOSITORY/releases?per_page=30")
-                        .header("Accept", "application/vnd.github+json")
-                        .build()
-                val body =
-                    client.newCall(request).execute().use { response ->
-                        check(response.isSuccessful) { "GitHub answered ${response.code}" }
-                        response.body.string()
+                val installed = current
+                val tags =
+                    get("git/matching-refs/tags/$TAG_PREFIX")
+                        ?.let { json.decodeFromString<List<Ref>>(it) }
+                        .orEmpty()
+                        .map { it.ref.removePrefix("refs/tags/") }
+                        .filter {
+                            installed != null && compareVersions(versionOf(it), installed) > 0
+                        }
+                        .sortedWith { a, b -> compareVersions(versionOf(b), versionOf(a)) }
+                // The newest release may still be getting its installer, so the one before it
+                // will do until then
+                val newer =
+                    tags.take(TAGS_TO_TRY).firstNotNullOfOrNull { tag ->
+                        get("releases/tags/$tag")
+                            ?.let { json.decodeFromString<Release>(it) }
+                            ?.takeIf { release ->
+                                !release.draft && release.assets.any { it.name.endsWith(".msi") }
+                            }
                     }
-                val newest =
-                    json
-                        .decodeFromString<List<Release>>(body)
-                        .filter { it.tag.startsWith(TAG_PREFIX) && !it.draft }
-                        .filter { release -> release.assets.any { it.name.endsWith(".msi") } }
-                        .maxWithOrNull { a, b -> compareVersions(a.version, b.version) }
-                val newer = newest?.takeIf { release ->
-                    val installed = current ?: return@takeIf false
-                    compareVersions(release.version, installed) > 0
-                }
                 available = newer
                 newer != null
             } finally {
                 checking = false
             }
         }
+
+    /** A page of GitHub's API for the repository, or null when it isn't there. */
+    private fun get(path: String): String? {
+        val request =
+            Request.Builder()
+                .url("https://api.github.com/repos/$REPOSITORY/$path")
+                .header("Accept", "application/vnd.github+json")
+                .build()
+        return client.newCall(request).execute().use { response ->
+            if (response.code == 404) return@use null
+            check(response.isSuccessful) { "GitHub answered ${response.code}" }
+            response.body.string()
+        }
+    }
 
     /**
      * Downloads the newer installer and starts it, then closes Winchivist so the installer can
@@ -120,8 +137,10 @@ class Updates {
     ) {
         /** Such as 1.0.12, from the tag desktop-1.0.12. */
         val version: String
-            get() = tag.removePrefix(TAG_PREFIX)
+            get() = versionOf(tag)
     }
+
+    @Serializable data class Ref(val ref: String)
 
     @Serializable
     data class Asset(
@@ -133,6 +152,9 @@ class Updates {
     companion object {
         private const val REPOSITORY = "JustSomecmd/findroid"
         private const val TAG_PREFIX = "desktop-"
+        private const val TAGS_TO_TRY = 3
+
+        private fun versionOf(tag: String): String = tag.removePrefix(TAG_PREFIX)
 
         private fun versionParts(version: String): List<Int> =
             version.split('.').map { it.toIntOrNull() ?: 0 }
