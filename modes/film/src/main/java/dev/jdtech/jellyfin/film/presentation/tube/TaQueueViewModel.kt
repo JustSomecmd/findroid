@@ -58,6 +58,7 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
     val messages = _messages.receiveAsFlow()
 
     private var pollJob: Job? = null
+    private var refreshJob: Job? = null
 
     fun selectFilter(filter: TaQueueFilter) {
         if (filter == _filter.value) return
@@ -96,8 +97,10 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
             loadMore()
             return
         }
+        // Checks often while tasks run, so one at a time
+        if (refreshJob?.isActive == true) return
         val filter = _filter.value
-        viewModelScope.launch {
+        refreshJob = viewModelScope.launch {
             _items.reloadInPlace(key = { it.youtubeId }, isCurrent = { _filter.value == filter }) {
                 page ->
                 taApi.getDownloads(page = page, filter = filter.apiValue)
@@ -105,9 +108,13 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
         }
     }
 
-    /** Follows the server's tasks while the queue is on screen. */
+    /**
+     * Follows the server's tasks while the queue is on screen, and brings the list up to date
+     * whenever one moves on, as well as each time the queue is opened.
+     */
     fun startWatchingTasks() {
         if (pollJob?.isActive == true) return
+        refresh()
         pollJob = viewModelScope.launch {
             while (isActive) {
                 val before = lastNotifications
@@ -142,12 +149,9 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
                 _downloading.value = download
                 // The downloads are shown on their own, not with the other tasks
                 _tasks.value = now.filter { it.group != DOWNLOAD_GROUP }
-                when {
-                    // A task finished, so the queue has probably changed
-                    before.isNotEmpty() && now.size < before.size -> refresh()
-                    // The next video started, so the last one is done and leaves the queue
-                    downloadBefore != null && download?.title != downloadBefore.title -> refresh()
-                }
+                // A task moved on, finished or started, such as the next video downloading, so the
+                // queue may have changed too
+                if (now != before) refresh()
                 delay(if (now.isEmpty()) IDLE_POLL_MS else ACTIVE_POLL_MS)
             }
         }
@@ -279,7 +283,7 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
 
     companion object {
         private const val DOWNLOAD_GROUP = "download:run"
-        private const val ACTIVE_POLL_MS = 2_000L
-        private const val IDLE_POLL_MS = 10_000L
+        private const val ACTIVE_POLL_MS = 1_000L
+        private const val IDLE_POLL_MS = 4_000L
     }
 }
