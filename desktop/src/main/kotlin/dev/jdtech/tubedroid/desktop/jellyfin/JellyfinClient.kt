@@ -8,7 +8,7 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jellyfin.sdk.api.client.extensions.authenticationApi
-import org.jellyfin.sdk.api.client.extensions.displayPreferencesApi
+import org.jellyfin.sdk.api.client.extensions.displayPreferenceApi
 import org.jellyfin.sdk.api.client.extensions.libraryApi
 import org.jellyfin.sdk.api.client.extensions.sessionApi
 import org.jellyfin.sdk.api.client.extensions.showApi
@@ -73,7 +73,7 @@ class JellyfinClient(private val settings: AppSettings) {
         override suspend fun write(text: String) =
             withContext(Dispatchers.IO) {
                 val current = preferences()
-                api.displayPreferencesApi.updateDisplayPreferences(
+                api.displayPreferenceApi.updateDisplayPreferences(
                     displayPreferencesId = TaPlaylistSessionSync.PREFERENCES_ID,
                     userId = userId,
                     client = TaPlaylistSessionSync.CLIENT,
@@ -86,7 +86,7 @@ class JellyfinClient(private val settings: AppSettings) {
             }
 
         private suspend fun preferences() =
-            api.displayPreferencesApi
+            api.displayPreferenceApi
                 .getDisplayPreferences(
                     displayPreferencesId = TaPlaylistSessionSync.PREFERENCES_ID,
                     userId = userId,

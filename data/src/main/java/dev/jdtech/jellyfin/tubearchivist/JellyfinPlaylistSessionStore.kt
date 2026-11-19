@@ -4,7 +4,7 @@ import dev.jdtech.jellyfin.api.JellyfinApi
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.jellyfin.sdk.api.client.extensions.displayPreferencesApi
+import org.jellyfin.sdk.api.client.extensions.displayPreferenceApi
 
 /**
  * The playlists being watched, kept in the Jellyfin user's display settings, where Winchivist sees
@@ -18,7 +18,7 @@ class JellyfinPlaylistSessionStore(private val jellyfinApi: JellyfinApi) : TaPla
         withContext(Dispatchers.IO) {
             val userId = userId()
             val current = preferences(userId)
-            jellyfinApi.api.displayPreferencesApi.updateDisplayPreferences(
+            jellyfinApi.api.displayPreferenceApi.updateDisplayPreferences(
                 displayPreferencesId = TaPlaylistSessionSync.PREFERENCES_ID,
                 userId = userId,
                 client = TaPlaylistSessionSync.CLIENT,
@@ -33,7 +33,7 @@ class JellyfinPlaylistSessionStore(private val jellyfinApi: JellyfinApi) : TaPla
     private fun userId(): UUID = jellyfinApi.userId ?: error("Not signed in to Jellyfin")
 
     private suspend fun preferences(userId: UUID) =
-        jellyfinApi.api.displayPreferencesApi
+        jellyfinApi.api.displayPreferenceApi
             .getDisplayPreferences(
                 displayPreferencesId = TaPlaylistSessionSync.PREFERENCES_ID,
                 userId = userId,
