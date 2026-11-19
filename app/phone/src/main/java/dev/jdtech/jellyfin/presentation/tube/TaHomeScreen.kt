@@ -360,10 +360,13 @@ fun TaSectionTitle(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** A section title with something at its right end, such as the Watch Later button. */
+/**
+ * A section title with something at its right end, such as the Watch Later button. Both line up at
+ * the top, so space under the button keeps it off what's below without moving the title.
+ */
 @Composable
 private fun TaSectionTitleRow(text: String, trailing: @Composable () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(verticalAlignment = Alignment.Top) {
         TaSectionTitle(text = text, modifier = Modifier.weight(1f))
         trailing()
     }
@@ -371,8 +374,8 @@ private fun TaSectionTitleRow(text: String, trailing: @Composable () -> Unit) {
 
 /**
  * A small square with a clock that opens the Watch Later playlist, the same height as the title
- * beside it so the row doesn't grow. A spinner takes the clock's place while the playlist is being
- * looked up or made.
+ * beside it, with a gap under it so it doesn't touch the thumbnails. A spinner takes the clock's
+ * place while the playlist is being looked up or made.
  */
 @Composable
 private fun TaWatchLaterButton(busy: Boolean, onClick: () -> Unit) {
@@ -381,7 +384,10 @@ private fun TaWatchLaterButton(busy: Boolean, onClick: () -> Unit) {
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.size(40.dp).semantics { contentDescription = label },
+        modifier =
+            Modifier.padding(bottom = MaterialTheme.spacings.small).size(40.dp).semantics {
+                contentDescription = label
+            },
     ) {
         Box(contentAlignment = Alignment.Center) {
             if (busy) {
