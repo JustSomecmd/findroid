@@ -1,22 +1,27 @@
 package dev.jdtech.jellyfin.settings.domain
 
-/** The player's optional buttons, which the user can move between bars or hide. */
+/**
+ * The player's optional buttons, which the user can put in a bar, in the settings menu behind the
+ * cogwheel, or hide. Their order here is the order they start in.
+ */
 enum class PlayerButton(val key: String, val defaultPlacement: PlayerButtonPlacement) {
     AUTOPLAY("autoplay", PlayerButtonPlacement.TOP),
-    LOCK("lock", PlayerButtonPlacement.TOP),
-    PIP("pip", PlayerButtonPlacement.TOP),
-    CHAPTERS("chapters", PlayerButtonPlacement.TOP),
-    QUALITY("quality", PlayerButtonPlacement.TOP),
-    SPEED("speed", PlayerButtonPlacement.TOP),
-    SLEEP_TIMER("sleep", PlayerButtonPlacement.TOP),
-    AUDIO("audio", PlayerButtonPlacement.TOP),
+    QUALITY("quality", PlayerButtonPlacement.MENU),
+    SPEED("speed", PlayerButtonPlacement.MENU),
+    // A switch for captions in a bar; picking the track is in the menu too
     SUBTITLES("subtitles", PlayerButtonPlacement.TOP),
+    LOCK("lock", PlayerButtonPlacement.MENU),
+    SLEEP_TIMER("sleep", PlayerButtonPlacement.MENU),
+    PIP("pip", PlayerButtonPlacement.MENU),
+    AUDIO("audio", PlayerButtonPlacement.MENU),
+    CHAPTERS("chapters", PlayerButtonPlacement.MENU),
     ROTATE("rotate", PlayerButtonPlacement.BOTTOM),
 }
 
 enum class PlayerButtonPlacement(val key: String) {
     TOP("top"),
     BOTTOM("bottom"),
+    MENU("menu"),
     HIDDEN("hidden"),
 }
 

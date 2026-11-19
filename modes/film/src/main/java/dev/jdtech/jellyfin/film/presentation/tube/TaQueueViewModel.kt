@@ -123,6 +123,22 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
                 lastNotifications = now
                 val downloadBefore = _downloading.value
                 val download = now.firstOrNull { it.group == DOWNLOAD_GROUP }?.toDownloading()
+                // The video before is done once another starts, or once the downloads end
+                // without being stopped. It leaves the list as the card moves on, rather than at
+                // the next refresh.
+                val finished =
+                    downloadBefore?.item?.takeIf {
+                        download?.title != downloadBefore.title &&
+                            downloadBefore.taskId != stoppedTaskId
+                    }
+                if (finished != null) {
+                    _items.update { state ->
+                        state.copy(
+                            items = state.items.filter { it.youtubeId != finished.youtubeId },
+                            total = state.total?.let { (it - 1).coerceAtLeast(0) },
+                        )
+                    }
+                }
                 _downloading.value = download
                 // The downloads are shown on their own, not with the other tasks
                 _tasks.value = now.filter { it.group != DOWNLOAD_GROUP }
@@ -154,9 +170,13 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
         }
     }
 
+    // The downloads stopped from here, whose video stays in the queue
+    private var stoppedTaskId: String? = null
+
     /** Stops downloading after the current step. */
     fun stopDownloading() {
         val taskId = _downloading.value?.taskId ?: return
+        stoppedTaskId = taskId
         viewModelScope.launch {
             try {
                 taApi.stopTask(taskId)

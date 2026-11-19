@@ -154,10 +154,11 @@
     <string name="pref_latest_episodes">New episodes in Latest</string>
     <string name="pref_latest_episodes_summary">In the Latest rows on Home, show every new episode on its own with its thumbnail, instead of grouping them under the show\'s poster</string>
     <string name="pref_player_buttons_summary">Choose which buttons the player shows and where</string>
-    <string name="player_buttons_hint">Hold a button and drag it to change its place. Buttons keep this order inside each bar.</string>
+    <string name="player_buttons_hint">Hold a button and drag it to change its place. Buttons keep this order inside each bar and in the menu behind the cogwheel. In a bar, subtitles turn captions on and off; the menu picks the track.</string>
     <string name="player_buttons_reset">Reset</string>
     <string name="player_button_placement_top">Top bar</string>
     <string name="player_button_placement_bottom">Bottom bar</string>
+    <string name="player_button_placement_menu">Menu</string>
     <string name="player_button_placement_hidden">Hidden</string>
     <string name="player_button_autoplay">Autoplay</string>
     <string name="player_button_sleep_timer">Sleep timer</string>

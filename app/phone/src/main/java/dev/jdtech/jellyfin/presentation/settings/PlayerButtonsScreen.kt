@@ -205,7 +205,7 @@ private fun PlayerButton.iconRes(): Int =
         PlayerButton.LOCK -> CoreR.drawable.ic_lock
         PlayerButton.PIP -> CoreR.drawable.ic_picture_in_picture
         PlayerButton.CHAPTERS -> CoreR.drawable.ic_list_chapters
-        PlayerButton.QUALITY -> CoreR.drawable.ic_settings
+        PlayerButton.QUALITY -> CoreR.drawable.ic_film
         PlayerButton.SPEED -> CoreR.drawable.ic_gauge
         PlayerButton.SLEEP_TIMER -> CoreR.drawable.ic_moon
         PlayerButton.AUDIO -> CoreR.drawable.ic_speaker
@@ -231,5 +231,6 @@ private fun PlayerButtonPlacement.nameRes(): Int =
     when (this) {
         PlayerButtonPlacement.TOP -> SettingsR.string.player_button_placement_top
         PlayerButtonPlacement.BOTTOM -> SettingsR.string.player_button_placement_bottom
+        PlayerButtonPlacement.MENU -> SettingsR.string.player_button_placement_menu
         PlayerButtonPlacement.HIDDEN -> SettingsR.string.player_button_placement_hidden
     }

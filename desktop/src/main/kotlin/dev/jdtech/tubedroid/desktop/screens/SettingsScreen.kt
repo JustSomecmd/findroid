@@ -52,6 +52,7 @@ import dev.jdtech.tubedroid.desktop.LocalApp
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.AppImage
 import dev.jdtech.tubedroid.desktop.ui.ColumnScrollbar
+import dev.jdtech.tubedroid.desktop.ui.PageBar
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.accentSeeds
 import dev.jdtech.tubedroid.desktop.ui.errorText
@@ -96,35 +97,37 @@ fun SettingsScreen(firstRun: Boolean, onDone: () -> Unit) {
             }
         } else {
             val scroll = rememberScrollState()
-            Box(modifier = Modifier.fillMaxSize()) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(Spacings.default),
-                    modifier =
-                        Modifier.verticalScroll(scroll)
-                            .padding(Spacings.default)
-                            .widthIn(max = 760.dp)
-                            .fillMaxWidth(),
-                ) {
-                    Text("Settings", style = MaterialTheme.typography.headlineSmall)
-                    SettingsSection("TubeArchivist") {
-                        ServerForm(settings = settings, onSaved = onDone)
+            Column(modifier = Modifier.fillMaxSize()) {
+                PageBar(title = "Settings", onBack = null)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(Spacings.default),
+                        modifier =
+                            Modifier.verticalScroll(scroll)
+                                .padding(Spacings.default)
+                                .widthIn(max = 760.dp)
+                                .fillMaxWidth(),
+                    ) {
+                        SettingsSection("TubeArchivist") {
+                            ServerForm(settings = settings, onSaved = onDone)
+                        }
+                        SettingsSection("Downloads") { DownloadSettings(settings) }
+                        SettingsSection("Playback") { PlaybackSettings(settings) }
+                        SettingsSection("Appearance") { AccentPicker(settings) }
+                        SettingsSection("About") {
+                            Text(
+                                text = "Tubedroid for Windows ${appVersion()}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = "Video playback by mpv (libmpv).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                    SettingsSection("Downloads") { DownloadSettings(settings) }
-                    SettingsSection("Playback") { PlaybackSettings(settings) }
-                    SettingsSection("Appearance") { AccentPicker(settings) }
-                    SettingsSection("About") {
-                        Text(
-                            text = "Tubedroid for Windows ${appVersion()}",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            text = "Video playback by mpv (libmpv).",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    ColumnScrollbar(scroll)
                 }
-                ColumnScrollbar(scroll)
             }
         }
     }

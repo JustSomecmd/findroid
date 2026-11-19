@@ -216,9 +216,8 @@ fun TaQueueScreen(
                         modifier = Modifier.padding(top = MaterialTheme.spacings.small),
                     )
                 }
-                // The video being downloaded is shown above instead
-                val waiting = items.items.filter { it.youtubeId != downloading?.item?.youtubeId }
-                items(waiting, key = { it.youtubeId }) { item ->
+                // The video being downloaded stays in the list until it's done
+                items(items.items, key = { it.youtubeId }) { item ->
                     TaQueueItem(
                         item = item,
                         ignored = showIgnored,
@@ -441,17 +440,8 @@ private fun TaDownloadingCard(
                 color = MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.height(MaterialTheme.spacings.small))
+            // No picture here: the video's still in the list below, with its own
             Row(verticalAlignment = Alignment.CenterVertically) {
-                download.item?.let { item ->
-                    TaImage(
-                        path = item.thumbUrl,
-                        modifier =
-                            Modifier.width(112.dp)
-                                .aspectRatio(16f / 9f)
-                                .clip(MaterialTheme.shapes.small),
-                    )
-                    Spacer(Modifier.width(MaterialTheme.spacings.small))
-                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = download.title,

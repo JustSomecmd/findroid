@@ -208,18 +208,18 @@ fun HomeContent(
             verticalArrangement = Arrangement.spacedBy(Spacings.small),
             modifier = Modifier.fillMaxSize(),
         ) {
-            if (featured.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "featured") {
-                    ChannelCarousel(
-                        channels = featured,
-                        onChannelClick = { navigator.open(Route.Channel(it)) },
-                        modifier = Modifier.padding(bottom = Spacings.small),
-                    )
-                }
-            }
-            if (continueWatching.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
-                    Column {
+            // Always there, even while empty, so the page opens at the top once the carousel
+            // and the videos to carry on with arrive after the latest videos
+            item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+                Column {
+                    if (featured.isNotEmpty()) {
+                        ChannelCarousel(
+                            channels = featured,
+                            onChannelClick = { navigator.open(Route.Channel(it)) },
+                            modifier = Modifier.padding(bottom = Spacings.small),
+                        )
+                    }
+                    if (continueWatching.isNotEmpty()) {
                         SectionTitle("Continue watching")
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacings.medium)) {
                             items(continueWatching, key = { it.youtubeId }) { video ->

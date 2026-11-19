@@ -51,7 +51,8 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val playerBackend = Preference("pref_player_backend", "exoplayer")
     val playerStreamQuality = Preference("pref_player_stream_quality", "original")
     val playerBackgroundPlayback = Preference("pref_player_background_playback", false)
-    val playerButtons = Preference("pref_player_buttons", "")
+    // Saved under a new name since the settings menu came, so everyone starts from its layout
+    val playerButtons = Preference("pref_player_buttons_menu", "")
     val playerBackgroundAudioOnly = Preference("pref_player_background_audio_only", true)
     val playerBrightness = Preference("pref_player_brightness", -1.0f)
 

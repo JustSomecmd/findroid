@@ -59,4 +59,15 @@
     <string name="player_up_next_play">Play now</string>
     <string name="player_up_next_cancel">Cancel</string>
     <string name="player_pip_pause">Pause</string>
+    <string name="player_menu">Player settings</string>
+    <string name="player_captions">Captions</string>
+    <string name="player_captions_on">Captions on</string>
+    <string name="player_captions_off">Captions off</string>
+    <string name="player_playback_speed">Playback speed</string>
+    <string name="player_audio_track">Audio track</string>
+    <string name="player_lock_screen">Lock screen</string>
+    <string name="player_rotate_screen">Rotate screen</string>
+    <string name="player_picture_in_picture">Picture-in-picture</string>
+    <string name="player_on">On</string>
+    <string name="player_sleep_time_left">%1$s left</string>
 </resources>

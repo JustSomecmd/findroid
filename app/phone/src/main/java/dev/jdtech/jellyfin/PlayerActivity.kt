@@ -23,6 +23,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import android.text.format.DateUtils
 import android.util.Rational
 import android.view.Gravity
 import android.view.SurfaceView
@@ -53,10 +54,14 @@ import coil3.load
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.databinding.ActivityPlayerBinding
+import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.local.R as PlayerR
+import dev.jdtech.jellyfin.player.local.domain.getTrackNames
 import dev.jdtech.jellyfin.player.local.presentation.PlayerEvents
 import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
 import dev.jdtech.jellyfin.presentation.player.ChapterSelectionDialogFragment
+import dev.jdtech.jellyfin.presentation.player.PlayerMenuDialogFragment
+import dev.jdtech.jellyfin.presentation.player.PlayerMenuItem
 import dev.jdtech.jellyfin.presentation.player.QualitySelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.SleepTimerDialogFragment
 import dev.jdtech.jellyfin.presentation.player.SpeedSelectionDialogFragment
@@ -104,6 +109,10 @@ class PlayerActivity : BasePlayerActivity() {
     private var controllerFadingOut: Boolean = false
 
     private lateinit var skipSegmentButton: Button
+
+    // The optional buttons, and those in the menu behind the cogwheel in their order
+    private var playerButtons: Map<PlayerButton, View> = emptyMap()
+    private var menuButtons: List<PlayerButton> = emptyList()
 
     private val isPipSupported by lazy {
         // Check if device has PiP feature
@@ -182,6 +191,7 @@ class PlayerActivity : BasePlayerActivity() {
         val rotateButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotate)
         val autoplayButton = binding.playerView.findViewById<ImageButton>(R.id.btn_autoplay)
         val sleepTimerButton = binding.playerView.findViewById<ImageButton>(R.id.btn_sleep_timer)
+        val menuButton = binding.playerView.findViewById<ImageButton>(R.id.btn_menu)
         val upNextCard = binding.playerView.findViewById<View>(R.id.up_next_card)
         val upNextLabel = binding.playerView.findViewById<TextView>(R.id.up_next_label)
         val upNextTitle = binding.playerView.findViewById<TextView>(R.id.up_next_title)
@@ -204,6 +214,7 @@ class PlayerActivity : BasePlayerActivity() {
         sleepTimerButton.setOnClickListener {
             SleepTimerDialogFragment(viewModel).show(supportFragmentManager, "sleeptimerdialog")
         }
+        menuButton.setOnClickListener { showPlayerMenu() }
         binding.playerView.findViewById<View>(R.id.up_next_play).setOnClickListener {
             viewModel.playNextNow()
         }
@@ -231,7 +242,8 @@ class PlayerActivity : BasePlayerActivity() {
                 PlayerButton.AUDIO to audioButton,
                 PlayerButton.SUBTITLES to subtitleButton,
                 PlayerButton.ROTATE to rotateButton,
-            )
+            ),
+            menuButton,
         )
         applyAccentControls()
 
@@ -346,7 +358,13 @@ class PlayerActivity : BasePlayerActivity() {
                                 lockButton.isEnabled = true
                                 lockButton.imageAlpha = 255
                                 subtitleButton.isEnabled = true
-                                subtitleButton.imageAlpha = 255
+                                // Dimmed while captions are off
+                                subtitleButton.imageAlpha = if (subtitlesOn) 255 else 120
+                                subtitleButton.contentDescription =
+                                    getString(
+                                        if (subtitlesOn) PlayerR.string.player_captions_on
+                                        else PlayerR.string.player_captions_off
+                                    )
                                 speedButton.isEnabled = true
                                 speedButton.imageAlpha = 255
                                 pipButton.isEnabled = true
@@ -444,9 +462,21 @@ class PlayerActivity : BasePlayerActivity() {
             isControlsLocked = false
         }
 
+        // Turns captions on and off; holding it, or Captions in the menu, picks the track
         subtitleButton.setOnClickListener {
+            val on = viewModel.toggleSubtitles()
+            Toast.makeText(
+                    this,
+                    if (on) PlayerR.string.player_captions_on
+                    else PlayerR.string.player_captions_off,
+                    Toast.LENGTH_SHORT,
+                )
+                .show()
+        }
+        subtitleButton.setOnLongClickListener {
             TrackSelectionDialogFragment(C.TRACK_TYPE_TEXT, viewModel)
                 .show(supportFragmentManager, "trackselectiondialog")
+            true
         }
 
         speedButton.setOnClickListener {
@@ -608,22 +638,38 @@ class PlayerActivity : BasePlayerActivity() {
         }
 
     /**
-     * Puts the optional buttons in the bars and order chosen in settings, leaving out hidden ones.
+     * Puts the optional buttons in the bars, or in the menu behind the cogwheel, in the order
+     * chosen in settings, leaving out hidden ones. The cogwheel comes last in the top bar, when the
+     * menu has something in it.
      */
-    private fun applyButtonLayout(buttons: Map<PlayerButton, View>) {
+    private fun applyButtonLayout(buttons: Map<PlayerButton, View>, menuButton: View) {
         val topBar = binding.playerView.findViewById<LinearLayout>(R.id.extra_buttons) ?: return
         val bottomBar = binding.playerView.findViewById<LinearLayout>(R.id.bottom_buttons) ?: return
         val density = resources.displayMetrics.density
 
         buttons.values.forEach { (it.parent as? ViewGroup)?.removeView(it) }
+        (menuButton.parent as? ViewGroup)?.removeView(menuButton)
+        playerButtons = buttons
+        val menu = mutableListOf<PlayerButton>()
 
         val layout = PlayerButtonLayout.parse(appPreferences.getValue(appPreferences.playerButtons))
         for (config in layout) {
             val view = buttons[config.button] ?: continue
+            // A captions switch in a bar leaves picking the track to the menu
+            if (
+                config.button == PlayerButton.SUBTITLES &&
+                    config.placement != PlayerButtonPlacement.HIDDEN
+            ) {
+                menu += config.button
+            }
             val bar =
                 when (config.placement) {
                     PlayerButtonPlacement.TOP -> topBar
                     PlayerButtonPlacement.BOTTOM -> bottomBar
+                    PlayerButtonPlacement.MENU -> {
+                        if (config.button !in menu) menu += config.button
+                        continue
+                    }
                     PlayerButtonPlacement.HIDDEN -> continue
                 }
             // The bottom bar is slimmer, so its buttons are too
@@ -637,6 +683,155 @@ class PlayerActivity : BasePlayerActivity() {
                 ),
             )
         }
+
+        menuButtons = menu
+        if (menu.isNotEmpty()) {
+            val padding = (16 * density).toInt()
+            menuButton.setPadding(padding, padding, padding, padding)
+            topBar.addView(
+                menuButton,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+    }
+
+    /** The menu behind the cogwheel, with what each setting is now. */
+    private fun showPlayerMenu() {
+        val state = viewModel.uiState.value
+        val items = menuButtons.mapNotNull { menuItem(it, state) }
+        if (items.isEmpty()) return
+        PlayerMenuDialogFragment(items).show(supportFragmentManager, "playermenu")
+    }
+
+    private fun menuItem(button: PlayerButton, state: PlayerViewModel.UiState): PlayerMenuItem? {
+        val view = playerButtons[button] ?: return null
+        // Like the buttons, a line only shows when it does something for this video, such as
+        // chapters when there are some
+        if (!view.isVisible) return null
+        val off = getString(PlayerR.string.player_sleep_off)
+        return when (button) {
+            PlayerButton.AUTOPLAY ->
+                PlayerMenuItem(
+                    icon =
+                        if (state.autoplay) CoreR.drawable.ic_autoplay_on
+                        else CoreR.drawable.ic_autoplay_off,
+                    title = getString(PlayerR.string.player_autoplay),
+                    value = if (state.autoplay) getString(PlayerR.string.player_on) else off,
+                ) {
+                    view.performClick()
+                }
+            PlayerButton.QUALITY ->
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_film,
+                    title = getString(PlayerR.string.select_quality),
+                    value =
+                        when (state.currentQuality) {
+                            StreamQuality.ORIGINAL -> getString(PlayerR.string.quality_original)
+                            StreamQuality.AUDIO_ONLY -> getString(PlayerR.string.player_audio_only)
+                            else -> state.currentQuality.key
+                        },
+                    opensChoices = true,
+                ) {
+                    view.performClick()
+                }
+            PlayerButton.SPEED -> {
+                val speed = viewModel.playbackSpeed
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_gauge,
+                    title = getString(PlayerR.string.player_playback_speed),
+                    value = if (speed % 1f == 0f) "${speed.toInt()}x" else "${speed}x",
+                    opensChoices = true,
+                ) {
+                    view.performClick()
+                }
+            }
+            PlayerButton.SUBTITLES ->
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_closed_caption,
+                    title = getString(PlayerR.string.player_captions),
+                    value = selectedTrackName(C.TRACK_TYPE_TEXT) ?: off,
+                    opensChoices = true,
+                ) {
+                    TrackSelectionDialogFragment(C.TRACK_TYPE_TEXT, viewModel)
+                        .show(supportFragmentManager, "trackselectiondialog")
+                }
+            PlayerButton.LOCK ->
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_lock,
+                    title = getString(PlayerR.string.player_lock_screen),
+                ) {
+                    view.performClick()
+                }
+            PlayerButton.SLEEP_TIMER ->
+                PlayerMenuItem(
+                    icon =
+                        if (state.sleepTimer != null) CoreR.drawable.ic_moon_filled
+                        else CoreR.drawable.ic_moon,
+                    title = getString(PlayerR.string.player_sleep_timer),
+                    value =
+                        when (val timer = state.sleepTimer) {
+                            null -> off
+                            is PlayerViewModel.SleepTimer.At ->
+                                getString(
+                                    PlayerR.string.player_sleep_time_left,
+                                    DateUtils.formatElapsedTime(timer.millisLeft / 1000),
+                                )
+                            PlayerViewModel.SleepTimer.EndOfVideo ->
+                                getString(PlayerR.string.player_sleep_end_of_video)
+                        },
+                    opensChoices = true,
+                ) {
+                    view.performClick()
+                }
+            PlayerButton.PIP ->
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_picture_in_picture,
+                    title = getString(PlayerR.string.player_picture_in_picture),
+                ) {
+                    view.performClick()
+                }
+            PlayerButton.AUDIO ->
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_speaker,
+                    title = getString(PlayerR.string.player_audio_track),
+                    value = selectedTrackName(C.TRACK_TYPE_AUDIO),
+                    opensChoices = true,
+                ) {
+                    view.performClick()
+                }
+            PlayerButton.CHAPTERS ->
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_list_chapters,
+                    title = getString(PlayerR.string.chapters),
+                    opensChoices = true,
+                ) {
+                    view.performClick()
+                }
+            PlayerButton.ROTATE ->
+                PlayerMenuItem(
+                    icon =
+                        if (
+                            resources.configuration.orientation ==
+                                Configuration.ORIENTATION_PORTRAIT
+                        )
+                            CoreR.drawable.ic_rotate_to_landscape
+                        else CoreR.drawable.ic_rotate_to_portrait,
+                    title = getString(PlayerR.string.player_rotate_screen),
+                ) {
+                    view.performClick()
+                }
+        }
+    }
+
+    /** The name of the audio or subtitle track playing, or null when none is. */
+    private fun selectedTrackName(type: @C.TrackType Int): String? {
+        val groups =
+            viewModel.player.currentTracks.groups.filter { it.type == type && it.isSupported }
+        val index = groups.indexOfFirst { it.isSelected }
+        return if (index >= 0) groups.getTrackNames().getOrNull(index) else null
     }
 
     private fun onControllerVisibilityChanged(visibility: Int) {

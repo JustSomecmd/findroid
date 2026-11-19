@@ -107,6 +107,8 @@ constructor(
         val canChangeQuality: Boolean,
         /** Whether the current item has subtitles to choose from. */
         val hasSubtitles: Boolean = false,
+        /** Whether a subtitle track is showing. */
+        val subtitlesOn: Boolean = false,
         /** Whether only the sound of the current item is streamed. */
         val isAudioOnly: Boolean = false,
         /** Whether the next video plays on its own when this one ends. */
@@ -902,10 +904,28 @@ constructor(
         }
     }
 
+    // The subtitle track turned off last, to turn back on
+    private var lastSubtitleTrack: String? = null
+
     /**
-     * Switches every streamed item in the queue to [quality] and continues the current one at the
-     * same position.
+     * Turns subtitles off, or back on with the track that was on before, or else the first one.
+     * Returns whether they're on now.
      */
+    fun toggleSubtitles(): Boolean {
+        val groups =
+            player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT && it.isSupported }
+        if (groups.isEmpty()) return false
+        val selected = groups.indexOfFirst { it.isSelected }
+        if (selected >= 0) {
+            lastSubtitleTrack = groups[selected].mediaTrackGroup.id
+            switchToTrack(C.TRACK_TYPE_TEXT, -1)
+            return false
+        }
+        val previous = groups.indexOfFirst { it.mediaTrackGroup.id == lastSubtitleTrack }
+        switchToTrack(C.TRACK_TYPE_TEXT, previous.coerceAtLeast(0))
+        return true
+    }
+
     /**
      * Streams every item that isn't downloaded in [quality] from now on, carrying on from the same
      * spot. [showErrors] tells the user when the server couldn't convert the video.
@@ -1237,8 +1257,13 @@ constructor(
     override fun onTracksChanged(tracks: Tracks) {
         super.onTracksChanged(tracks)
         // The same subtitles the subtitle picker lists
-        val hasSubtitles = tracks.groups.any { it.type == C.TRACK_TYPE_TEXT && it.isSupported }
-        _uiState.update { it.copy(hasSubtitles = hasSubtitles) }
+        val subtitles = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT && it.isSupported }
+        _uiState.update {
+            it.copy(
+                hasSubtitles = subtitles.isNotEmpty(),
+                subtitlesOn = subtitles.any { group -> group.isSelected },
+            )
+        }
     }
 }
 
