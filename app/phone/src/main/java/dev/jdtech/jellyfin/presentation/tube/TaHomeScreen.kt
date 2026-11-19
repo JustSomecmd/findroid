@@ -373,13 +373,16 @@ fun TaSectionTitle(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * A section title with something at its right end, such as the Watch Later button. Both line up at
+ * A section title with something right after it, such as the Watch Later button. Both line up at
  * the top, so space under the button keeps it off what's below without moving the title.
  */
 @Composable
 private fun TaSectionTitleRow(text: String, trailing: @Composable () -> Unit) {
-    Row(verticalAlignment = Alignment.Top) {
-        TaSectionTitle(text = text, modifier = Modifier.weight(1f))
+    Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+    ) {
+        TaSectionTitle(text = text)
         trailing()
     }
 }
