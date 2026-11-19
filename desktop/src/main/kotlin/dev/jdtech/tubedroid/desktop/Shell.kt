@@ -44,7 +44,7 @@ import dev.jdtech.tubedroid.desktop.screens.SearchScreen
 import dev.jdtech.tubedroid.desktop.screens.SettingsScreen
 import dev.jdtech.tubedroid.desktop.screens.VideoScreen
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
-import dev.jdtech.tubedroid.desktop.ui.TubedroidLogo
+import dev.jdtech.tubedroid.desktop.ui.WinchivistLogo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -165,7 +165,7 @@ private fun SectionRail(shell: Shell) {
     NavigationRail(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         header = {
-            TubedroidLogo(modifier = Modifier.padding(top = 12.dp).size(40.dp))
+            WinchivistLogo(modifier = Modifier.padding(top = 12.dp).size(40.dp))
             Spacer(Modifier.height(12.dp))
         },
     ) {

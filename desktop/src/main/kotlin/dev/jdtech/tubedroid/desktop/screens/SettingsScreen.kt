@@ -53,7 +53,7 @@ import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.ColumnScrollbar
 import dev.jdtech.tubedroid.desktop.ui.PageBar
 import dev.jdtech.tubedroid.desktop.ui.Spacings
-import dev.jdtech.tubedroid.desktop.ui.TubedroidLogo
+import dev.jdtech.tubedroid.desktop.ui.WinchivistLogo
 import dev.jdtech.tubedroid.desktop.ui.accentSeeds
 import dev.jdtech.tubedroid.desktop.ui.errorText
 import java.io.File
@@ -76,9 +76,9 @@ fun SettingsScreen(firstRun: Boolean, onDone: () -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.widthIn(max = 520.dp).padding(Spacings.large),
                 ) {
-                    TubedroidLogo(modifier = Modifier.size(72.dp))
+                    WinchivistLogo(modifier = Modifier.size(72.dp))
                     Spacer(Modifier.height(Spacings.default))
-                    Text("Welcome to Tubedroid", style = MaterialTheme.typography.headlineSmall)
+                    Text("Welcome to Winchivist", style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.height(Spacings.small))
                     Text(
                         text =
@@ -112,7 +112,7 @@ fun SettingsScreen(firstRun: Boolean, onDone: () -> Unit) {
                         SettingsSection("Appearance") { AccentPicker(settings) }
                         SettingsSection("About") {
                             Text(
-                                text = "Tubedroid for Windows ${appVersion()}",
+                                text = "Winchivist ${appVersion()}",
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(

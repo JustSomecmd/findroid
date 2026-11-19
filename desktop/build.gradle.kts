@@ -1,6 +1,7 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
-// Tubedroid for Windows: the TubeArchivist pages of the phone app, with mpv playing the videos
+// Winchivist: Tubedroid for Windows, with the TubeArchivist pages of the phone app and mpv playing
+// the videos
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.compose.compiler)
@@ -36,17 +37,17 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Msi)
-            packageName = "Tubedroid"
+            packageName = "Winchivist"
             packageVersion = desktopVersion.get()
             description = "TubeArchivist client"
-            vendor = "Tubedroid"
+            vendor = "Winchivist"
             includeAllModules = true
             // libmpv-2.dll goes in resources/windows-x64, put there by the build on GitHub
             appResourcesRootDir.set(project.layout.projectDirectory.dir("resources"))
             windows {
-                // Made from icons/tubedroid.svg
-                iconFile.set(project.file("icons/tubedroid.ico"))
-                menuGroup = "Tubedroid"
+                // Made from icons/winchivist.svg
+                iconFile.set(project.file("icons/winchivist.ico"))
+                menuGroup = "Winchivist"
                 shortcut = true
                 dirChooser = true
                 perUserInstall = true

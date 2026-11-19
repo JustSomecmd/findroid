@@ -35,7 +35,7 @@ fun main() {
         Window(
             onCloseRequest = ::exitApplication,
             state = windowState,
-            title = "Tubedroid",
+            title = "Winchivist",
             icon = icon,
             onPreviewKeyEvent = { event ->
                 // Alt+Left goes back, as in a browser
@@ -72,7 +72,7 @@ fun main() {
 /** The logo in the window's title bar and on the taskbar, as in the installer. */
 private fun windowIcon(): Painter? {
     val bytes =
-        Thread.currentThread().contextClassLoader?.getResourceAsStream("tubedroid.png")?.use {
+        Thread.currentThread().contextClassLoader?.getResourceAsStream("winchivist.png")?.use {
             it.readBytes()
         } ?: return null
     return BitmapPainter(Image.makeFromEncoded(bytes).toComposeImageBitmap())
