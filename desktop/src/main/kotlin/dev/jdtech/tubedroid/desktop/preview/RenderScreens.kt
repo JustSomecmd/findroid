@@ -1,7 +1,14 @@
 package dev.jdtech.tubedroid.desktop.preview
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.ImageComposeScene
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Density
 import com.sun.net.httpserver.HttpServer
 import dev.jdtech.jellyfin.tubearchivist.TaBiggestChannel
@@ -34,6 +41,7 @@ import dev.jdtech.tubedroid.desktop.Route
 import dev.jdtech.tubedroid.desktop.Section
 import dev.jdtech.tubedroid.desktop.Shell
 import dev.jdtech.tubedroid.desktop.ShellContent
+import dev.jdtech.tubedroid.desktop.player.PlaylistPanel
 import dev.jdtech.tubedroid.desktop.screens.ChannelModel
 import dev.jdtech.tubedroid.desktop.screens.SearchModel
 import dev.jdtech.tubedroid.desktop.screens.SettingsScreen
@@ -128,6 +136,40 @@ fun main(args: Array<String>) {
         shell.select(Section.SETTINGS)
         capture("settings")
         scene.close()
+
+        // The playlist beside the video, as the player shows it, with the video's place left black
+        val playlistScene =
+            ImageComposeScene(width = 1360, height = 860, density = Density(1f)) {
+                CompositionLocalProvider(LocalApp provides graph) {
+                    TubedroidTheme(accent = settings.accent) {
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            Box(
+                                modifier =
+                                    Modifier.weight(1f).fillMaxHeight().background(Color.Black)
+                            )
+                            PlaylistPanel(
+                                name = SampleData.playlists[1].name,
+                                videos = SampleData.videos.take(12),
+                                currentVideoId = SampleData.videos[2].youtubeId,
+                                loop = true,
+                                onPlay = {},
+                                onLoopChange = {},
+                                onOpenPage = {},
+                            )
+                        }
+                    }
+                }
+            }
+        repeat(16) {
+            playlistScene.render(time)
+            time += 200_000_000L
+            delay(200)
+        }
+        playlistScene.render(time).encodeToData(EncodedImageFormat.PNG)?.let {
+            File(output, "player-playlist.png").writeBytes(it.bytes)
+        }
+        println("Rendered player-playlist")
+        playlistScene.close()
 
         val firstRun =
             ImageComposeScene(width = 1360, height = 860, density = Density(1f)) {

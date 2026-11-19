@@ -39,13 +39,19 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.viewModels
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.ComposeView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.children
 import androidx.core.view.isVisible
 import androidx.core.widget.TextViewCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.C
@@ -65,11 +71,14 @@ import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
 import dev.jdtech.jellyfin.presentation.player.ChapterSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.PlayerMenuDialogFragment
 import dev.jdtech.jellyfin.presentation.player.PlayerMenuItem
+import dev.jdtech.jellyfin.presentation.player.PlayerPlaylistPanel
 import dev.jdtech.jellyfin.presentation.player.QualitySelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.SleepTimerDialogFragment
 import dev.jdtech.jellyfin.presentation.player.SpeedSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.TrackSelectionDialogFragment
+import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.darkAppColorScheme
+import dev.jdtech.jellyfin.presentation.tube.LocalTaBaseUrl
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.PlayerButton
 import dev.jdtech.jellyfin.settings.domain.PlayerButtonLayout
@@ -93,6 +102,9 @@ class PlayerActivity : BasePlayerActivity() {
 
     lateinit var binding: ActivityPlayerBinding
     private var playerGestureHelper: PlayerGestureHelper? = null
+
+    // Whether the playlist being played is slid open over the player
+    private var playlistOpen by mutableStateOf(false)
     override val viewModel: PlayerViewModel by viewModels()
 
     override fun isBackgroundPlaybackEnabled(): Boolean =
@@ -149,6 +161,7 @@ class PlayerActivity : BasePlayerActivity() {
 
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        addPlaylistPanel()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         binding.playerView.player = viewModel.player
@@ -704,37 +717,16 @@ class PlayerActivity : BasePlayerActivity() {
     private fun showPlayerMenu() {
         val state = viewModel.uiState.value
         val items = buildList {
-            // Playing from a playlist: its page comes first
-            state.taPlaylistId?.let { playlistId ->
+            // Playing from a playlist: the playlist comes first
+            if (state.taPlaylistId != null) {
                 add(
                     PlayerMenuItem(
                         icon = CoreR.drawable.ic_list_video,
-                        title = getString(PlayerR.string.player_open_playlist),
+                        title = getString(PlayerR.string.player_playlist),
                         value = state.taPlaylistName,
                         opensChoices = true,
                     ) {
-                        openPlaylistPage(playlistId)
-                    }
-                )
-                add(
-                    PlayerMenuItem(
-                        icon = CoreR.drawable.ic_repeat,
-                        title = getString(PlayerR.string.player_loop_playlist),
-                        value =
-                            getString(
-                                if (state.loopPlaylist) PlayerR.string.player_on
-                                else PlayerR.string.player_sleep_off
-                            ),
-                    ) {
-                        val on = !state.loopPlaylist
-                        viewModel.setLoopPlaylist(on)
-                        Toast.makeText(
-                                this@PlayerActivity,
-                                if (on) PlayerR.string.player_loop_on
-                                else PlayerR.string.player_loop_off,
-                                Toast.LENGTH_SHORT,
-                            )
-                            .show()
+                        openPlaylist()
                     }
                 )
             }
@@ -816,6 +808,54 @@ class PlayerActivity : BasePlayerActivity() {
      * Opens the playlist's page in the app. The video carries on in a small window over it, or
      * stops where the phone doesn't allow one.
      */
+    /**
+     * The playlist being played, on top of the player and hidden until it's opened. Nothing shows
+     * while it's closed, so taps go through to the player.
+     */
+    private fun addPlaylistPanel() {
+        val panel =
+            ComposeView(this).apply {
+                setContent {
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    FindroidTheme(darkTheme = true) {
+                        CompositionLocalProvider(LocalTaBaseUrl provides viewModel.taBaseUrl) {
+                            PlayerPlaylistPanel(
+                                open = playlistOpen && state.taPlaylistId != null,
+                                name = state.taPlaylistName.orEmpty(),
+                                videos = state.taPlaylistVideos,
+                                currentVideoId = state.taVideoId,
+                                loop = state.loopPlaylist,
+                                onClose = { playlistOpen = false },
+                                onPlay = { videoId ->
+                                    playlistOpen = false
+                                    viewModel.playTaPlaylistVideo(videoId)
+                                },
+                                onLoopChange = viewModel::setLoopPlaylist,
+                                onOpenPage = {
+                                    playlistOpen = false
+                                    state.taPlaylistId?.let(::openPlaylistPage)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        binding.root.addView(
+            panel,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    /** Slides the playlist open, with how far each video was watched brought up to date. */
+    private fun openPlaylist() {
+        viewModel.refreshTaPlaylistVideos()
+        binding.playerView.hideController()
+        playlistOpen = true
+    }
+
     private fun openPlaylistPage(playlistId: String) {
         PendingNavigation.request(TaPlaylistRoute(playlistId))
         val inWindow =
@@ -1257,6 +1297,7 @@ class PlayerActivity : BasePlayerActivity() {
         viewModel.isInPictureInPictureMode = isInPictureInPictureMode
         when (isInPictureInPictureMode) {
             true -> {
+                playlistOpen = false
                 binding.playerView.useController = false
                 skipSegmentButton.isVisible = false
 

@@ -76,14 +76,31 @@ internal constructor(
      * Goes back to the playlist's first video that Jellyfin has, from its start, for a playlist
      * that loops. What was queued before is forgotten, as the player starts a new queue with it.
      */
-    suspend fun restartTaQueue(): PlayerItem? {
+    suspend fun restartTaQueue(): PlayerItem? = taQueue?.let {
+        startTaQueue(it.indices, fromStart = true)
+    }
+
+    /**
+     * Moves to one of the playlist's videos, picked from the playlist in the player, from where it
+     * was left off. Null if it isn't in the playlist or Jellyfin doesn't have it.
+     */
+    suspend fun startTaQueueAt(videoId: String): PlayerItem? {
+        val index = taQueue?.indexOfFirst { it.videoId == videoId } ?: return null
+        if (index < 0) return null
+        return startTaQueue(index..index, fromStart = false)
+    }
+
+    /** Starts a new queue at the first video in [indices] that Jellyfin has. */
+    private suspend fun startTaQueue(indices: IntRange, fromStart: Boolean): PlayerItem? {
         val queue = taQueue ?: return null
-        playerItems.clear()
-        for (index in queue.indices) {
+        for (index in indices) {
             val id = resolve(queue[index]) ?: continue
-            val item = repository.getEpisode(id).toPlayerItem(null, 0L)
-            taIndex = index
+            val episode = repository.getEpisode(id)
+            val position = if (fromStart) 0L else episode.playbackPositionTicks.div(10000)
+            val item = episode.toPlayerItem(null, position)
+            playerItems.clear()
             playerItems.add(item)
+            taIndex = index
             return item
         }
         return null

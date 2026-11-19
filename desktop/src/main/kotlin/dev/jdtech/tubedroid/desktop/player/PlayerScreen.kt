@@ -1,7 +1,8 @@
 package dev.jdtech.tubedroid.desktop.player
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.TooltipArea
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,17 +10,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,9 +49,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPlacement
 import com.sun.jna.Native
+import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.tubedroid.desktop.AppSettings
 import dev.jdtech.tubedroid.desktop.LocalApp
+import dev.jdtech.tubedroid.desktop.LocalNavigator
 import dev.jdtech.tubedroid.desktop.LocalWindowState
+import dev.jdtech.tubedroid.desktop.Route
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.errorText
@@ -92,9 +96,60 @@ internal class PlayerSession(
     var loop by mutableStateOf(false)
         private set
 
-    /** Whether a playlist is playing, which can loop. */
-    val canLoop: Boolean
+    /** Whether a playlist is playing, which can loop and be shown beside the video. */
+    val hasPlaylist: Boolean
         get() = item != null && source.isPlaylist
+
+    /** Whether the playlist is open beside the video. */
+    var playlistOpen by mutableStateOf(false)
+        private set
+
+    /** The playlist's name and videos, kept here so the playlist redraws as they load. */
+    var playlistName by mutableStateOf("")
+        private set
+
+    var playlistVideos by mutableStateOf<List<TaVideo>>(emptyList())
+        private set
+
+    /** Opens or closes the playlist, loading it again as it opens. */
+    fun togglePlaylist() {
+        playlistOpen = !playlistOpen
+        if (!playlistOpen) return
+        scope.launch {
+            try {
+                source.refreshPlaylist()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The copy from when the video started will do
+            }
+            showPlaylist()
+        }
+    }
+
+    private fun showPlaylist() {
+        playlistName = source.playlistName
+        playlistVideos = source.playlistVideos
+    }
+
+    /** Plays one of the playlist's videos, picked from the playlist. */
+    fun playFromPlaylist(videoId: String) {
+        val current = item ?: return
+        if (current.id == videoId) return
+        reportProgress(position, paused = true)
+        scope.launch {
+            try {
+                val picked = source.playlistItem(videoId) ?: return@launch
+                item = picked
+                started = null
+                startIfReady()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = errorText(e)
+            }
+        }
+    }
 
     /** Turns starting the playlist over after its last video on or off. */
     fun changeLoop(on: Boolean) {
@@ -125,7 +180,9 @@ internal class PlayerSession(
 
     suspend fun load() {
         try {
-            item = source.first()
+            val first = source.first()
+            showPlaylist()
+            item = first
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -329,6 +386,7 @@ internal class PlayerSession(
 @Composable
 fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
     val app = LocalApp.current
+    val navigator = LocalNavigator.current
     val windowState = LocalWindowState.current
     val scope = rememberCoroutineScope()
     val session =
@@ -407,40 +465,65 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
         if (!session.fullscreen) {
             PlayerBar(session = session, onClose = close)
         }
-        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            if (lib == null) {
-                Message(MpvLoader.loadError ?: "Couldn't load mpv")
-            } else {
-                SwingPanel(
-                    background = Color.Black,
-                    modifier = Modifier.fillMaxSize(),
-                    factory = {
-                        MpvCanvas(
-                            onReady = { canvas ->
-                                try {
-                                    session.player =
-                                        MpvPlayer.create(
-                                            lib = lib,
-                                            wid = Native.getComponentID(canvas),
-                                            options = mpvOptions(app.settings),
-                                            onEvent = { event ->
-                                                scope.launch(Dispatchers.Main) {
-                                                    when (event) {
-                                                        MpvEvent.FileLoaded ->
-                                                            session.onFileLoaded()
-                                                        is MpvEvent.LoadFailed ->
-                                                            session.onLoadFailed(event.message)
-                                                        MpvEvent.Shutdown -> close()
+        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            Box(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (lib == null) {
+                    Message(MpvLoader.loadError ?: "Couldn't load mpv")
+                } else {
+                    SwingPanel(
+                        background = Color.Black,
+                        modifier = Modifier.fillMaxSize(),
+                        factory = {
+                            MpvCanvas(
+                                onReady = { canvas ->
+                                    try {
+                                        session.player =
+                                            MpvPlayer.create(
+                                                lib = lib,
+                                                wid = Native.getComponentID(canvas),
+                                                options = mpvOptions(app.settings),
+                                                onEvent = { event ->
+                                                    scope.launch(Dispatchers.Main) {
+                                                        when (event) {
+                                                            MpvEvent.FileLoaded ->
+                                                                session.onFileLoaded()
+                                                            is MpvEvent.LoadFailed ->
+                                                                session.onLoadFailed(event.message)
+                                                            MpvEvent.Shutdown -> close()
+                                                        }
                                                     }
-                                                }
-                                            },
-                                        )
-                                } catch (e: Exception) {
-                                    session.error = e.message ?: e.toString()
-                                }
-                            },
-                            onGone = { session.release() },
-                        )
+                                                },
+                                            )
+                                    } catch (e: Exception) {
+                                        session.error = e.message ?: e.toString()
+                                    }
+                                },
+                                onGone = { session.release() },
+                            )
+                        },
+                    )
+                }
+            }
+            // Beside the video rather than over it, as mpv draws in a window of its own
+            AnimatedVisibility(
+                visible = session.playlistOpen && !session.fullscreen,
+                enter = expandHorizontally(expandFrom = Alignment.Start),
+                exit = shrinkHorizontally(shrinkTowards = Alignment.Start),
+            ) {
+                PlaylistPanel(
+                    name = session.playlistName,
+                    videos = session.playlistVideos,
+                    currentVideoId = session.item?.id,
+                    loop = session.loop,
+                    onPlay = session::playFromPlaylist,
+                    onLoopChange = session::changeLoop,
+                    onOpenPage = {
+                        val playlistId = (request as? PlayerRequest.Ta)?.playlistId
+                        close()
+                        if (playlistId != null) navigator.open(Route.Playlist(playlistId))
                     },
                 )
             }
@@ -449,7 +532,6 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
 }
 
 /** The bar above the video: back, the title, and what's next. Hidden in full screen. */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlayerBar(session: PlayerSession, onClose: () -> Unit) {
     val item = session.item
@@ -525,31 +607,27 @@ private fun PlayerBar(session: PlayerSession, onClose: () -> Unit) {
                 )
             }
         }
-        if (session.canLoop) {
-            TooltipArea(
-                tooltip = {
-                    Surface(
-                        shape = MaterialTheme.shapes.small,
-                        color = MaterialTheme.colorScheme.inverseSurface,
-                    ) {
-                        Text(
-                            text =
-                                if (session.loop) "Looping the playlist" else "Loop the playlist",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        )
-                    }
-                }
-            ) {
-                FilledIconToggleButton(
-                    checked = session.loop,
-                    onCheckedChange = session::changeLoop,
+        if (session.hasPlaylist) {
+            WithTooltip(if (session.playlistOpen) "Close the playlist" else "Show the playlist") {
+                FilledTonalButton(
+                    onClick = session::togglePlaylist,
+                    colors =
+                        ButtonDefaults.filledTonalButtonColors(
+                            containerColor =
+                                if (session.playlistOpen) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    Color.Transparent
+                                }
+                        ),
                 ) {
                     AppIcon(
-                        name = "ic_repeat",
-                        contentDescription = "Loop the playlist",
-                        modifier = Modifier.size(20.dp),
+                        name = "ic_list_video",
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
                     )
+                    Spacer(Modifier.width(Spacings.small))
+                    Text("Playlist")
                 }
             }
         }

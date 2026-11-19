@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
+import dev.jdtech.jellyfin.tubearchivist.loadPlaylist
 import dev.jdtech.tubedroid.desktop.LocalApp
 import dev.jdtech.tubedroid.desktop.LocalCanGoBack
 import dev.jdtech.tubedroid.desktop.LocalNavigator
@@ -44,30 +45,6 @@ import dev.jdtech.tubedroid.desktop.ui.errorText
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-
-/** Loads a playlist with its videos in the playlist's order. */
-suspend fun TaApi.loadPlaylist(playlistId: String): Pair<TaPlaylist, List<TaVideo>> {
-    val playlist = getPlaylist(playlistId)
-    val videos = mutableListOf<TaVideo>()
-    var page = 1
-    while (true) {
-        val result = getVideos(page = page, playlist = playlistId)
-        videos += result.data
-        if (!result.hasMore || page >= MAX_PAGES) break
-        page++
-    }
-    val loaded = videos.associateBy { it.youtubeId }
-    val ordered =
-        playlist.entries
-            .filter { it.downloaded }
-            .map { entry ->
-                loaded[entry.youtubeId] ?: TaVideo(youtubeId = entry.youtubeId, title = entry.title)
-            }
-            .ifEmpty { videos }
-    return playlist to ordered
-}
-
-private const val MAX_PAGES = 20
 
 class PlaylistModel(
     private val api: TaApi,

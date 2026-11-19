@@ -38,9 +38,11 @@ import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaNowPlaying
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
+import dev.jdtech.jellyfin.tubearchivist.loadPlaylist
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
@@ -123,6 +125,10 @@ constructor(
         val taPlaylistName: String? = null,
         /** Whether the playlist starts over after its last video. */
         val loopPlaylist: Boolean = false,
+        /** The playlist's videos in order, for the playlist in the player. */
+        val taPlaylistVideos: List<TaVideo> = emptyList(),
+        /** Which of them is playing. */
+        val taVideoId: String? = null,
     )
 
     /**
@@ -325,6 +331,7 @@ constructor(
                     )
                     taPlaylistName = playlist.name
                     this@PlayerViewModel.taPlaylistId = taPlaylistId
+                    showTaPlaylistVideos(playlist)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -647,6 +654,7 @@ constructor(
                         }
 
                         playlistManager.setCurrentMediaItemIndex(item.itemId)
+                        _uiState.update { it.copy(taVideoId = playlistManager.currentTaVideoId) }
                         rememberPlaylistPosition()
 
                         val previousItem = playlistManager.getPreviousPlayerItem()
@@ -745,27 +753,88 @@ constructor(
 
     /** Starts the playlist over from its first video, once its last one has ended. */
     private fun restartTaPlaylist() {
+        startTaPlaylistQueue(onFailure = { eventsChannel.trySend(PlayerEvents.NavigateBack) }) {
+            playlistManager.restartTaQueue()
+        }
+    }
+
+    /** Plays one of the playlist's videos, picked from the playlist in the player. */
+    fun playTaPlaylistVideo(videoId: String) {
+        if (videoId == playlistManager.currentTaVideoId) return
+        _uiState.update { it.copy(upNext = null) }
+        reportLeaving()
+        startTaPlaylistQueue(
+            onFailure = {
+                Toast.makeText(
+                        application,
+                        R.string.player_playlist_video_missing,
+                        Toast.LENGTH_LONG,
+                    )
+                    .show()
+            }
+        ) {
+            playlistManager.startTaQueueAt(videoId)
+        }
+    }
+
+    /** Swaps what's queued in the player for a new queue that starts with what [start] gives. */
+    private fun startTaPlaylistQueue(onFailure: () -> Unit, start: suspend () -> PlayerItem?) {
         viewModelScope.launch {
             val first =
                 try {
-                    playlistManager.restartTaQueue()
+                    start()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Timber.e(e, "Could not start the playlist over")
+                    Timber.e(e, "Could not move in the playlist")
                     null
                 }
             if (first == null) {
-                eventsChannel.trySend(PlayerEvents.NavigateBack)
+                onFailure()
                 return@launch
             }
             items = mutableListOf(first)
             currentMediaItemIndex = 0
-            player.setMediaItems(listOf(first.toMediaItem()), 0, 0L)
+            player.setMediaItems(listOf(first.toMediaItem()), 0, first.playbackPosition)
             player.prepare()
             player.play()
         }
     }
+
+    /**
+     * Shows the playlist's videos in the player's playlist: the copy on the phone, or just their
+     * titles, until TubeArchivist answers with them in full.
+     */
+    private suspend fun showTaPlaylistVideos(playlist: TaPlaylist) {
+        val saved = taPlaylistCache.loadPlaylist(playlist.id)?.videos.orEmpty()
+        val videos = saved.ifEmpty {
+            playlist.entries
+                .filter { it.downloaded }
+                .map { TaVideo(youtubeId = it.youtubeId, title = it.title) }
+        }
+        _uiState.update { it.copy(taPlaylistVideos = videos) }
+        refreshTaPlaylistVideos()
+    }
+
+    /** Loads the playlist's videos again, with how far each was watched, as the playlist opens. */
+    fun refreshTaPlaylistVideos() {
+        val playlistId = taPlaylistId ?: return
+        viewModelScope.launch {
+            try {
+                val videos = taApi.loadPlaylist(playlistId).second
+                if (taPlaylistId == playlistId)
+                    _uiState.update { it.copy(taPlaylistVideos = videos) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Could not load the videos of playlist $playlistId")
+            }
+        }
+    }
+
+    /** The address of TubeArchivist, for the thumbnails in the player's playlist. */
+    val taBaseUrl: String?
+        get() = taApi.baseUrl
 
     /** Notes where the TubeArchivist playlist is, so Home can carry on from there. */
     private fun rememberPlaylistPosition() {
@@ -847,11 +916,9 @@ constructor(
     }
 
     /** Plays the next video right away, saving where this one was left first. */
-    fun playNextNow() {
-        _uiState.update { it.copy(upNext = null) }
+    /** Tells Jellyfin and TubeArchivist where the video was left, as something else starts. */
+    private fun reportLeaving() {
         val mediaId = player.currentMediaItem?.mediaId
-        val startOver = loopsAfter(mediaId)
-        if (!player.hasNextMediaItem() && !startOver) return
         val position = player.currentPosition
         val duration = player.duration
         reportTaProgress(force = true)
@@ -870,6 +937,14 @@ constructor(
                 }
             }
         }
+    }
+
+    fun playNextNow() {
+        _uiState.update { it.copy(upNext = null) }
+        val mediaId = player.currentMediaItem?.mediaId
+        val startOver = loopsAfter(mediaId)
+        if (!player.hasNextMediaItem() && !startOver) return
+        reportLeaving()
         if (startOver) {
             restartTaPlaylist()
         } else {

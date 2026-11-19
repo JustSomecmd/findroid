@@ -2,10 +2,10 @@ package dev.jdtech.tubedroid.desktop.player
 
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
+import dev.jdtech.jellyfin.tubearchivist.loadPlaylist
 import dev.jdtech.tubedroid.desktop.AppSettings
 import dev.jdtech.tubedroid.desktop.WatchHistory
 import dev.jdtech.tubedroid.desktop.jellyfin.JellyfinClient
-import dev.jdtech.tubedroid.desktop.screens.loadPlaylist
 import java.util.UUID
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
@@ -65,6 +65,19 @@ internal interface PlaybackSource {
     val isPlaylist: Boolean
         get() = false
 
+    /** The playlist's name and its videos in order, for the playlist beside the video. */
+    val playlistName: String
+        get() = ""
+
+    val playlistVideos: List<TaVideo>
+        get() = emptyList()
+
+    /** Loads the playlist again, with how far each video was watched. */
+    suspend fun refreshPlaylist() {}
+
+    /** One of the playlist's videos, picked from the playlist, or null if it isn't in it. */
+    suspend fun playlistItem(videoId: String): PlayItem? = null
+
     /** Whether the playlist starts over after its last video. */
     var loop: Boolean
         get() = false
@@ -78,10 +91,28 @@ internal class TaPlaybackSource(
     private val request: PlayerRequest.Ta,
 ) : PlaybackSource {
     private var playlist: List<TaVideo> = emptyList()
-    private var playlistName = ""
+    private var name = ""
+
+    override val playlistName: String
+        get() = name
 
     override val isPlaylist: Boolean
         get() = playlist.isNotEmpty()
+
+    override val playlistVideos: List<TaVideo>
+        get() = playlist
+
+    override suspend fun refreshPlaylist() {
+        val playlistId = request.playlistId ?: return
+        val (loaded, videos) = api.loadPlaylist(playlistId)
+        name = loaded.name
+        if (videos.isNotEmpty()) playlist = videos
+    }
+
+    override suspend fun playlistItem(videoId: String): PlayItem? {
+        if (playlist.none { it.youtubeId == videoId }) return null
+        return api.getVideo(videoId).toPlayItem(fromStart = false)
+    }
 
     override var loop = false
 
@@ -91,7 +122,7 @@ internal class TaPlaybackSource(
             runCatching { api.loadPlaylist(id) }
                 .getOrNull()
                 ?.let { (loaded, videos) ->
-                    playlistName = loaded.name
+                    name = loaded.name
                     playlist = videos
                 }
         }
