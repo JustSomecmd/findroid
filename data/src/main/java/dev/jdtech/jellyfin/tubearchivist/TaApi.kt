@@ -382,6 +382,18 @@ class TaApi(private val appPreferences: AppPreferences) {
             get("api/notification/"),
         )
 
+    /**
+     * The results of background tasks from the last day, such as the downloads and rescans. Needs
+     * an admin token. The server answers with an error instead of an empty list when it has none.
+     */
+    suspend fun getTaskResults(): List<TaTaskResult> =
+        json
+            .decodeFromString(
+                ListSerializer(TaTaskResultJson.serializer()),
+                get("api/task/by-name/"),
+            )
+            .map { it.toResult() }
+
     suspend fun getSchedules(): List<TaSchedule> =
         json.decodeFromString(ListSerializer(TaSchedule.serializer()), get("api/task/schedule/"))
 

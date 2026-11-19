@@ -144,6 +144,8 @@
     <string name="settings_category_tubearchivist">TubeArchivist</string>
     <string name="settings_tubearchivist_interface">TubeArchivist interface</string>
     <string name="settings_tubearchivist_interface_summary">Use TubeArchivist as the main part of the app. Turn off for the regular Jellyfin client</string>
+    <string name="settings_tubearchivist_bot_notifications">Bot detection notifications</string>
+    <string name="settings_tubearchivist_bot_notifications_summary">Checks TubeArchivist every 15 minutes and sends a notification when YouTube\'s bot detection stops a download or rescan</string>
     <string name="settings_category_tubearchivist_summary">Server, API token, SponsorBlock and TubeArchivist\'s own settings</string>
     <string name="pref_new_item_notifications">Notify about new episodes and movies</string>
     <string name="pref_new_item_notifications_summary">Checks the server every 15 minutes and sends a notification naming the show or movie</string>

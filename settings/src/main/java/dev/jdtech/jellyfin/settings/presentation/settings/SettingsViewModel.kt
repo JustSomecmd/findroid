@@ -810,6 +810,14 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                             supportedDeviceTypes = listOf(DeviceType.PHONE),
                             backendPreference = appPreferences.tubeArchivistInterface,
                         ),
+                        PreferenceSwitch(
+                            nameStringResource = R.string.settings_tubearchivist_bot_notifications,
+                            descriptionStringRes =
+                                R.string.settings_tubearchivist_bot_notifications_summary,
+                            iconDrawableId = R.drawable.ic_bot,
+                            supportedDeviceTypes = listOf(DeviceType.PHONE),
+                            backendPreference = appPreferences.tubeArchivistBotNotifications,
+                        ),
                     )
             ),
             PreferenceGroup(

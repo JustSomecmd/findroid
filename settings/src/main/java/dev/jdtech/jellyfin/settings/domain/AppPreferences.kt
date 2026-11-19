@@ -22,6 +22,8 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val tubeArchivistSponsorBlock = Preference("pref_ta_sponsorblock", "button")
     // TubeArchivist as the main interface. Off gives the regular Jellyfin layout
     val tubeArchivistInterface = Preference("pref_ta_interface", true)
+    // A notification when YouTube's bot detection stops the server's downloads
+    val tubeArchivistBotNotifications = Preference("pref_ta_bot_notifications", true)
 
     // Language
     val preferredAudioLanguage = Preference<String?>("pref_audio_language", null)

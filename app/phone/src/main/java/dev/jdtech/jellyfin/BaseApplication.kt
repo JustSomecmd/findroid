@@ -29,6 +29,7 @@ import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.work.MpvCleanupWorker
 import dev.jdtech.jellyfin.work.NewItemsWorker
 import dev.jdtech.jellyfin.work.SyncWorker
+import dev.jdtech.jellyfin.work.TaBotCheckWorker
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import kotlin.time.ExperimentalTime
@@ -72,6 +73,7 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
 
         scheduleUserDataSync(workManager)
         scheduleNewItemsCheck(workManager)
+        scheduleTaBotCheck(workManager)
         // Turning the setting on or off takes effect right away
         appPreferences.sharedPreferences.registerOnSharedPreferenceChangeListener(
             newItemsSettingListener
@@ -159,6 +161,9 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
             if (key == appPreferences.newItemNotifications.backendName) {
                 scheduleNewItemsCheck(WorkManager.getInstance(applicationContext))
             }
+            if (key == appPreferences.tubeArchivistBotNotifications.backendName) {
+                scheduleTaBotCheck(WorkManager.getInstance(applicationContext))
+            }
         }
 
     /** Checks the server for new episodes and movies every 15 minutes while the setting is on. */
@@ -175,6 +180,28 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
                 .build()
         workManager.enqueueUniquePeriodicWork(
             NewItemsWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
+        )
+    }
+
+    /**
+     * Checks TubeArchivist every 15 minutes for tasks that YouTube's bot detection stopped, while
+     * the setting is on. Without TubeArchivist set up each check ends right away.
+     */
+    private fun scheduleTaBotCheck(workManager: WorkManager) {
+        if (!appPreferences.getValue(appPreferences.tubeArchivistBotNotifications)) {
+            workManager.cancelUniqueWork(TaBotCheckWorker.WORK_NAME)
+            return
+        }
+        val request =
+            PeriodicWorkRequestBuilder<TaBotCheckWorker>(15, TimeUnit.MINUTES)
+                .setConstraints(
+                    Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+                )
+                .build()
+        workManager.enqueueUniquePeriodicWork(
+            TaBotCheckWorker.WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             request,
         )

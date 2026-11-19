@@ -123,6 +123,15 @@
     <string name="new_movie">New movie</string>
     <string name="new_episode_label">S%1$d:E%2$d · %3$s</string>
     <string name="new_items_more">+%1$d more</string>
+    <string name="ta_bot_channel">TubeArchivist bot detection</string>
+    <string name="ta_bot_title">YouTube bot detection stopped TubeArchivist</string>
+    <string name="ta_bot_text">%1$s was stopped because YouTube asked to confirm it\'s not a bot. Importing your YouTube cookies in TubeArchivist\'s settings often helps.</string>
+    <string name="ta_bot_task_download">The download queue</string>
+    <string name="ta_bot_task_rescan">The subscription rescan</string>
+    <string name="ta_bot_task_add">Adding to the download queue</string>
+    <string name="ta_bot_task_reindex">The reindex</string>
+    <string name="ta_bot_task_subscribe">Adding a subscription</string>
+    <string name="ta_bot_task_other">A background task</string>
     <string name="download_speed">%1$s/s</string>
     <string name="download_size_and_speed">%1$s · %2$s/s</string>
     <string name="downloads_in_progress">In progress</string>

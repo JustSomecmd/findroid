@@ -2,7 +2,10 @@ package dev.jdtech.jellyfin.tubearchivist
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 // What the TubeArchivist API sends back. Almost everything is optional, so a field TubeArchivist
 // leaves out or adds in a later version doesn't break a whole page.
@@ -197,6 +200,46 @@ data class TaNotification(
     val messages: List<String> = emptyList(),
     val progress: Double? = null,
 )
+
+/** One stored result of a TubeArchivist background task, kept by the server for a day. */
+data class TaTaskResult(
+    val status: String,
+    val result: String?,
+    val traceback: String?,
+    val dateDone: String?,
+    val name: String,
+    val taskId: String,
+)
+
+// As the server sends it. Text for most versions, kept loose in case a server sends the raw error
+// object or false for a task that hasn't finished
+@Serializable
+internal data class TaTaskResultJson(
+    val status: String = "",
+    val result: JsonElement? = null,
+    val traceback: JsonElement? = null,
+    @SerialName("date_done") val dateDone: JsonElement? = null,
+    val name: String = "",
+    @SerialName("task_id") val taskId: String = "",
+) {
+    fun toResult() =
+        TaTaskResult(
+            status = status,
+            result = result.asText(),
+            traceback = traceback.asText(),
+            dateDone = dateDone.asText(),
+            name = name,
+            taskId = taskId,
+        )
+
+    private fun JsonElement?.asText(): String? =
+        when (this) {
+            null,
+            JsonNull -> null
+            is JsonPrimitive -> if (isString) content else toString()
+            else -> toString()
+        }
+}
 
 @Serializable data class TaPing(val response: String = "", val version: String? = null)
 
