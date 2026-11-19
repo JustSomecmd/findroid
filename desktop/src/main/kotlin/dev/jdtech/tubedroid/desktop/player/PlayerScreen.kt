@@ -23,11 +23,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -567,79 +569,84 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
     }
     val showBars = !session.fullscreen || barsShown
 
-    Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        if (showBars) {
-            PlayerBar(
-                session = session,
-                onClose = close,
-                modifier = Modifier.hoverable(barsHover),
-            )
-        }
-        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            Box(
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (lib == null) {
-                    Message(MpvLoader.loadError ?: "Couldn't load mpv")
-                } else {
-                    SwingPanel(
-                        background = Color.Black,
-                        modifier = Modifier.fillMaxSize(),
-                        factory = {
-                            MpvCanvas(
-                                onReady = { canvas ->
-                                    try {
-                                        session.player =
-                                            MpvPlayer.create(
-                                                lib = lib,
-                                                wid = Native.getComponentID(canvas),
-                                                options = mpvOptions(app.settings),
-                                                onEvent = { event ->
-                                                    scope.launch(Dispatchers.Main) {
-                                                        when (event) {
-                                                            MpvEvent.FileLoaded ->
-                                                                session.onFileLoaded()
-                                                            is MpvEvent.LoadFailed ->
-                                                                session.onLoadFailed(event.message)
-                                                            MpvEvent.Shutdown -> close()
+    // Light text and icons on the dark bars; nothing else around them sets it
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+        Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            if (showBars) {
+                PlayerBar(
+                    session = session,
+                    onClose = close,
+                    modifier = Modifier.hoverable(barsHover),
+                )
+            }
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (lib == null) {
+                        Message(MpvLoader.loadError ?: "Couldn't load mpv")
+                    } else {
+                        SwingPanel(
+                            background = Color.Black,
+                            modifier = Modifier.fillMaxSize(),
+                            factory = {
+                                MpvCanvas(
+                                    onReady = { canvas ->
+                                        try {
+                                            session.player =
+                                                MpvPlayer.create(
+                                                    lib = lib,
+                                                    wid = Native.getComponentID(canvas),
+                                                    options = mpvOptions(app.settings),
+                                                    onEvent = { event ->
+                                                        scope.launch(Dispatchers.Main) {
+                                                            when (event) {
+                                                                MpvEvent.FileLoaded ->
+                                                                    session.onFileLoaded()
+                                                                is MpvEvent.LoadFailed ->
+                                                                    session.onLoadFailed(
+                                                                        event.message
+                                                                    )
+                                                                MpvEvent.Shutdown -> close()
+                                                            }
                                                         }
-                                                    }
-                                                },
-                                            )
-                                    } catch (e: Exception) {
-                                        session.error = e.message ?: e.toString()
-                                    }
-                                },
-                                onGone = { session.release() },
-                            )
+                                                    },
+                                                )
+                                        } catch (e: Exception) {
+                                            session.error = e.message ?: e.toString()
+                                        }
+                                    },
+                                    onGone = { session.release() },
+                                )
+                            },
+                        )
+                    }
+                }
+                // Beside the video rather than over it, as mpv draws in a window of its own
+                AnimatedVisibility(
+                    visible = session.playlistOpen && !session.fullscreen,
+                    enter = expandHorizontally(expandFrom = Alignment.Start),
+                    exit = shrinkHorizontally(shrinkTowards = Alignment.Start),
+                ) {
+                    PlaylistPanel(
+                        name = session.playlistName,
+                        videos = session.playlistVideos,
+                        currentVideoId = session.item?.id,
+                        loop = session.loop,
+                        onPlay = session::playFromPlaylist,
+                        onLoopChange = session::changeLoop,
+                        onOpenPage = {
+                            val playlistId = (request as? PlayerRequest.Ta)?.playlistId
+                            close()
+                            if (playlistId != null) navigator.open(Route.Playlist(playlistId))
                         },
                     )
                 }
             }
-            // Beside the video rather than over it, as mpv draws in a window of its own
-            AnimatedVisibility(
-                visible = session.playlistOpen && !session.fullscreen,
-                enter = expandHorizontally(expandFrom = Alignment.Start),
-                exit = shrinkHorizontally(shrinkTowards = Alignment.Start),
-            ) {
-                PlaylistPanel(
-                    name = session.playlistName,
-                    videos = session.playlistVideos,
-                    currentVideoId = session.item?.id,
-                    loop = session.loop,
-                    onPlay = session::playFromPlaylist,
-                    onLoopChange = session::changeLoop,
-                    onOpenPage = {
-                        val playlistId = (request as? PlayerRequest.Ta)?.playlistId
-                        close()
-                        if (playlistId != null) navigator.open(Route.Playlist(playlistId))
-                    },
-                )
+            if (showBars) {
+                ControlBar(session = session, modifier = Modifier.hoverable(barsHover))
             }
-        }
-        if (showBars) {
-            ControlBar(session = session, modifier = Modifier.hoverable(barsHover))
         }
     }
 }
