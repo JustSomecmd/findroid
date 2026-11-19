@@ -164,11 +164,11 @@ fun AppImage(name: String, contentDescription: String?, modifier: Modifier = Mod
 }
 
 /**
- * Tubedroid's logo, as on the phone: the ring of TubeArchivist's logo with the Android figure of
- * Findroid's in the middle, white on dark themes and in the text color on light ones.
+ * Winchivist's logo: the ring of TubeArchivist's logo with a screen in the middle, white on dark
+ * themes and in the text color on light ones.
  */
 @Composable
-fun TubedroidLogo(modifier: Modifier = Modifier) {
+fun WinchivistLogo(modifier: Modifier = Modifier) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     Box(modifier = modifier) {
         AppImage(
@@ -177,8 +177,8 @@ fun TubedroidLogo(modifier: Modifier = Modifier) {
             modifier = Modifier.matchParentSize(),
         )
         AppIcon(
-            name = "ic_tubedroid_head",
-            contentDescription = "Tubedroid",
+            name = "ic_winchivist_screen",
+            contentDescription = "Winchivist",
             tint = if (dark) Color.White else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.matchParentSize(),
         )

@@ -1,4 +1,4 @@
-# Builds Tubedroid for Windows: an MSI installer with mpv (libmpv-2.dll) inside. Pushes to the
+# Builds Winchivist, Tubedroid for Windows: an MSI installer with mpv (libmpv-2.dll) inside. Pushes to the
 # custom branch also publish it on the Releases page, marked as a pre-release so update checkers
 # for the phone app, such as Obtainium, skip it.
 
@@ -90,7 +90,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
-          name: Tubedroid-windows
+          name: Winchivist
           path: desktop/build/compose/binaries/main/msi/*.msi
 
       - name: Publish release
@@ -98,7 +98,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: desktop-1.0.${{ github.run_number }}
-          name: Tubedroid for Windows 1.0.${{ github.run_number }}
+          name: Winchivist 1.0.${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           prerelease: true
           make_latest: false
@@ -106,5 +106,5 @@ jobs:
           body: |
             Built from ${{ github.sha }} on the custom branch.
             Run the .msi to install, or to update an older install. It plays videos with mpv; an
-            mpv.conf in %APPDATA%\Tubedroid\mpv changes how.
+            mpv.conf in %APPDATA%\Winchivist\mpv changes how.
           files: desktop/build/compose/binaries/main/msi/*.msi

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Winchivist's figure: a screen with a play button, on a stand. Sized and placed to sit in the
+     middle of ic_ta_logo_ring; white, to be tinted. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="1000"
+    android:viewportHeight="1000">
+    <path
+        android:fillColor="@android:color/white"
+        android:fillType="evenOdd"
+        android:pathData="M309,325H691A34,34 0 0 1 725,359V581A34,34 0 0 1 691,615H309A34,34 0 0 1 275,581V359A34,34 0 0 1 309,325ZM452,395.0L452,545.0L582,470ZM465,615H535V665H465ZM395,660H605A20,20 0 0 1 625,680V680A20,20 0 0 1 605,700H395A20,20 0 0 1 375,680V680A20,20 0 0 1 395,660Z" />
+</vector>

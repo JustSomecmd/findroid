@@ -68,7 +68,7 @@ internal object MpvLoader {
             }
         }
         loadError =
-            "Couldn't load mpv (libmpv-2.dll), which plays the videos. Reinstalling Tubedroid should bring it back."
+            "Couldn't load mpv (libmpv-2.dll), which plays the videos. Reinstalling Winchivist should bring it back."
         System.err.println("libmpv: " + errors.joinToString(" | "))
         return null
     }

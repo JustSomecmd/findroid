@@ -32,7 +32,7 @@ fun installImageLoader(api: TaApi) {
     val cacheFolder =
         File(
             System.getenv("LOCALAPPDATA") ?: System.getProperty("java.io.tmpdir"),
-            "Tubedroid/images",
+            "Winchivist/images",
         )
     SingletonImageLoader.setSafe { context ->
         ImageLoader.Builder(context)

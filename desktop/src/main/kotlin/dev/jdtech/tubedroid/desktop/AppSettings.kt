@@ -9,7 +9,8 @@ import java.util.prefs.Preferences
 
 /**
  * The app's settings, kept in the user's registry by Java's preferences. Each value is also Compose
- * state, so pages follow a change right away.
+ * state, so pages follow a change right away. They're still kept under "tubedroid", the app's name
+ * before Winchivist, so they carry over.
  */
 class AppSettings(private val prefs: Preferences = Preferences.userRoot().node("tubedroid")) :
     TaConfig {
@@ -41,7 +42,14 @@ class AppSettings(private val prefs: Preferences = Preferences.userRoot().node("
         get() {
             val base =
                 System.getenv("APPDATA")?.let(::File) ?: File(System.getProperty("user.home"))
-            return File(base, "Tubedroid/mpv").also { it.mkdirs() }
+            val folder = File(base, "Winchivist/mpv")
+            // Kept from when the app was called Tubedroid on Windows too
+            val before = File(base, "Tubedroid/mpv")
+            if (!folder.exists() && before.isDirectory) {
+                folder.parentFile?.mkdirs()
+                before.renameTo(folder)
+            }
+            return folder.also { it.mkdirs() }
         }
 
     private fun <T : String?> stored(key: String, default: T) =
