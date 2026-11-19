@@ -32,7 +32,7 @@ android {
     buildTypes {
         named("debug") { applicationIdSuffix = ".debug" }
         named("release") {
-            // Personal build: installs next to the official Findroid instead of replacing it
+            // Tubedroid: installs next to the official Findroid instead of replacing it
             applicationIdSuffix = ".custom"
             versionNameSuffix = "-custom"
             isMinifyEnabled = true
