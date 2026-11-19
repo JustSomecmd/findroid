@@ -153,6 +153,8 @@
     <string name="pref_cast_shows">Cast &amp; crew on show pages</string>
     <string name="pref_latest_episodes">New episodes in Latest</string>
     <string name="pref_latest_episodes_summary">In the Latest rows on Home, show every new episode on its own with its thumbnail, instead of grouping them under the show\'s poster</string>
+    <string name="pref_player_tunneling">Tunneled playback</string>
+    <string name="pref_player_tunneling_summary">Lets the phone\'s video hardware keep picture and sound in step. If the picture lags behind the sound, try it off. Also in the player\'s menu.</string>
     <string name="pref_player_buttons_summary">Choose which buttons the player shows and where</string>
     <string name="player_buttons_hint">Hold a button and drag it to change its place. Buttons keep this order inside each bar and in the menu behind the cogwheel. In a bar, subtitles turn captions on and off; the menu picks the track.</string>
     <string name="player_buttons_reset">Reset</string>

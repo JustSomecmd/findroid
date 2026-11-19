@@ -48,19 +48,14 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val showEpisodesNewestFirst = Preference("pref_show_episodes_newest_first", true)
 
     // Player
-    val playerBackend = Preference("pref_player_backend", "exoplayer")
     val playerStreamQuality = Preference("pref_player_stream_quality", "original")
     val playerBackgroundPlayback = Preference("pref_player_background_playback", false)
     // Saved under a new name since the settings menu came, so everyone starts from its layout
     val playerButtons = Preference("pref_player_buttons_menu", "")
     val playerBackgroundAudioOnly = Preference("pref_player_background_audio_only", true)
     val playerBrightness = Preference("pref_player_brightness", -1.0f)
-
-    // Player - mpv
-    val playerMpv = Preference("pref_player_mpv", false)
-    val playerMpvHwdec = Preference("pref_player_mpv_hwdec", "mediacodec")
-    val playerMpvVo = Preference("pref_player_mpv_vo", "gpu-next")
-    val playerMpvAo = Preference("pref_player_mpv_ao", "aaudio")
+    // On as it always was; under a new name, since the older setting was off by default
+    val playerTunneling = Preference("pref_player_tunneling_on", true)
 
     // Player - gestures
     val playerGestures = Preference("pref_player_gestures", true)
@@ -141,7 +136,6 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val localNetworkPermissionDecided = Preference("pref_permission_local_network_decided", false)
 
     // Migrations
-    val mpvMigrated = Preference("mpv_migrated", false)
 
     inline fun <reified T> getValue(preference: Preference<T>): T {
         return try {

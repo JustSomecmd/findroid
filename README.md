@@ -49,7 +49,7 @@ Most pages have a phone side and a server side. Swipe or tap the switch in the t
 
 ## Player
 
-- ExoPlayer or mpv.
+- Plays with ExoPlayer. A cogwheel menu holds quality, speed, captions, the sleep timer, tunneled playback and a playback info page with the formats, decoders and dropped frames.
 - Autoplay, with a card showing the next video and its thumbnail during the last seconds. It can be turned off from the player.
 - A sleep timer that pauses after 10 to 90 minutes, fading the sound out first, or stops at the end of the video.
 - Background playback. After 10 seconds in the background only the sound is streamed.

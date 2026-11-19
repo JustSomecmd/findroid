@@ -12,7 +12,6 @@ import dev.jdtech.jellyfin.settings.domain.models.PermissionDefinitions
 import dev.jdtech.jellyfin.settings.presentation.enums.DeviceType
 import dev.jdtech.jellyfin.settings.presentation.models.PreferenceAppLanguage
 import dev.jdtech.jellyfin.settings.presentation.models.PreferenceCategory
-import dev.jdtech.jellyfin.settings.presentation.models.PreferenceFileEdit
 import dev.jdtech.jellyfin.settings.presentation.models.PreferenceGroup
 import dev.jdtech.jellyfin.settings.presentation.models.PreferenceIntInput
 import dev.jdtech.jellyfin.settings.presentation.models.PreferenceLongInput
@@ -416,120 +415,13 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     backendPreference =
                                                         appPreferences.playerAccentControls,
                                                 ),
-                                                PreferenceSelect(
+                                                PreferenceSwitch(
                                                     nameStringResource =
-                                                        R.string.pref_player_backend,
+                                                        R.string.pref_player_tunneling,
+                                                    descriptionStringRes =
+                                                        R.string.pref_player_tunneling_summary,
                                                     backendPreference =
-                                                        appPreferences.playerBackend,
-                                                    options = R.array.player_backends,
-                                                    optionValues = R.array.player_backends,
-                                                ),
-                                                PreferenceCategory(
-                                                    nameStringResource = R.string.mpv_options,
-                                                    onClick = {
-                                                        viewModelScope.launch {
-                                                            eventsChannel.send(
-                                                                SettingsEvent.NavigateToSettings(
-                                                                    listOf(
-                                                                        R.string
-                                                                            .settings_category_player,
-                                                                        it.nameStringResource,
-                                                                    )
-                                                                )
-                                                            )
-                                                        }
-                                                    },
-                                                    nestedPreferenceGroups =
-                                                        listOf(
-                                                            PreferenceGroup(
-                                                                preferences =
-                                                                    listOf(
-                                                                        PreferenceSelect(
-                                                                            nameStringResource =
-                                                                                R.string
-                                                                                    .pref_player_mpv_hwdec,
-                                                                            backendPreference =
-                                                                                appPreferences
-                                                                                    .playerMpvHwdec,
-                                                                            options =
-                                                                                R.array.mpv_hwdec,
-                                                                            optionValues =
-                                                                                R.array.mpv_hwdec,
-                                                                        ),
-                                                                        PreferenceSelect(
-                                                                            nameStringResource =
-                                                                                R.string
-                                                                                    .pref_player_mpv_vo,
-                                                                            backendPreference =
-                                                                                appPreferences
-                                                                                    .playerMpvVo,
-                                                                            options =
-                                                                                R.array.mpv_vos,
-                                                                            optionValues =
-                                                                                R.array.mpv_vos,
-                                                                        ),
-                                                                        PreferenceSelect(
-                                                                            nameStringResource =
-                                                                                R.string
-                                                                                    .pref_player_mpv_ao,
-                                                                            backendPreference =
-                                                                                appPreferences
-                                                                                    .playerMpvAo,
-                                                                            options =
-                                                                                R.array.mpv_aos,
-                                                                            optionValues =
-                                                                                R.array.mpv_aos,
-                                                                        ),
-                                                                    )
-                                                            ),
-                                                            PreferenceGroup(
-                                                                nameStringResource =
-                                                                    R.string.advanced,
-                                                                preferences =
-                                                                    listOf(
-                                                                        PreferenceFileEdit(
-                                                                            nameStringResource =
-                                                                                R.string
-                                                                                    .edit_file_title,
-                                                                            filePath =
-                                                                                "mpv/mpv.conf",
-                                                                            onClick = {
-                                                                                viewModelScope
-                                                                                    .launch {
-                                                                                        eventsChannel
-                                                                                            .send(
-                                                                                                SettingsEvent
-                                                                                                    .NavigateToSettingsFileEdit(
-                                                                                                        it
-                                                                                                            .filePath
-                                                                                                    )
-                                                                                            )
-                                                                                    }
-                                                                            },
-                                                                        ),
-                                                                        PreferenceFileEdit(
-                                                                            nameStringResource =
-                                                                                R.string
-                                                                                    .edit_file_title,
-                                                                            filePath =
-                                                                                "mpv/input.conf",
-                                                                            onClick = {
-                                                                                viewModelScope
-                                                                                    .launch {
-                                                                                        eventsChannel
-                                                                                            .send(
-                                                                                                SettingsEvent
-                                                                                                    .NavigateToSettingsFileEdit(
-                                                                                                        it
-                                                                                                            .filePath
-                                                                                                    )
-                                                                                            )
-                                                                                    }
-                                                                            },
-                                                                        ),
-                                                                    ),
-                                                            ),
-                                                        ),
+                                                        appPreferences.playerTunneling,
                                                 ),
                                             )
                                     ),

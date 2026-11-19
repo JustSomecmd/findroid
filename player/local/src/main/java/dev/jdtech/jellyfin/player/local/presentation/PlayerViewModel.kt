@@ -19,6 +19,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.models.FindroidSegment
@@ -30,7 +31,6 @@ import dev.jdtech.jellyfin.player.core.domain.models.Trickplay
 import dev.jdtech.jellyfin.player.local.R
 import dev.jdtech.jellyfin.player.local.domain.PlaylistManager
 import dev.jdtech.jellyfin.player.local.domain.TaQueueEntry
-import dev.jdtech.jellyfin.player.local.mpv.MPVPlayer
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.Constants
@@ -171,6 +171,32 @@ constructor(
     private var qualityBeforeBackground: StreamQuality? = null
 
     private val trackSelector = DefaultTrackSelector(application)
+
+    // The names of the decoders in use, which only ExoPlayer's events tell. Before the player is
+    // made, which listens with it
+    private var videoDecoderName: String? = null
+    private var audioDecoderName: String? = null
+    private val decoderNames =
+        object : AnalyticsListener {
+            override fun onVideoDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                videoDecoderName = decoderName
+            }
+
+            override fun onAudioDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                audioDecoderName = decoderName
+            }
+        }
+
     var playWhenReady = true
     private var currentMediaItemIndex = savedStateHandle["mediaItemIndex"] ?: 0
     private var playbackPosition: Long = savedStateHandle["position"] ?: 0
@@ -230,7 +256,7 @@ constructor(
         trackSelector.setParameters(
             trackSelector
                 .buildUponParameters()
-                .setTunnelingEnabled(true)
+                .setTunnelingEnabled(appPreferences.getValue(appPreferences.playerTunneling))
                 .setPreferredAudioLanguage(
                     appPreferences.getValue(appPreferences.preferredAudioLanguage)
                 )
@@ -239,46 +265,20 @@ constructor(
                 )
         )
 
-        val playerBackend = appPreferences.getValue(appPreferences.playerBackend)
+        val renderersFactory =
+            DefaultRenderersFactory(application)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         player =
-            when (playerBackend) {
-                "exoplayer" -> {
-                    val renderersFactory =
-                        DefaultRenderersFactory(application)
-                            .setExtensionRendererMode(
-                                DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
-                            )
-                    ExoPlayer.Builder(application, renderersFactory)
-                        .setAudioAttributes(audioAttributes, true)
-                        .setTrackSelector(trackSelector)
-                        .setSeekBackIncrementMs(
-                            appPreferences.getValue(appPreferences.playerSeekBackInc)
-                        )
-                        .setSeekForwardIncrementMs(
-                            appPreferences.getValue(appPreferences.playerSeekForwardInc)
-                        )
-                        .setPauseAtEndOfMediaItems(true)
-                        .build()
-                }
-                "mpv" -> {
-                    MPVPlayer.Builder(application)
-                        .setAudioAttributes(audioAttributes, true)
-                        .setTrackSelectionParameters(trackSelector.parameters)
-                        .setSeekBackIncrementMs(
-                            appPreferences.getValue(appPreferences.playerSeekBackInc)
-                        )
-                        .setSeekForwardIncrementMs(
-                            appPreferences.getValue(appPreferences.playerSeekForwardInc)
-                        )
-                        .setPauseAtEndOfMediaItems(true)
-                        .setVideoOutput(appPreferences.getValue(appPreferences.playerMpvVo))
-                        .setAudioOutput(appPreferences.getValue(appPreferences.playerMpvAo))
-                        .setHwDec(appPreferences.getValue(appPreferences.playerMpvHwdec))
-                        .build()
-                }
-
-                else -> throw RuntimeException("$playerBackend is not a valid player backend")
-            }
+            ExoPlayer.Builder(application, renderersFactory)
+                .setAudioAttributes(audioAttributes, true)
+                .setTrackSelector(trackSelector)
+                .setSeekBackIncrementMs(appPreferences.getValue(appPreferences.playerSeekBackInc))
+                .setSeekForwardIncrementMs(
+                    appPreferences.getValue(appPreferences.playerSeekForwardInc)
+                )
+                .setPauseAtEndOfMediaItems(true)
+                .build()
+                .also { it.addAnalyticsListener(decoderNames) }
     }
 
     fun initializePlayer(
@@ -1022,7 +1022,7 @@ constructor(
 
     /**
      * Turns video decoding off while playing in the background and back on when the player is shown
-     * again. Only ExoPlayer needs this; mpv stops drawing by itself when the screen goes away.
+     * again. The picture coming back can be behind the sound, so it's put back in step.
      */
     fun setVideoEnabled(enabled: Boolean) {
         if (player !is ExoPlayer) return
@@ -1031,10 +1031,104 @@ constructor(
         try {
             player.trackSelectionParameters =
                 parameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !enabled).build()
+            if (enabled) resync()
         } catch (e: IllegalStateException) {
             Timber.e(e)
         }
     }
+
+    /** Whether tunneled playback is asked for, which the menu and settings turn on and off. */
+    val tunnelingOn: Boolean
+        get() = trackSelector.parameters.tunnelingEnabled
+
+    /**
+     * Turns tunneled playback on or off, for this video and from now on. ExoPlayer restarts the
+     * decoders for it, so sound and picture are put back in step after.
+     */
+    fun setTunneling(enabled: Boolean) {
+        appPreferences.setValue(appPreferences.playerTunneling, enabled)
+        trackSelector.setParameters(
+            trackSelector.buildUponParameters().setTunnelingEnabled(enabled)
+        )
+        resync()
+    }
+
+    /**
+     * What's playing and how, for the player's Playback info: the formats, the decoders, whether
+     * playback is tunneled, and the frames shown and dropped. For finding out why sound and picture
+     * drift apart.
+     */
+    fun playbackInfo(): List<Pair<String, String>> {
+        val exo = player as? ExoPlayer ?: return emptyList()
+        val video = exo.videoFormat
+        val audio = exo.audioFormat
+        val counters = exo.videoDecoderCounters
+        val uri = exo.currentMediaItem?.localConfiguration?.uri
+        val local = uri?.scheme == "file" || uri?.scheme == "content"
+        return buildList {
+            add(
+                "Source" to
+                    if (local) "Downloaded"
+                    else "Streamed, ${playlistManager.quality.name.lowercase()}"
+            )
+            video?.let { format ->
+                add(
+                    "Video" to
+                        listOfNotNull(
+                                format.codecs ?: format.sampleMimeType,
+                                "${format.width}×${format.height}",
+                                format.frameRate.takeIf { it > 0 }?.let { "%.2f fps".format(it) },
+                                format.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" },
+                            )
+                            .joinToString(", ")
+                )
+            }
+            add("Video decoder" to decoderDescription(videoDecoderName))
+            audio?.let { format ->
+                add(
+                    "Audio" to
+                        listOfNotNull(
+                                format.codecs ?: format.sampleMimeType,
+                                format.sampleRate.takeIf { it > 0 }?.let { "$it Hz" },
+                                format.channelCount.takeIf { it > 0 }?.let { "$it channels" },
+                            )
+                            .joinToString(", ")
+                )
+            }
+            add("Audio decoder" to decoderDescription(audioDecoderName))
+            add(
+                "Tunneled playback" to
+                    when {
+                        !tunnelingOn -> "Off"
+                        exo.isTunnelingEnabled -> "On, in use"
+                        else -> "On, but not possible for this video on this phone"
+                    }
+            )
+            counters?.let {
+                it.ensureUpdated()
+                add(
+                    "Frames" to
+                        "${it.renderedOutputBufferCount} shown, ${it.droppedBufferCount} dropped, " +
+                            "${it.skippedOutputBufferCount} skipped"
+                )
+                add("Most dropped in a row" to it.maxConsecutiveDroppedBufferCount.toString())
+            }
+            add("Speed" to "${exo.playbackParameters.speed}x")
+            add(
+                "Buffered ahead" to
+                    "%.1f s".format((exo.bufferedPosition - exo.currentPosition) / 1000.0)
+            )
+        }
+    }
+
+    private fun decoderDescription(name: String?): String =
+        when {
+            name == null -> "Not known yet"
+            // Android's own decoders run on the processor rather than the video hardware
+            name.startsWith("c2.android.") || name.startsWith("OMX.google.") -> "$name (software)"
+            name.contains("ffmpeg", ignoreCase = true) -> "$name (software)"
+            else -> name
+        }
 
     fun selectSpeed(speed: Float) {
         player.setPlaybackSpeed(speed)
@@ -1262,14 +1356,24 @@ constructor(
      * already is. Waits until it's actually playing, so a video that starts paused is still done.
      */
     private fun resyncOnce() {
-        if (player !is ExoPlayer) return
         val mediaId = player.currentMediaItem?.mediaId ?: return
         if (mediaId == resyncedMediaId || resyncJob?.isActive == true) return
+        resync { resyncedMediaId = mediaId }
+    }
 
+    /**
+     * Puts sound and picture back in step with a seek to where it already is, a moment from now if
+     * it's playing then. Also for when the picture comes back after playing in the background, and
+     * after tunneling is turned on or off.
+     */
+    private fun resync(onDone: () -> Unit = {}) {
+        if (player !is ExoPlayer) return
+        val mediaId = player.currentMediaItem?.mediaId ?: return
+        resyncJob?.cancel()
         resyncJob = viewModelScope.launch {
             delay(RESYNC_DELAY_MS)
             if (player.isPlaying && player.currentMediaItem?.mediaId == mediaId) {
-                resyncedMediaId = mediaId
+                onDone()
                 player.seekTo(player.currentPosition)
             }
         }

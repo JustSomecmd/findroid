@@ -150,7 +150,6 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.jellyfin.core)
     ksp(libs.kotlin.metadata.jvm)
-    compileOnly(libs.libmpv)
     implementation(libs.material)
     implementation(libs.okhttp)
     implementation(libs.media3.ffmpeg.decoder)

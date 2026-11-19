@@ -26,7 +26,6 @@ import coil3.svg.SvgDecoder
 import com.google.android.material.color.DynamicColors
 import dagger.hilt.android.HiltAndroidApp
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
-import dev.jdtech.jellyfin.work.MpvCleanupWorker
 import dev.jdtech.jellyfin.work.NewItemsWorker
 import dev.jdtech.jellyfin.work.SyncWorker
 import dev.jdtech.jellyfin.work.TaBotCheckWorker
@@ -78,10 +77,6 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
         appPreferences.sharedPreferences.registerOnSharedPreferenceChangeListener(
             newItemsSettingListener
         )
-
-        if (!appPreferences.getValue(appPreferences.mpvMigrated)) {
-            scheduleMpvCleanup(workManager)
-        }
     }
 
     @OptIn(ExperimentalCoilApi::class, ExperimentalTime::class)
@@ -204,16 +199,6 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
             TaBotCheckWorker.WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             request,
-        )
-    }
-
-    private fun scheduleMpvCleanup(workManager: WorkManager) {
-        val cleanupRequest = OneTimeWorkRequestBuilder<MpvCleanupWorker>().build()
-
-        workManager.enqueueUniqueWork(
-            uniqueWorkName = "mpv_cleanup",
-            existingWorkPolicy = ExistingWorkPolicy.KEEP,
-            request = cleanupRequest,
         )
     }
 }

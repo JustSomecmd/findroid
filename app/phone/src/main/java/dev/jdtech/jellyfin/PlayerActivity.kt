@@ -44,6 +44,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.children
 import androidx.core.view.isVisible
+import androidx.core.widget.TextViewCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -52,6 +53,7 @@ import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerControlView
 import androidx.media3.ui.PlayerView
 import coil3.load
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.databinding.ActivityPlayerBinding
@@ -300,8 +302,6 @@ class PlayerActivity : BasePlayerActivity() {
                                     else PlayerR.string.player_sleep_timer
                                 )
                             upNextCard.isVisible = upNext != null && !isInPictureInPictureMode
-                            // The menu also has the playlist's page, when playing from one
-                            menuButton.isVisible = menuButtons.isNotEmpty() || taPlaylistId != null
                             upNext?.let { next ->
                                 upNextLabel.text =
                                     getString(PlayerR.string.player_up_next_in, next.secondsLeft)
@@ -688,10 +688,9 @@ class PlayerActivity : BasePlayerActivity() {
         }
 
         menuButtons = menu
-        // Always there, but only shown with something in the menu, which a playlist adds to
+        // Always there: the menu also has tunneling and the playback info
         val padding = (16 * density).toInt()
         menuButton.setPadding(padding, padding, padding, padding)
-        menuButton.isVisible = menu.isNotEmpty()
         topBar.addView(
             menuButton,
             LinearLayout.LayoutParams(
@@ -719,9 +718,77 @@ class PlayerActivity : BasePlayerActivity() {
                 )
             }
             addAll(menuButtons.mapNotNull { menuItem(it, state) })
+            // For finding out why sound and picture drift apart
+            add(
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_arrow_down_up,
+                    title = getString(PlayerR.string.player_tunneling),
+                    value =
+                        getString(
+                            if (viewModel.tunnelingOn) PlayerR.string.player_on
+                            else PlayerR.string.player_sleep_off
+                        ),
+                ) {
+                    val on = !viewModel.tunnelingOn
+                    viewModel.setTunneling(on)
+                    Toast.makeText(
+                            this@PlayerActivity,
+                            if (on) PlayerR.string.player_tunneling_on
+                            else PlayerR.string.player_tunneling_off,
+                            Toast.LENGTH_SHORT,
+                        )
+                        .show()
+                }
+            )
+            add(
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_info,
+                    title = getString(PlayerR.string.player_playback_info),
+                    opensChoices = true,
+                ) {
+                    showPlaybackInfo()
+                }
+            )
         }
         if (items.isEmpty()) return
         PlayerMenuDialogFragment(items).show(supportFragmentManager, "playermenu")
+    }
+
+    /**
+     * What's playing and how: formats, decoders, tunneling and frames, kept current every second
+     * while it's open, so frames dropped while it plays show up.
+     */
+    private fun showPlaybackInfo() {
+        val padding = (24 * resources.displayMetrics.density).toInt()
+        val text =
+            TextView(this).apply {
+                setTextIsSelectable(true)
+                setPadding(padding, padding / 2, padding, 0)
+                TextViewCompat.setTextAppearance(
+                    this,
+                    com.google.android.material.R.style.TextAppearance_Material3_BodyMedium,
+                )
+            }
+        fun update() {
+            text.text =
+                viewModel.playbackInfo().joinToString("\n") { (label, value) -> "$label: $value" }
+        }
+        update()
+        val updates = lifecycleScope.launch {
+            while (true) {
+                delay(1000)
+                update()
+            }
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(PlayerR.string.player_playback_info)
+            .setView(text)
+            .setPositiveButton(android.R.string.ok, null)
+            .setOnDismissListener {
+                updates.cancel()
+                hideSystemUI()
+            }
+            .show()
     }
 
     /**

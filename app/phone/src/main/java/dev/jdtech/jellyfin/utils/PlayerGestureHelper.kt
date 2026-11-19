@@ -30,7 +30,6 @@ import dev.jdtech.jellyfin.core.Constants
 import dev.jdtech.jellyfin.isControlsLocked
 import dev.jdtech.jellyfin.player.core.domain.models.PlayerChapter
 import dev.jdtech.jellyfin.player.core.domain.models.Trickplay
-import dev.jdtech.jellyfin.player.local.mpv.MPVPlayer
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
@@ -454,13 +453,9 @@ class PlayerGestureHelper(
             .apply { isQuickScaleEnabled = false }
 
     fun updateZoomMode(enabled: Boolean) {
-        if (playerView.player is MPVPlayer) {
-            (playerView.player as MPVPlayer).updateZoomMode(enabled)
-        } else {
-            playerView.resizeMode =
-                if (enabled) AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                else AspectRatioFrameLayout.RESIZE_MODE_FIT
-        }
+        playerView.resizeMode =
+            if (enabled) AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            else AspectRatioFrameLayout.RESIZE_MODE_FIT
         isZoomEnabled = enabled
     }
 

@@ -69,6 +69,10 @@
     <string name="player_rotate_screen">Rotate screen</string>
     <string name="player_picture_in_picture">Picture-in-picture</string>
     <string name="player_open_playlist">Open playlist</string>
+    <string name="player_tunneling">Tunneled playback</string>
+    <string name="player_tunneling_on">Tunneled playback on</string>
+    <string name="player_tunneling_off">Tunneled playback off</string>
+    <string name="player_playback_info">Playback info</string>
     <string name="player_on">On</string>
     <string name="player_sleep_time_left">%1$s left</string>
 </resources>
