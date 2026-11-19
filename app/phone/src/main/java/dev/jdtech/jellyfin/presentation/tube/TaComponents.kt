@@ -10,6 +10,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,8 +55,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -67,6 +70,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import coil3.compose.AsyncImage
@@ -711,10 +715,17 @@ fun TaSidePager(
      */
     keepBothSides: Boolean = false,
 ) {
+    val defaultConnection = PagerDefaults.pageNestedScrollConnection(state, Orientation.Horizontal)
+    val flickSpeed = with(LocalDensity.current) { SIDE_FLICK_SPEED.toPx() }
+    val connection =
+        remember(defaultConnection, state, flickSpeed) {
+            SideSwipeConnection(state, defaultConnection, flickSpeed)
+        }
     HorizontalPager(
         state = state,
         modifier = modifier,
         beyondViewportPageCount = if (keepBothSides) 1 else 0,
+        pageNestedScrollConnection = connection,
         // Turns over after a shorter drag than the default of half the screen
         flingBehavior =
             PagerDefaults.flingBehavior(
@@ -729,6 +740,48 @@ fun TaSidePager(
 
 // How far a slow drag has to go, as part of the screen's width, to turn to the other side
 private const val SIDE_SWIPE_THRESHOLD = 0.3f
+
+// How fast a flick has to be to turn to the other side, as for the main pages
+private val SIDE_FLICK_SPEED = 400.dp
+
+/**
+ * Swipes that start on something on a side that scrolls sideways too, such as Home's carousel or
+ * its row of videos to carry on with, move the pager once that thing is at its end. When such a
+ * swipe let go, Compose's own handling stopped the thing's fling, which also left the pager between
+ * its sides until the next swipe. Here the pager turns to a side itself when let go between them,
+ * as it does for swipes on the pager.
+ */
+private class SideSwipeConnection(
+    private val state: PagerState,
+    private val default: NestedScrollConnection,
+    private val flickSpeed: Float,
+) : NestedScrollConnection by default {
+    private val betweenSides: Boolean
+        get() = abs(state.currentPageOffsetFraction) > 0.001f
+
+    override suspend fun onPreFling(available: Velocity): Velocity {
+        if (!betweenSides) return default.onPreFling(available)
+        val from = state.settledPage
+        val moved = state.currentPage + state.currentPageOffsetFraction - from
+        val target =
+            when {
+                available.x < -flickSpeed -> from + 1
+                available.x > flickSpeed -> from - 1
+                moved > SIDE_SWIPE_THRESHOLD -> from + 1
+                moved < -SIDE_SWIPE_THRESHOLD -> from - 1
+                else -> from
+            }.coerceIn(0, state.pageCount - 1)
+        state.animateScrollToPage(target)
+        // The swipe was the pager's, so what scrolls inside doesn't fling as well
+        return Velocity(available.x, 0f)
+    }
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+        // In case a fling inside still left it between the sides
+        if (betweenSides) state.animateScrollToPage(state.currentPage)
+        return default.onPostFling(consumed, available)
+    }
+}
 
 /** A label and its value on a server page, such as "Size" and "1.2 GB". */
 @Composable
