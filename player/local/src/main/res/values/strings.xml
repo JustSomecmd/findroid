@@ -68,6 +68,7 @@
     <string name="player_lock_screen">Lock screen</string>
     <string name="player_rotate_screen">Rotate screen</string>
     <string name="player_picture_in_picture">Picture-in-picture</string>
+    <string name="player_open_playlist">Open playlist</string>
     <string name="player_on">On</string>
     <string name="player_sleep_time_left">%1$s left</string>
 </resources>

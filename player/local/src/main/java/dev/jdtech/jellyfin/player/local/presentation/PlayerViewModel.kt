@@ -36,6 +36,7 @@ import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.Constants
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
+import dev.jdtech.jellyfin.tubearchivist.TaNowPlaying
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
@@ -117,6 +118,9 @@ constructor(
         val upNext: UpNext? = null,
         /** The sleep timer, when one is set. */
         val sleepTimer: SleepTimer? = null,
+        /** The TubeArchivist playlist playing, and its name. */
+        val taPlaylistId: String? = null,
+        val taPlaylistName: String? = null,
     )
 
     /**
@@ -151,7 +155,15 @@ constructor(
     private var upNextCancelledFor: String? = null
 
     // The TubeArchivist playlist being played through, if the video was started from one
+    // Also told to the menu, which offers to open the playlist
     private var taPlaylistId: String? = null
+        set(value) {
+            field = value
+            _uiState.update {
+                it.copy(taPlaylistId = value, taPlaylistName = taPlaylistName.ifBlank { null })
+            }
+        }
+
     private var taPlaylistName: String = ""
 
     // Switching to sound only while the player is in the background
@@ -166,7 +178,14 @@ constructor(
 
     // TubeArchivist: the video ID of the current item, its SponsorBlock segments and when its
     // progress was last saved there
+    // Also told to the app's pages, which mark the video while it's open here
     private var taVideoId: String? = null
+        set(value) {
+            field = value
+            TaNowPlaying.set(value, isPlayingNow)
+        }
+
+    private var isPlayingNow = false
     private var taSegments: List<FindroidSegment> = emptyList()
     private var taLastReport = 0L
     private val sponsorBlockMode = appPreferences.getValue(appPreferences.tubeArchivistSponsorBlock)
@@ -298,8 +317,8 @@ constructor(
                             .filter { it.downloaded }
                             .map { TaQueueEntry(videoId = it.youtubeId, title = it.title) }
                     )
-                    this@PlayerViewModel.taPlaylistId = taPlaylistId
                     taPlaylistName = playlist.name
+                    this@PlayerViewModel.taPlaylistId = taPlaylistId
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -1232,6 +1251,8 @@ constructor(
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         super.onIsPlayingChanged(isPlaying)
         eventsChannel.trySend(PlayerEvents.IsPlayingChanged(isPlaying))
+        isPlayingNow = isPlaying
+        TaNowPlaying.setPlaying(isPlaying)
         if (isPlaying) resyncOnce()
     }
 

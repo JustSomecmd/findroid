@@ -315,6 +315,12 @@ private fun MainNavigation(
 
     val navigationSuiteScaffoldState = rememberNavigationSuiteScaffoldState()
 
+    // A page asked for from outside, such as the player's playlist, opens once the app shows
+    val pendingRoute by PendingNavigation.route.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingRoute) {
+        if (pendingRoute != null) PendingNavigation.take()?.let { navigator.navigate(it) }
+    }
+
     LaunchedEffect(showBottomBar) {
         if (showBottomBar) {
             navigationSuiteScaffoldState.show()

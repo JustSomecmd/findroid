@@ -15,10 +15,12 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
+import dev.jdtech.jellyfin.presentation.tube.LocalTaNowPlaying
 import dev.jdtech.jellyfin.presentation.utils.LocalEpisodeTitleFirst
 import dev.jdtech.jellyfin.presentation.utils.LocalHideEpisodeNumbers
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.tubearchivist.TaNowPlaying
 import dev.jdtech.jellyfin.viewmodels.MainViewModel
 import javax.inject.Inject
 
@@ -35,6 +37,7 @@ class MainActivity : AppCompatActivity() {
 
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
+            val nowPlaying by TaNowPlaying.state.collectAsStateWithLifecycle()
 
             // Follow the settings, so titles change as soon as they are switched
             var hideEpisodeNumbers by remember {
@@ -73,6 +76,7 @@ class MainActivity : AppCompatActivity() {
                         LocalOfflineMode provides state.isOfflineMode,
                         LocalHideEpisodeNumbers provides hideEpisodeNumbers,
                         LocalEpisodeTitleFirst provides episodeTitleFirst,
+                        LocalTaNowPlaying provides nowPlaying,
                     ) {
                         NavigationRoot(
                             hasServers = state.hasServers,

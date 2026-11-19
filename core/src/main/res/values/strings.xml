@@ -208,6 +208,8 @@
     <string name="ta_add_back">Add back to the queue</string>
     <string name="ta_clear_pending">Remove all pending</string>
     <string name="ta_clear_errors">Clear errors</string>
+    <string name="ta_now_playing">Now playing</string>
+    <string name="ta_now_paused">Paused</string>
     <string name="ta_errors_cleared">Errors cleared, they\'ll be tried again next time</string>
     <string name="ta_clear_ignored">Remove all ignored</string>
     <string name="ta_clear_queue_message">Everything in this list is removed from TubeArchivist\'s queue.</string>

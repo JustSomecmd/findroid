@@ -13,6 +13,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
@@ -299,6 +300,8 @@ class PlayerActivity : BasePlayerActivity() {
                                     else PlayerR.string.player_sleep_timer
                                 )
                             upNextCard.isVisible = upNext != null && !isInPictureInPictureMode
+                            // The menu also has the playlist's page, when playing from one
+                            menuButton.isVisible = menuButtons.isNotEmpty() || taPlaylistId != null
                             upNext?.let { next ->
                                 upNextLabel.text =
                                     getString(PlayerR.string.player_up_next_in, next.secondsLeft)
@@ -685,25 +688,58 @@ class PlayerActivity : BasePlayerActivity() {
         }
 
         menuButtons = menu
-        if (menu.isNotEmpty()) {
-            val padding = (16 * density).toInt()
-            menuButton.setPadding(padding, padding, padding, padding)
-            topBar.addView(
-                menuButton,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ),
-            )
-        }
+        // Always there, but only shown with something in the menu, which a playlist adds to
+        val padding = (16 * density).toInt()
+        menuButton.setPadding(padding, padding, padding, padding)
+        menuButton.isVisible = menu.isNotEmpty()
+        topBar.addView(
+            menuButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
     }
 
     /** The menu behind the cogwheel, with what each setting is now. */
     private fun showPlayerMenu() {
         val state = viewModel.uiState.value
-        val items = menuButtons.mapNotNull { menuItem(it, state) }
+        val items = buildList {
+            // Playing from a playlist: its page comes first
+            state.taPlaylistId?.let { playlistId ->
+                add(
+                    PlayerMenuItem(
+                        icon = CoreR.drawable.ic_list_video,
+                        title = getString(PlayerR.string.player_open_playlist),
+                        value = state.taPlaylistName,
+                        opensChoices = true,
+                    ) {
+                        openPlaylistPage(playlistId)
+                    }
+                )
+            }
+            addAll(menuButtons.mapNotNull { menuItem(it, state) })
+        }
         if (items.isEmpty()) return
         PlayerMenuDialogFragment(items).show(supportFragmentManager, "playermenu")
+    }
+
+    /**
+     * Opens the playlist's page in the app. The video carries on in a small window over it, or
+     * stops where the phone doesn't allow one.
+     */
+    private fun openPlaylistPage(playlistId: String) {
+        PendingNavigation.request(TaPlaylistRoute(playlistId))
+        val inWindow =
+            isPipSupported &&
+                try {
+                    enterPictureInPictureMode(pipParams())
+                } catch (e: RuntimeException) {
+                    // Such as a video whose size isn't known yet
+                    Timber.w(e, "Could not open the small window")
+                    false
+                }
+        if (!inWindow) finishPlayback()
     }
 
     private fun menuItem(button: PlayerButton, state: PlayerViewModel.UiState): PlayerMenuItem? {
@@ -1064,7 +1100,20 @@ class PlayerActivity : BasePlayerActivity() {
                 getString(PlayerR.string.player_pip_background),
                 PIP_CONTROL_BACKGROUND,
             )
-        return listOf(playPause, background)
+        // Android puts these in a row in the middle at the bottom, so an empty one on the left
+        // puts play and pause in the middle with the headphones to its right
+        return listOf(pipSpacer(), playPause, background)
+    }
+
+    /** A button that can't be seen or pressed, to take up a place in the window's row. */
+    private fun pipSpacer(): RemoteAction {
+        val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        val intent = Intent(ACTION_PIP_CONTROL).setPackage(packageName)
+        val pendingIntent =
+            PendingIntent.getBroadcast(this, PIP_CONTROL_NONE, intent, PendingIntent.FLAG_IMMUTABLE)
+        return RemoteAction(Icon.createWithBitmap(empty), " ", " ", pendingIntent).apply {
+            isEnabled = false
+        }
     }
 
     private fun pipAction(iconRes: Int, title: String, control: Int): RemoteAction {
@@ -1187,6 +1236,9 @@ private const val EXTRA_PIP_CONTROL = "control"
 private const val PIP_CONTROL_PLAY = 1
 private const val PIP_CONTROL_PAUSE = 2
 private const val PIP_CONTROL_BACKGROUND = 3
+
+// The empty button in the small window's row, which does nothing
+private const val PIP_CONTROL_NONE = 0
 private const val CONTROLS_FADE_IN_MS = 150L
 private const val CONTROLS_FADE_OUT_MS = 250L
 

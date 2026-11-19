@@ -10,6 +10,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -42,6 +43,7 @@ import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -72,6 +74,7 @@ import dev.jdtech.jellyfin.film.presentation.tube.TaListState
 import dev.jdtech.jellyfin.film.presentation.tube.TaMessages
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
+import dev.jdtech.jellyfin.tubearchivist.TaNowPlaying
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import java.text.NumberFormat
@@ -182,10 +185,17 @@ private val TaCardTextPadding =
         bottom = 10.dp,
     )
 
+/** The video open in the player, such as in a small window, which thumbnails mark. */
+val LocalTaNowPlaying = compositionLocalOf<TaNowPlaying.State?> { null }
+
 @Composable
 fun TaVideoThumbnail(video: TaVideo, modifier: Modifier = Modifier) {
     Box(modifier = modifier.aspectRatio(16f / 9f).clip(MaterialTheme.shapes.medium)) {
         TaImage(path = video.thumbUrl, modifier = Modifier.fillMaxSize())
+        val nowPlaying = LocalTaNowPlaying.current
+        if (nowPlaying?.videoId == video.youtubeId) {
+            TaNowPlayingOverlay(playing = nowPlaying.playing)
+        }
         val player = video.player
         if (player != null && player.duration > 0) {
             TaOverlayLabel(
@@ -225,6 +235,33 @@ fun TaVideoThumbnail(video: TaVideo, modifier: Modifier = Modifier) {
                 )
             }
         }
+    }
+}
+
+/** Darkens a thumbnail and says the video is the one playing, or paused, in the player. */
+@Composable
+private fun TaNowPlayingOverlay(playing: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter =
+                painterResource(if (playing) CoreR.drawable.ic_play else CoreR.drawable.ic_pause),
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text =
+                stringResource(
+                    if (playing) CoreR.string.ta_now_playing else CoreR.string.ta_now_paused
+                ),
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White,
+        )
     }
 }
 
