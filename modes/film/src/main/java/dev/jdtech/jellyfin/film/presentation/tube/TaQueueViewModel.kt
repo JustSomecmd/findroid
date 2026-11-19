@@ -229,6 +229,28 @@ class TaQueueViewModel @Inject constructor(private val taApi: TaApi) : ViewModel
     fun remove(item: TaDownloadItem) =
         updateItem(item, removeFromList = true) { taApi.deleteDownload(item.youtubeId) }
 
+    /** Clears the errors of the videos that failed, so the next run tries them again. */
+    fun clearErrors() {
+        val previous = _items.value
+        _items.update { state ->
+            state.copy(
+                items = state.items.map { if (it.message != null) it.copy(message = null) else it }
+            )
+        }
+        viewModelScope.launch {
+            try {
+                taApi.clearQueueErrors(_filter.value.apiValue)
+                _messages.send(TaMessages.ERRORS_CLEARED)
+                refresh()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _items.value = previous
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
     /** Removes everything in the current list from the queue. */
     fun clearAll() {
         val filter = _filter.value

@@ -36,6 +36,8 @@ import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 @Composable
 fun TaDownloadsScreen(
     onItemClick: (FindroidItem) -> Unit,
+    /** Opens the channel of a video in the server's queue. */
+    onChannelClick: (channelId: String) -> Unit = {},
     /** The phone and server sides, when the main pager needs to turn them. */
     sides: PagerState = rememberSidePagerState(),
 ) {
@@ -81,7 +83,7 @@ fun TaDownloadsScreen(
                 state = sides,
                 modifier = Modifier.padding(innerPadding).fillMaxSize(),
                 phone = { DownloadsScreen(onItemClick = onItemClick, embedded = true) },
-                server = { TaQueueScreen(embedded = true) },
+                server = { TaQueueScreen(embedded = true, onChannelClick = onChannelClick) },
             )
         }
     }

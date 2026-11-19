@@ -137,4 +137,5 @@ object TaMessages {
     const val DELETED = "ta:deleted"
     const val NOT_IN_JELLYFIN = "ta:not_in_jellyfin"
     const val PLAYLIST_CREATED = "ta:playlist_created"
+    const val ERRORS_CLEARED = "ta:errors_cleared"
 }

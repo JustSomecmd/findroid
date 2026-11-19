@@ -546,6 +546,8 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
                     TaDownloadsScreen(
                         onItemClick =
                             resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) },
+                        onChannelClick =
+                            resumedAction<String> { navigator.navigateOrReuse(TaChannelRoute(it)) },
                         sides = downloadSides,
                     )
             }
@@ -768,7 +770,13 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         // With TubeArchivist, the downloads on this phone and the download queue on the server are
         // two sides to swipe between, or to switch with the title
         if (LocalTubeArchivistMode.current) {
-            if (!LocalTaMainPagerShown.current) TaDownloadsScreen(onItemClick = onItemClick)
+            if (!LocalTaMainPagerShown.current) {
+                TaDownloadsScreen(
+                    onItemClick = onItemClick,
+                    onChannelClick =
+                        resumedAction<String> { navigator.navigateOrReuse(TaChannelRoute(it)) },
+                )
+            }
         } else {
             DownloadsScreen(onItemClick = onItemClick)
         }
@@ -992,7 +1000,9 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
             onPlaylistClick = resumedAction<String> { openPlaylist(it) },
         )
     }
-    entry<TaQueueRoute> { TaQueueScreen() }
+    entry<TaQueueRoute> {
+        TaQueueScreen(onChannelClick = resumedAction<String> { openChannel(it) })
+    }
     entry<TaSearchRoute> {
         TaSearchScreen(
             onVideoClick = resumedAction<String> { openVideo(it) },

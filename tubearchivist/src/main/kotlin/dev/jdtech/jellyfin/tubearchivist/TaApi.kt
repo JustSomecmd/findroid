@@ -353,6 +353,23 @@ class TaApi(private val config: TaConfig) {
         send("DELETE", url("api/download/$videoId/") {}, null)
     }
 
+    /**
+     * Clears the error messages of the videos in the queue that failed, so the next run downloads
+     * them again. Needs a TubeArchivist that has the queue's "Clear errors".
+     */
+    suspend fun clearQueueErrors(filter: String = "pending") {
+        send(
+            "PATCH",
+            url("api/download/") {
+                addQueryParameter("filter", filter)
+                addQueryParameter("error", "true")
+            },
+            buildJsonObject { put("status", "clear_error") }
+                .toString()
+                .toRequestBody("application/json".toMediaType()),
+        )
+    }
+
     /** Removes everything with this status (pending or ignore) from the queue. */
     suspend fun clearQueue(filter: String) {
         send("DELETE", url("api/download/") { addQueryParameter("filter", filter) }, null)

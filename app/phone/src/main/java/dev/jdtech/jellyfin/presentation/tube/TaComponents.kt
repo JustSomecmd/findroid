@@ -459,6 +459,7 @@ fun taMessageText(context: Context, message: String): String =
         TaMessages.TASK_STARTED -> context.getString(CoreR.string.ta_task_started)
         TaMessages.SAVED -> context.getString(CoreR.string.ta_saved)
         TaMessages.REFRESH_STARTED -> context.getString(CoreR.string.ta_refresh_started)
+        TaMessages.ERRORS_CLEARED -> context.getString(CoreR.string.ta_errors_cleared)
         else -> message
     }
 

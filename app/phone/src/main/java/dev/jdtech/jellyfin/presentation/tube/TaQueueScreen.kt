@@ -84,6 +84,8 @@ fun TaQueueScreen(
      * out its own bar and the space for the status bar. The bar shows [TaQueueActions] instead.
      */
     embedded: Boolean = false,
+    /** Opens the channel of a video in the queue, when it's tapped. */
+    onChannelClick: (channelId: String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val filter by viewModel.filter.collectAsStateWithLifecycle()
@@ -225,6 +227,7 @@ fun TaQueueScreen(
                         onIgnore = { viewModel.ignore(item) },
                         onUnignore = { viewModel.unignore(item) },
                         onRemove = { viewModel.remove(item) },
+                        onChannelClick = onChannelClick,
                         modifier = Modifier.animateItem(),
                     )
                 }
@@ -268,6 +271,15 @@ fun TaQueueActions(viewModel: TaQueueViewModel = hiltViewModel()) {
                     viewModel.toggleIgnored()
                 },
             )
+            if (!showIgnored) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(CoreR.string.ta_clear_errors)) },
+                    onClick = {
+                        menuOpen = false
+                        viewModel.clearErrors()
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = {
                     Text(
@@ -522,12 +534,18 @@ private fun TaQueueItem(
     onIgnore: () -> Unit,
     onUnignore: () -> Unit,
     onRemove: () -> Unit,
+    onChannelClick: (channelId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    // Opens the video's channel; the menu is behind the three dots. Without a known channel, the
+    // menu opens instead
     Row(
         modifier =
-            modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable { menuOpen = true },
+            modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable {
+                val channelId = item.channelId
+                if (channelId.isNullOrBlank()) menuOpen = true else onChannelClick(channelId)
+            },
         verticalAlignment = Alignment.Top,
     ) {
         Box(modifier = Modifier.width(144.dp).aspectRatio(16f / 9f)) {

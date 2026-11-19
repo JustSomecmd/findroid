@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -161,6 +162,12 @@ class QueueModel(private val api: TaApi, private val scope: CoroutineScope) {
         run(onMessage) { api.deleteDownload(item.youtubeId) }
 
     fun clear(onMessage: (String) -> Unit) = run(onMessage) { api.clearQueue(filter.apiValue) }
+
+    /** Clears the errors of the videos that failed, so the next run tries them again. */
+    fun clearErrors(onMessage: (String) -> Unit) =
+        run(onMessage, "Errors cleared, they'll be tried again next time") {
+            api.clearQueueErrors(filter.apiValue)
+        }
 
     private companion object {
         const val DOWNLOAD_GROUP = "download:run"
@@ -361,6 +368,11 @@ private fun QueueContent(model: QueueModel) {
                     OutlinedButton(onClick = { model.rescan(navigator::message) }) {
                         Text("Rescan subscriptions")
                     }
+                    if (model.filter == QueueFilter.PENDING) {
+                        TextButton(onClick = { model.clearErrors(navigator::message) }) {
+                            Text("Clear errors")
+                        }
+                    }
                     TextButton(onClick = { dialog = "clear" }, enabled = list.items.isNotEmpty()) {
                         Text("Remove all")
                     }
@@ -394,6 +406,7 @@ private fun QueueContent(model: QueueModel) {
                     onIgnore = { model.ignore(item, navigator::message) },
                     onAddBack = { model.addBack(item, navigator::message) },
                     onRemove = { model.remove(item, navigator::message) },
+                    onOpenChannel = { navigator.open(Route.Channel(it)) },
                 )
             }
             item(key = "footer") {
@@ -441,11 +454,19 @@ private fun QueueRow(
     onIgnore: () -> Unit,
     onAddBack: () -> Unit,
     onRemove: () -> Unit,
+    onOpenChannel: (channelId: String) -> Unit,
 ) {
+    // Clicking it opens the video's channel, as on the phone
+    val channelId = item.channelId?.takeIf { it.isNotBlank() }
     Surface(
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable(
+                enabled = channelId != null
+            ) {
+                channelId?.let(onOpenChannel)
+            },
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
