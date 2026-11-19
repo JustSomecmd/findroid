@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -59,6 +60,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -227,9 +229,19 @@ fun TaHomeScreen(
                                                 onClick = { viewModel.openWatchLater() },
                                             )
                                         }
+                                        // Runs to the screen's edges, so cards aren't cut off
+                                        // short of them, but starts in line with the rest
                                         LazyRow(
+                                            modifier =
+                                                Modifier.bleedSideways(
+                                                    MaterialTheme.spacings.medium
+                                                ),
+                                            contentPadding =
+                                                PaddingValues(
+                                                    horizontal = MaterialTheme.spacings.medium
+                                                ),
                                             horizontalArrangement =
-                                                Arrangement.spacedBy(MaterialTheme.spacings.medium)
+                                                Arrangement.spacedBy(MaterialTheme.spacings.medium),
                                         ) {
                                             items(continueWatching, key = { it.key }) { item ->
                                                 when (item) {
@@ -401,6 +413,17 @@ private fun TaWatchLaterButton(busy: Boolean, onClick: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * Reaches past the list's [padding] on both sides, so a row that scrolls sideways runs to the
+ * screen's edges.
+ */
+private fun Modifier.bleedSideways(padding: Dp): Modifier = layout { measurable, constraints ->
+    val sides = padding.roundToPx()
+    val width = constraints.maxWidth + sides * 2
+    val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+    layout(constraints.maxWidth, placeable.height) { placeable.place(-sides, 0) }
 }
 
 /** Cards are at least this wide, so a phone shows one per row and a tablet several. */
