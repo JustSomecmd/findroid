@@ -80,8 +80,11 @@ fun TaHomeScreen(
     onSettingsClick: () -> Unit,
     onManageServers: () -> Unit,
     onTubeArchivistSettings: () -> Unit,
-    /** Home and the server's stats, when the main pager needs to turn them. */
-    sides: PagerState = rememberSidePagerState(),
+    /**
+     * The server's stats and Home, in that order, when the main pager needs to turn them. The stats
+     * are to the left, out of the way of a swipe to Channels.
+     */
+    sides: PagerState = rememberSidePagerState(serverFirst = true),
     viewModel: TaHomeViewModel = hiltViewModel(),
     statsViewModel: TaStatsViewModel = hiltViewModel(),
 ) {
@@ -119,11 +122,11 @@ fun TaHomeScreen(
     val scope = rememberCoroutineScope()
     val stats by statsViewModel.stats.collectAsStateWithLifecycle()
     LaunchedEffect(sides) {
-        snapshotFlow { sides.currentPage + sides.currentPageOffsetFraction > 0.01f }
+        snapshotFlow { sides.currentPage + sides.currentPageOffsetFraction < 0.99f }
             .collect { if (it) statsViewModel.onShown() }
     }
 
-    ServerSideTheme(pagerState = sides) {
+    ServerSideTheme(pagerState = sides, serverFirst = true) {
         Scaffold(
             modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged(),
             topBar = {
@@ -145,11 +148,12 @@ fun TaHomeScreen(
                         logo = { TaLogo(modifier = Modifier.size(32.dp)) },
                         actions = {
                             TaSideSwitch(
-                                onServer = sides.onServerSide,
+                                onServer = sides.serverSideShown(serverFirst = true),
                                 onToggle = { sides.switchSide(scope) },
                                 localIcon = CoreR.drawable.ic_home,
                                 localLabel = stringResource(CoreR.string.ta_side_home),
                                 showLabel = false,
+                                serverFirst = true,
                             )
                         },
                         modifier =
@@ -167,6 +171,7 @@ fun TaHomeScreen(
         ) { innerPadding ->
             TaSidePager(
                 state = sides,
+                serverFirst = true,
                 modifier = Modifier.padding(innerPadding).fillMaxSize(),
                 phone = {
                     PullToRefreshBox(

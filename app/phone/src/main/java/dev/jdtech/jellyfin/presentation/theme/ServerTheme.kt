@@ -32,13 +32,17 @@ fun ServerSideTheme(onServer: Boolean, content: @Composable () -> Unit) {
 }
 
 /**
- * Follows a pager with the phone side as its first page and the server side as its second, so the
- * colors move along with a swipe.
+ * Follows a pager with the phone side as its first page and the server side as its second, or the
+ * other way round with [serverFirst], so the colors move along with a swipe.
  */
 @Composable
-fun ServerSideTheme(pagerState: PagerState, content: @Composable () -> Unit) {
-    val fraction = (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
-    ServerSideColors(fraction = fraction, content = content)
+fun ServerSideTheme(
+    pagerState: PagerState,
+    serverFirst: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val position = (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
+    ServerSideColors(fraction = if (serverFirst) 1f - position else position, content = content)
 }
 
 @Composable

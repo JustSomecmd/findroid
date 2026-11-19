@@ -72,11 +72,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -219,12 +221,13 @@ fun TaChannelScreen(
                                                 TaImage(
                                                     path = channel.bannerUrl,
                                                     modifier =
-                                                        Modifier.fillMaxWidth()
-                                                            .aspectRatio(6.2f)
-                                                            .padding(
+                                                        Modifier.padding(
                                                                 bottom =
                                                                     MaterialTheme.spacings.medium
-                                                            ),
+                                                            )
+                                                            .bleed(MaterialTheme.spacings.medium)
+                                                            .fillMaxWidth()
+                                                            .aspectRatio(BANNER_ASPECT_RATIO),
                                                 )
                                             }
                                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -387,6 +390,25 @@ fun TaChannelScreen(
             },
             onDismiss = { editing = null },
         )
+    }
+}
+
+/**
+ * How wide the banner is for its height. YouTube's strip is about 6.2 times as wide as it's tall,
+ * so this shows it bigger, cutting a little off its ends.
+ */
+private const val BANNER_ASPECT_RATIO = 4.5f
+
+/**
+ * Reaches past the list's [padding] on the sides and the top, so the banner runs from edge to edge
+ * right under the top bar.
+ */
+private fun Modifier.bleed(padding: Dp): Modifier = layout { measurable, constraints ->
+    val sides = padding.roundToPx()
+    val width = constraints.maxWidth + sides * 2
+    val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+    layout(constraints.maxWidth, (placeable.height - sides).coerceAtLeast(0)) {
+        placeable.place(-sides, -sides)
     }
 }
 

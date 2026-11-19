@@ -411,8 +411,9 @@ private val LocalTaMainPagerShown = staticCompositionLocalOf { false }
 /**
  * Home, Channels and Downloads side by side, to swipe between. The two sides of Home, the Channels
  * tabs and the two sides of Downloads turn first, and the pager moves on once they're at their end,
- * so swiping goes Home, the server's stats, Subscribed, All channels, Playlists, the phone's
- * downloads, then the server's queue.
+ * so swiping goes the server's stats, Home, Subscribed, All channels, Playlists, the phone's
+ * downloads, then the server's queue. The stats are left of Home, so they don't come between Home
+ * and Channels.
  */
 @Composable
 private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, active: Boolean) {
@@ -421,7 +422,7 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
         rememberPagerState(initialPage = TA_MAIN_PAGES.indexOf(topLevelRoute).coerceAtLeast(0)) {
             TA_MAIN_PAGES.size
         }
-    val homeSides = rememberSidePagerState()
+    val homeSides = rememberSidePagerState(serverFirst = true)
     val channelTabs = rememberPagerState { TaChannelsTab.entries.size }
     val downloadSides = rememberSidePagerState()
     // True while the pager turns for the bottom bar or back, rather than for a swipe
@@ -460,6 +461,7 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
                     TaHomeRoute -> channelTabs.requestScrollToPage(0)
                     DownloadsRoute -> channelTabs.requestScrollToPage(channelTabs.pageCount - 1)
                     TaChannelsRoute -> {
+                        // Home itself, rather than the stats to its left
                         homeSides.requestScrollToPage(1)
                         downloadSides.requestScrollToPage(0)
                     }

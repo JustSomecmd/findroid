@@ -527,6 +527,8 @@ fun TaSideSwitch(
     localLabel: String = stringResource(CoreR.string.ta_side_phone),
     /** Names the side shown next to its icon. Off where room is short. */
     showLabel: Boolean = true,
+    /** Puts the server on the left, for pages whose server side is to the left. */
+    serverFirst: Boolean = false,
 ) {
     val shape = CircleShape
     Surface(
@@ -536,18 +538,31 @@ fun TaSideSwitch(
             if (onToggle != null) modifier.clip(shape).clickable(onClick = onToggle) else modifier,
     ) {
         Row(modifier = Modifier.padding(2.dp)) {
-            TaSideSegment(
-                icon = localIcon,
-                label = localLabel,
-                selected = !onServer,
-                showLabel = showLabel,
-            )
-            TaSideSegment(
-                icon = CoreR.drawable.ic_server,
-                label = stringResource(CoreR.string.ta_side_server),
-                selected = onServer,
-                showLabel = showLabel,
-            )
+            val local =
+                @Composable {
+                    TaSideSegment(
+                        icon = localIcon,
+                        label = localLabel,
+                        selected = !onServer,
+                        showLabel = showLabel,
+                    )
+                }
+            val server =
+                @Composable {
+                    TaSideSegment(
+                        icon = CoreR.drawable.ic_server,
+                        label = stringResource(CoreR.string.ta_side_server),
+                        selected = onServer,
+                        showLabel = showLabel,
+                    )
+                }
+            if (serverFirst) {
+                server()
+                local()
+            } else {
+                local()
+                server()
+            }
         }
     }
 }
@@ -616,12 +631,21 @@ fun alwaysShownTopAppBarColors(): TopAppBarColors =
         scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
     )
 
-/** Pages of something shown on the phone side (the first page) and the server side (the second). */
-@Composable fun rememberSidePagerState(): PagerState = rememberPagerState { 2 }
+/**
+ * Pages of something shown on the phone side and the server side. The phone side is the first page,
+ * or with [serverFirst] the second, with the server side to its left.
+ */
+@Composable
+fun rememberSidePagerState(serverFirst: Boolean = false): PagerState =
+    rememberPagerState(initialPage = if (serverFirst) 1 else 0) { 2 }
 
 /** Whether the server side is the page mostly in view. */
 val PagerState.onServerSide: Boolean
     get() = currentPage == 1
+
+/** Whether the server side is the page mostly in view, with the server side first when set. */
+fun PagerState.serverSideShown(serverFirst: Boolean): Boolean =
+    currentPage == if (serverFirst) 0 else 1
 
 /** Slides a side pager over to its other side. */
 fun PagerState.switchSide(scope: CoroutineScope) {
@@ -638,9 +662,11 @@ fun TaSidePager(
     phone: @Composable () -> Unit,
     server: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    /** Puts the server side to the left of the phone side. */
+    serverFirst: Boolean = false,
 ) {
     HorizontalPager(state = state, modifier = modifier, key = { page -> page }) { page ->
-        if (page == 0) phone() else server()
+        if ((page == 0) != serverFirst) phone() else server()
     }
 }
 
