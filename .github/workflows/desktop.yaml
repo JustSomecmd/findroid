@@ -43,6 +43,17 @@ jobs:
         with:
           name: desktop-screens
           path: desktop/build/screens/*.png
+      # Also on a branch of their own, so they can be looked at with git alone
+      - name: Put pictures on the desktop-screens branch
+        if: github.event_name == 'push'
+        run: |
+          cd desktop/build/screens
+          git init -q
+          git checkout -q -b desktop-screens
+          git add *.png
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Pages rendered from ${{ github.sha }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" desktop-screens
 
   windows:
     name: Windows installer
