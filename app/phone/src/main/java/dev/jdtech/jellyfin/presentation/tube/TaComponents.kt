@@ -53,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -830,6 +831,29 @@ fun TaLogo(modifier: Modifier = Modifier) {
             painter = painterResource(CoreR.drawable.ic_ta_logo_letters),
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.matchParentSize(),
+        )
+    }
+}
+
+/**
+ * Tubedroid's logo: the ring of TubeArchivist's logo with the Android figure of Findroid's in the
+ * middle. The figure is white on dark themes and in the text color on light ones.
+ */
+@Composable
+fun TubedroidLogo(modifier: Modifier = Modifier) {
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    Box(modifier = modifier) {
+        Icon(
+            painter = painterResource(CoreR.drawable.ic_ta_logo_ring),
+            contentDescription = null,
+            tint = Color.Unspecified,
+            modifier = Modifier.matchParentSize(),
+        )
+        Icon(
+            painter = painterResource(CoreR.drawable.ic_tubedroid_head),
+            contentDescription = null,
+            tint = if (dark) Color.White else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.matchParentSize(),
         )
     }

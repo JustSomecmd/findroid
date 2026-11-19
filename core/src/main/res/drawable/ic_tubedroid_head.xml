@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Android figure from Findroid's logo, sized and placed to sit in the middle of
+     ic_ta_logo_ring. Together they make Tubedroid's logo; white, to be tinted. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="1000"
+    android:viewportHeight="1000">
+    <group
+        android:translateX="-78.65"
+        android:translateY="-191.93"
+        android:scaleX="11.5707"
+        android:scaleY="11.5707">
+        <path
+            android:fillColor="@android:color/white"
+            android:pathData="m59.96,54.04 l3.38,-5.85c0.47,-0.81 -0.75,-1.52 -1.22,-0.7l-3.42,5.93c-2.62,-1.19 -5.56,-1.86 -8.69,-1.86 -3.14,0 -6.08,0.67 -8.69,1.86l-3.42,-5.93c-0.47,-0.81 -1.69,-0.11 -1.22,0.7l3.38,5.86c-5.8,3.16 -9.78,9.03 -10.36,15.98l40.62,0c-0.58,-6.94 -4.55,-12.82 -10.36,-15.98z" />
+    </group>
+</vector>

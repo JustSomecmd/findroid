@@ -150,7 +150,7 @@ fun TaHomeScreen(
                         },
                         onSearchClick = onSearchClick,
                         onUserClick = onSettingsClick,
-                        logo = { TaLogo(modifier = Modifier.size(32.dp)) },
+                        logo = { TubedroidLogo(modifier = Modifier.size(32.dp)) },
                         actions = {
                             TaSideSwitch(
                                 onServer = sides.serverSideShown(serverFirst = true),
@@ -342,7 +342,7 @@ private fun TaServersSheet(
             TaServerCard(
                 logo = {
                     Icon(
-                        painter = painterResource(CoreR.drawable.ic_logo),
+                        painter = painterResource(CoreR.drawable.ic_jellyfin_logo),
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier.size(36.dp),
