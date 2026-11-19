@@ -4,6 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -112,17 +113,36 @@ constructor(
         val autoplay: Boolean = true,
         /** The video that plays next, shown while the current one is about to end. */
         val upNext: UpNext? = null,
+        /** The sleep timer, when one is set. */
+        val sleepTimer: SleepTimer? = null,
     )
 
-    /** The video that's about to play, and in how many seconds. */
-    /** The next video, with a picture of it to load: a downloaded copy or one on the server. */
+    /**
+     * The video that's about to play, in how many seconds, and a picture of it to load: a
+     * downloaded copy or one on the server.
+     */
     data class UpNext(val title: String, val secondsLeft: Int, val image: String? = null)
+
+    /** When the sleep timer stops playback. */
+    sealed interface SleepTimer {
+        /** Pauses at this moment, in [SystemClock.elapsedRealtime] milliseconds. */
+        data class At(val endsAt: Long) : SleepTimer {
+            val millisLeft: Long
+                get() = (endsAt - SystemClock.elapsedRealtime()).coerceAtLeast(0)
+        }
+
+        /** Stops when the video ends, without the next one playing. */
+        data object EndOfVideo : SleepTimer
+    }
 
     private var items: MutableList<PlayerItem> = mutableListOf()
 
     // The item that was already put back in step, so it is only done once per item
     private var resyncedMediaId: String? = null
     private var resyncJob: Job? = null
+
+    // Counts down to pausing, for the sleep timer
+    private var sleepJob: Job? = null
 
     // Whether the next video plays when one ends, and the video for which that was called off
     private var autoplay = appPreferences.getValue(appPreferences.playerAutoplay)
@@ -649,8 +669,12 @@ constructor(
                     Timber.e(e)
                 }
                 val cancelled = upNextCancelledFor == mediaId
-                _uiState.update { it.copy(upNext = null) }
-                if (autoplay && !cancelled && player.hasNextMediaItem()) {
+                // The sleep timer was set to stop here
+                val sleep = _uiState.value.sleepTimer == SleepTimer.EndOfVideo
+                _uiState.update {
+                    it.copy(upNext = null, sleepTimer = if (sleep) null else it.sleepTimer)
+                }
+                if (autoplay && !cancelled && !sleep && player.hasNextMediaItem()) {
                     player.seekToNextMediaItem()
                     player.play()
                 } else {
@@ -694,6 +718,7 @@ constructor(
         val upNext =
             if (
                 autoplay &&
+                    _uiState.value.sleepTimer != SleepTimer.EndOfVideo &&
                     mediaId != null &&
                     mediaId != upNextCancelledFor &&
                     player.hasNextMediaItem() &&
@@ -763,6 +788,55 @@ constructor(
         }
         player.seekToNextMediaItem()
         player.play()
+    }
+
+    /**
+     * Pauses in [minutes], turning the sound down over the last seconds so it doesn't stop
+     * abruptly. Replaces a timer already set.
+     */
+    fun setSleepTimer(minutes: Int) {
+        sleepJob?.cancel()
+        val endsAt = SystemClock.elapsedRealtime() + minutes * 60_000L
+        _uiState.update { it.copy(sleepTimer = SleepTimer.At(endsAt), upNext = null) }
+        sleepJob = viewModelScope.launch {
+            // Only players that let their volume be set fade out
+            val canFade = player.isCommandAvailable(Player.COMMAND_SET_VOLUME)
+            var volumeBefore: Float? = null
+            try {
+                while (true) {
+                    val left = endsAt - SystemClock.elapsedRealtime()
+                    if (left <= 0) break
+                    if (canFade && left <= SLEEP_FADE_MS) {
+                        val before = volumeBefore ?: player.volume.also { volumeBefore = it }
+                        player.volume = before * (left.toFloat() / SLEEP_FADE_MS)
+                    }
+                    delay(
+                        if (left <= SLEEP_FADE_MS) SLEEP_FADE_STEP_MS
+                        else minOf(left - SLEEP_FADE_MS, 1000L)
+                    )
+                }
+                player.pause()
+                reportTaProgress(force = true)
+                _uiState.update { it.copy(sleepTimer = null) }
+                eventsChannel.trySend(PlayerEvents.SleepTimerPaused)
+            } finally {
+                // Back to how loud it was, for when playback is started again
+                volumeBefore?.let { player.volume = it }
+            }
+        }
+    }
+
+    /** Stops when this video ends, rather than playing the next one. */
+    fun setSleepTimerAtEnd() {
+        sleepJob?.cancel()
+        sleepJob = null
+        _uiState.update { it.copy(sleepTimer = SleepTimer.EndOfVideo, upNext = null) }
+    }
+
+    fun cancelSleepTimer() {
+        sleepJob?.cancel()
+        sleepJob = null
+        _uiState.update { it.copy(sleepTimer = null) }
     }
 
     /** Lets this video end without the next one playing after it. */
@@ -1172,6 +1246,9 @@ sealed interface PlayerEvents {
     data object NavigateBack : PlayerEvents
 
     data class IsPlayingChanged(val isPlaying: Boolean) : PlayerEvents
+
+    /** The sleep timer ran out and paused playback. */
+    data object SleepTimerPaused : PlayerEvents
 }
 
 // How long the player waits in the background before dropping the picture
@@ -1182,6 +1259,9 @@ private const val RESYNC_DELAY_MS = 1_000L
 
 // How long before the end the next video is shown
 private const val UP_NEXT_MS = 10_000L
+// The sleep timer turns the sound down over this long before pausing, a little at a time
+private const val SLEEP_FADE_MS = 15_000L
+private const val SLEEP_FADE_STEP_MS = 200L
 // Pixels, about twice the thumbnail's size on screen
 private const val UP_NEXT_IMAGE_WIDTH = 320
 

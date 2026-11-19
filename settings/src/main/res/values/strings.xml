@@ -160,6 +160,7 @@
     <string name="player_button_placement_bottom">Bottom bar</string>
     <string name="player_button_placement_hidden">Hidden</string>
     <string name="player_button_autoplay">Autoplay</string>
+    <string name="player_button_sleep_timer">Sleep timer</string>
     <string name="player_button_lock">Lock controls</string>
     <string name="player_button_pip">Picture-in-picture</string>
     <string name="player_button_chapters">Chapters</string>

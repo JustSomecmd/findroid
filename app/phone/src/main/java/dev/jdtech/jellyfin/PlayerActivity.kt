@@ -58,6 +58,7 @@ import dev.jdtech.jellyfin.player.local.presentation.PlayerEvents
 import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
 import dev.jdtech.jellyfin.presentation.player.ChapterSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.QualitySelectionDialogFragment
+import dev.jdtech.jellyfin.presentation.player.SleepTimerDialogFragment
 import dev.jdtech.jellyfin.presentation.player.SpeedSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.TrackSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.theme.darkAppColorScheme
@@ -180,6 +181,7 @@ class PlayerActivity : BasePlayerActivity() {
         val unlockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_unlock)
         val rotateButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotate)
         val autoplayButton = binding.playerView.findViewById<ImageButton>(R.id.btn_autoplay)
+        val sleepTimerButton = binding.playerView.findViewById<ImageButton>(R.id.btn_sleep_timer)
         val upNextCard = binding.playerView.findViewById<View>(R.id.up_next_card)
         val upNextLabel = binding.playerView.findViewById<TextView>(R.id.up_next_label)
         val upNextTitle = binding.playerView.findViewById<TextView>(R.id.up_next_title)
@@ -198,6 +200,9 @@ class PlayerActivity : BasePlayerActivity() {
                     Toast.LENGTH_SHORT,
                 )
                 .show()
+        }
+        sleepTimerButton.setOnClickListener {
+            SleepTimerDialogFragment(viewModel).show(supportFragmentManager, "sleeptimerdialog")
         }
         binding.playerView.findViewById<View>(R.id.up_next_play).setOnClickListener {
             viewModel.playNextNow()
@@ -222,6 +227,7 @@ class PlayerActivity : BasePlayerActivity() {
                 PlayerButton.CHAPTERS to chaptersButton,
                 PlayerButton.QUALITY to qualityButton,
                 PlayerButton.SPEED to speedButton,
+                PlayerButton.SLEEP_TIMER to sleepTimerButton,
                 PlayerButton.AUDIO to audioButton,
                 PlayerButton.SUBTITLES to subtitleButton,
                 PlayerButton.ROTATE to rotateButton,
@@ -269,6 +275,16 @@ class PlayerActivity : BasePlayerActivity() {
                                 getString(
                                     if (autoplay) PlayerR.string.player_autoplay_on
                                     else PlayerR.string.player_autoplay_off
+                                )
+                            // Filled in while the sleep timer runs
+                            sleepTimerButton.setImageResource(
+                                if (sleepTimer != null) CoreR.drawable.ic_moon_filled
+                                else CoreR.drawable.ic_moon
+                            )
+                            sleepTimerButton.contentDescription =
+                                getString(
+                                    if (sleepTimer != null) PlayerR.string.player_sleep_timer_on
+                                    else PlayerR.string.player_sleep_timer
                                 )
                             upNextCard.isVisible = upNext != null && !isInPictureInPictureMode
                             upNext?.let { next ->
@@ -344,6 +360,13 @@ class PlayerActivity : BasePlayerActivity() {
                     viewModel.eventsChannelFlow.collect { event ->
                         when (event) {
                             is PlayerEvents.NavigateBack -> finishPlayback()
+                            is PlayerEvents.SleepTimerPaused ->
+                                Toast.makeText(
+                                        this@PlayerActivity,
+                                        PlayerR.string.player_sleep_paused,
+                                        Toast.LENGTH_LONG,
+                                    )
+                                    .show()
                             is PlayerEvents.IsPlayingChanged -> {
                                 if (event.isPlaying) {
                                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

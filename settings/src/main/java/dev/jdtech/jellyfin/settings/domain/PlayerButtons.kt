@@ -8,6 +8,7 @@ enum class PlayerButton(val key: String, val defaultPlacement: PlayerButtonPlace
     CHAPTERS("chapters", PlayerButtonPlacement.TOP),
     QUALITY("quality", PlayerButtonPlacement.TOP),
     SPEED("speed", PlayerButtonPlacement.TOP),
+    SLEEP_TIMER("sleep", PlayerButtonPlacement.TOP),
     AUDIO("audio", PlayerButtonPlacement.TOP),
     SUBTITLES("subtitles", PlayerButtonPlacement.TOP),
     ROTATE("rotate", PlayerButtonPlacement.BOTTOM),

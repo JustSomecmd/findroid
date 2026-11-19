@@ -192,6 +192,7 @@ private fun PlayerButton.nameRes(): Int =
         PlayerButton.CHAPTERS -> SettingsR.string.player_button_chapters
         PlayerButton.QUALITY -> SettingsR.string.player_button_quality
         PlayerButton.SPEED -> SettingsR.string.player_button_speed
+        PlayerButton.SLEEP_TIMER -> SettingsR.string.player_button_sleep_timer
         PlayerButton.AUDIO -> SettingsR.string.player_button_audio
         PlayerButton.SUBTITLES -> SettingsR.string.player_button_subtitles
         PlayerButton.ROTATE -> SettingsR.string.player_button_rotate
@@ -206,6 +207,7 @@ private fun PlayerButton.iconRes(): Int =
         PlayerButton.CHAPTERS -> CoreR.drawable.ic_list_chapters
         PlayerButton.QUALITY -> CoreR.drawable.ic_settings
         PlayerButton.SPEED -> CoreR.drawable.ic_gauge
+        PlayerButton.SLEEP_TIMER -> CoreR.drawable.ic_moon
         PlayerButton.AUDIO -> CoreR.drawable.ic_speaker
         PlayerButton.SUBTITLES -> CoreR.drawable.ic_closed_caption
         PlayerButton.ROTATE -> CoreR.drawable.ic_rotate_to_portrait
