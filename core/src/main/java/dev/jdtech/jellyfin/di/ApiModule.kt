@@ -9,6 +9,7 @@ import dagger.hilt.components.SingletonComponent
 import dev.jdtech.jellyfin.api.JellyfinApi
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.tubearchivist.JellyfinPlaylistSessionStore
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaConfig
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
@@ -85,8 +86,11 @@ object ApiModule {
 
     @Singleton
     @Provides
-    fun provideTaPlaylistSessions(@ApplicationContext application: Context): TaPlaylistSessions =
-        TaPlaylistSessions(application)
+    fun provideTaPlaylistSessions(
+        @ApplicationContext application: Context,
+        jellyfinApi: JellyfinApi,
+    ): TaPlaylistSessions =
+        TaPlaylistSessions(application, JellyfinPlaylistSessionStore(jellyfinApi))
 
     @Singleton
     @Provides

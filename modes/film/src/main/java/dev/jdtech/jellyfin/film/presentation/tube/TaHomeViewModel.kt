@@ -282,6 +282,8 @@ constructor(
                 fun rank(videoId: String): Int =
                     recent.indexOf(videoId).let { if (it < 0) Int.MAX_VALUE else it }
 
+                // Playlists watched on the computer count too
+                playlistSessions.sync()
                 // A playlist takes the place of its video, ranked by the last video played in it
                 val playlists =
                     playlistSessions.sessions.value.take(MAX_PLAYLISTS).mapNotNull { session ->

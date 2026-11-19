@@ -1,11 +1,14 @@
 package dev.jdtech.tubedroid.desktop.jellyfin
 
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessionStore
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessionSync
 import dev.jdtech.tubedroid.desktop.AppSettings
 import java.net.InetAddress
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jellyfin.sdk.api.client.extensions.authenticationApi
+import org.jellyfin.sdk.api.client.extensions.displayPreferencesApi
 import org.jellyfin.sdk.api.client.extensions.libraryApi
 import org.jellyfin.sdk.api.client.extensions.sessionApi
 import org.jellyfin.sdk.api.client.extensions.showApi
@@ -55,6 +58,42 @@ class JellyfinClient(private val settings: AppSettings) {
 
     private val userId: UUID
         get() = UUID.fromString(settings.jellyfinUserId ?: error("Not signed in to Jellyfin"))
+
+    /**
+     * Where the playlists being watched are kept for the phone to see too: the signed-in user's
+     * display settings. Null when not signed in.
+     */
+    val playlistSessionStore: TaPlaylistSessionStore?
+        get() = if (isSignedIn) PlaylistSessionStore() else null
+
+    private inner class PlaylistSessionStore : TaPlaylistSessionStore {
+        override suspend fun read(): String? =
+            withContext(Dispatchers.IO) { preferences().customPrefs[TaPlaylistSessionSync.KEY] }
+
+        override suspend fun write(text: String) =
+            withContext(Dispatchers.IO) {
+                val current = preferences()
+                api.displayPreferencesApi.updateDisplayPreferences(
+                    displayPreferencesId = TaPlaylistSessionSync.PREFERENCES_ID,
+                    userId = userId,
+                    client = TaPlaylistSessionSync.CLIENT,
+                    data =
+                        current.copy(
+                            customPrefs = current.customPrefs + (TaPlaylistSessionSync.KEY to text)
+                        ),
+                )
+                Unit
+            }
+
+        private suspend fun preferences() =
+            api.displayPreferencesApi
+                .getDisplayPreferences(
+                    displayPreferencesId = TaPlaylistSessionSync.PREFERENCES_ID,
+                    userId = userId,
+                    client = TaPlaylistSessionSync.CLIENT,
+                )
+                .content
+    }
 
     /** Signs in, keeping the token for later. Throws when the server or the details are wrong. */
     suspend fun signIn(url: String, username: String, password: String) =

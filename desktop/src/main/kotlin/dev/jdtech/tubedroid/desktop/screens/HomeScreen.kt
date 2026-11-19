@@ -53,10 +53,10 @@ import dev.jdtech.jellyfin.tubearchivist.TA_WATCH_LATER
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
+import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSession
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.tubedroid.desktop.LocalApp
 import dev.jdtech.tubedroid.desktop.LocalNavigator
-import dev.jdtech.tubedroid.desktop.PlaylistSession
 import dev.jdtech.tubedroid.desktop.Route
 import dev.jdtech.tubedroid.desktop.WatchHistory
 import dev.jdtech.tubedroid.desktop.player.PlayerRequest
@@ -227,6 +227,8 @@ class HomeModel(
         scope.launch {
             try {
                 val videos = api.getVideos(watch = "continue").data
+                // Playlists watched on the phone count too
+                history.sync()
                 // A playlist takes the place of its video. Each item is ranked by when it was last
                 // played here, with videos played elsewhere after, in TubeArchivist's order
                 val playlists =
@@ -253,7 +255,7 @@ class HomeModel(
      * The video a playlist is at, or the next one if that was watched. Forgets the playlist when it
      * was watched to the end or the video isn't in it anymore.
      */
-    private suspend fun resolvePlaylist(session: PlaylistSession): ContinueItem.Playlist? =
+    private suspend fun resolvePlaylist(session: TaPlaylistSession): ContinueItem.Playlist? =
         try {
             val playlist = api.getPlaylist(session.playlistId)
             val entries = playlist.entries.filter { it.downloaded }
