@@ -6,12 +6,14 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaChannelNav
+import dev.jdtech.jellyfin.tubearchivist.TaChannelTotals
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -36,6 +38,10 @@ data class TaChannelState(
     val error: String? = null,
     /** Showing the channel's side on the server: its settings and details. */
     val serverSide: Boolean = false,
+    /** How many videos the channel has on the server, their size and playback time. */
+    val totals: TaChannelTotals? = null,
+    /** Sizes in GB rather than GiB, as set in TubeArchivist. */
+    val metricSizes: Boolean = false,
 ) {
     /** The tabs this channel has anything in. */
     val tabs: List<TaChannelTab>
@@ -105,11 +111,27 @@ class TaChannelViewModel @Inject constructor(private val taApi: TaApi) : ViewMod
                     _state.update { it.copy(tab = tabs.firstOrNull() ?: TaChannelTab.VIDEOS) }
                 }
                 loadMore()
+                loadTotals(channelId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.errorText()) }
             }
+        }
+    }
+
+    /** The channel's totals, left out when TubeArchivist can't count them. */
+    private suspend fun loadTotals(channelId: String) {
+        try {
+            coroutineScope {
+                val metric = async { taApi.usesMetricSizes() }
+                val totals = taApi.getChannelTotals(channelId)
+                _state.update { it.copy(totals = totals, metricSizes = metric.await()) }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Could not load the totals of channel $channelId")
         }
     }
 
@@ -265,6 +287,7 @@ class TaChannelViewModel @Inject constructor(private val taApi: TaApi) : ViewMod
                     loadMoreServerVideos()
                     _videos.value = TaListState()
                     if (_state.value.tab != TaChannelTab.PLAYLISTS) loadMore()
+                    channelId?.let { id -> viewModelScope.launch { loadTotals(id) } }
                 }
             }
         }

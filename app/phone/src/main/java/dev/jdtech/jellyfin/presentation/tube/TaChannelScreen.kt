@@ -1,6 +1,7 @@
 package dev.jdtech.jellyfin.presentation.tube
 
 import android.widget.Toast
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
@@ -12,6 +13,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
@@ -83,6 +87,7 @@ import dev.jdtech.jellyfin.film.presentation.tube.TaVideoAction
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
+import dev.jdtech.jellyfin.tubearchivist.TaChannelTotals
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 import kotlinx.serialization.json.JsonElement
@@ -247,6 +252,16 @@ fun TaChannelScreen(
                                                         )
                                                     }
                                                 }
+                                            }
+                                            state.totals?.let { totals ->
+                                                TaChannelTotalsRow(
+                                                    totals = totals,
+                                                    metricSizes = state.metricSizes,
+                                                    modifier =
+                                                        Modifier.padding(
+                                                            top = MaterialTheme.spacings.small
+                                                        ),
+                                                )
                                             }
                                             Spacer(
                                                 Modifier.padding(top = MaterialTheme.spacings.small)
@@ -527,6 +542,7 @@ private fun TaChannelServerPage(
     viewModel: TaChannelViewModel,
     onEdit: (TaChannelSetting) -> Unit,
 ) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val videos by viewModel.serverVideos.collectAsStateWithLifecycle()
     val selected by viewModel.selected.collectAsStateWithLifecycle()
     val working by viewModel.working.collectAsStateWithLifecycle()
@@ -554,6 +570,8 @@ private fun TaChannelServerPage(
             item(key = "server") {
                 TaChannelServerSide(
                     channel = channel,
+                    totals = state.totals,
+                    metricSizes = state.metricSizes,
                     globalConfig = globalConfig,
                     onEdit = onEdit,
                     onChange = viewModel::setOverwrite,
@@ -710,6 +728,8 @@ private fun TaSelectableVideoRow(
 @Composable
 private fun TaChannelServerSide(
     channel: TaChannel,
+    totals: TaChannelTotals?,
+    metricSizes: Boolean,
     globalConfig: JsonObject?,
     onEdit: (TaChannelSetting) -> Unit,
     onChange: (key: String, value: JsonElement) -> Unit,
@@ -738,6 +758,14 @@ private fun TaChannelServerSide(
         formatTaDate(channel.lastRefresh)?.let {
             TaInfoRow(stringResource(CoreR.string.ta_info_last_refreshed), it)
         }
+        totals?.let {
+            TaInfoRow(stringResource(CoreR.string.ta_info_videos), formatNumber(it.count))
+            TaInfoRow(stringResource(CoreR.string.ta_stats_playtime), formatPlaytime(it.duration))
+            TaInfoRow(
+                stringResource(CoreR.string.ta_stats_storage),
+                formatSize(it.mediaSize, metricSizes),
+            )
+        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
             modifier = Modifier.padding(top = MaterialTheme.spacings.small),
@@ -755,6 +783,62 @@ private fun TaChannelServerSide(
             globalConfig = globalConfig,
             onEdit = onEdit,
             onChange = onChange,
+        )
+    }
+}
+
+/**
+ * How many videos the channel has on the server, how long they play for and the space they take, as
+ * at the top of the channel's page on the web.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TaChannelTotalsRow(
+    totals: TaChannelTotals,
+    metricSizes: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+        modifier = modifier,
+    ) {
+        TaTotal(
+            icon = CoreR.drawable.ic_film,
+            label = stringResource(CoreR.string.ta_info_videos),
+            value =
+                pluralStringResource(
+                    CoreR.plurals.ta_video_count,
+                    totals.count.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                    formatNumber(totals.count),
+                ),
+        )
+        TaTotal(
+            icon = CoreR.drawable.ic_clock,
+            label = stringResource(CoreR.string.ta_stats_playtime),
+            value = formatPlaytime(totals.duration),
+        )
+        TaTotal(
+            icon = CoreR.drawable.ic_database,
+            label = stringResource(CoreR.string.ta_stats_storage),
+            value = formatSize(totals.mediaSize, metricSizes),
+        )
+    }
+}
+
+@Composable
+private fun TaTotal(@DrawableRes icon: Int, label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = label,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

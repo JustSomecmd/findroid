@@ -73,9 +73,12 @@ import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
+import java.text.NumberFormat
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import kotlin.math.abs
+import kotlin.math.round
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -522,6 +525,8 @@ fun TaSideSwitch(
     onToggle: (() -> Unit)? = null,
     @DrawableRes localIcon: Int = CoreR.drawable.ic_smartphone,
     localLabel: String = stringResource(CoreR.string.ta_side_phone),
+    /** Names the side shown next to its icon. Off where room is short. */
+    showLabel: Boolean = true,
 ) {
     val shape = CircleShape
     Surface(
@@ -531,18 +536,29 @@ fun TaSideSwitch(
             if (onToggle != null) modifier.clip(shape).clickable(onClick = onToggle) else modifier,
     ) {
         Row(modifier = Modifier.padding(2.dp)) {
-            TaSideSegment(icon = localIcon, label = localLabel, selected = !onServer)
+            TaSideSegment(
+                icon = localIcon,
+                label = localLabel,
+                selected = !onServer,
+                showLabel = showLabel,
+            )
             TaSideSegment(
                 icon = CoreR.drawable.ic_server,
                 label = stringResource(CoreR.string.ta_side_server),
                 selected = onServer,
+                showLabel = showLabel,
             )
         }
     }
 }
 
 @Composable
-private fun TaSideSegment(@DrawableRes icon: Int, label: String, selected: Boolean) {
+private fun TaSideSegment(
+    @DrawableRes icon: Int,
+    label: String,
+    selected: Boolean,
+    showLabel: Boolean,
+) {
     val background by
         animateColorAsState(
             if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
@@ -569,7 +585,7 @@ private fun TaSideSegment(@DrawableRes icon: Int, label: String, selected: Boole
             modifier = Modifier.size(16.dp),
         )
         // Only the side that is shown is named, so the switch stays small
-        if (selected) {
+        if (selected && showLabel) {
             Spacer(Modifier.width(4.dp))
             Text(text = label, style = MaterialTheme.typography.labelMedium, color = content)
         }
@@ -670,6 +686,41 @@ fun formatBytes(bytes: Long): String {
     return if (unit == 0) "$bytes B"
     else String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
 }
+
+/**
+ * A size as TubeArchivist shows it: 643.0 GB in metric units (powers of 1000), or 598.9 GiB in
+ * binary ones (powers of 1024), following the unit picked in TubeArchivist's settings.
+ */
+fun formatSize(bytes: Long, metric: Boolean): String {
+    val step = if (metric) 1000.0 else 1024.0
+    if (abs(bytes) < step) return "$bytes B"
+    val units =
+        if (metric) listOf("kB", "MB", "GB", "TB", "PB", "EB")
+        else listOf("KiB", "MiB", "GiB", "TiB", "PiB", "EiB")
+    var value = bytes.toDouble()
+    var unit = -1
+    do {
+        value /= step
+        unit++
+    } while (round(abs(value) * 10) / 10 >= step && unit < units.lastIndex)
+    return String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
+}
+
+/** A long playing time by its two largest units: 137d 10h, 19h 19m, 45m or 30s. */
+fun formatPlaytime(seconds: Long): String {
+    val days = seconds / 86_400
+    val hours = (seconds % 86_400) / 3600
+    val minutes = (seconds % 3600) / 60
+    return when {
+        days > 0 -> "${days}d ${hours}h"
+        hours > 0 -> "${hours}h ${minutes}m"
+        minutes > 0 -> "${minutes}m"
+        else -> "${seconds}s"
+    }
+}
+
+/** 5890 as 5,890, in the phone's own way of writing numbers. */
+fun formatNumber(count: Long): String = NumberFormat.getIntegerInstance().format(count)
 
 /** "18 Nov 2026, 14:03" for seconds since 1970. */
 fun formatEpochSeconds(seconds: Long): String =

@@ -46,6 +46,8 @@ fun HomeHeader(
     onUserClick: () -> Unit,
     modifier: Modifier = Modifier,
     logo: @Composable () -> Unit = { HomeHeaderLogo() },
+    /** Shown before the buttons on the right, such as a switch. */
+    actions: (@Composable () -> Unit)? = null,
 ) {
     val isOfflineMode = LocalOfflineMode.current
 
@@ -78,6 +80,11 @@ fun HomeHeader(
         Spacer(Modifier.width(MaterialTheme.spacings.medium))
 
         Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium)) {
+            if (actions != null) {
+                Box(modifier = Modifier.fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    actions()
+                }
+            }
             AnimatedVisibility(visible = isError, enter = fadeIn(), exit = fadeOut()) {
                 Surface(
                     onClick = onErrorClick,

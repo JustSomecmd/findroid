@@ -409,9 +409,10 @@ private val TA_MAIN_PAGES = listOf(TaHomeRoute, TaChannelsRoute, DownloadsRoute)
 private val LocalTaMainPagerShown = staticCompositionLocalOf { false }
 
 /**
- * Home, Channels and Downloads side by side, to swipe between. The Channels tabs and the two sides
- * of Downloads turn first, and the pager moves on once they're at their end, so swiping goes Home,
- * Subscribed, All channels, Playlists, the phone's downloads, then the server's queue.
+ * Home, Channels and Downloads side by side, to swipe between. The two sides of Home, the Channels
+ * tabs and the two sides of Downloads turn first, and the pager moves on once they're at their end,
+ * so swiping goes Home, the server's stats, Subscribed, All channels, Playlists, the phone's
+ * downloads, then the server's queue.
  */
 @Composable
 private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, active: Boolean) {
@@ -420,6 +421,7 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
         rememberPagerState(initialPage = TA_MAIN_PAGES.indexOf(topLevelRoute).coerceAtLeast(0)) {
             TA_MAIN_PAGES.size
         }
+    val homeSides = rememberSidePagerState()
     val channelTabs = rememberPagerState { TaChannelsTab.entries.size }
     val downloadSides = rememberSidePagerState()
     // True while the pager turns for the bottom bar or back, rather than for a swipe
@@ -448,7 +450,8 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
             }
     }
 
-    // Swiping on from the page before or after lands on the nearest Channels tab or Downloads side
+    // Swiping on from the page before or after lands on the nearest side of Home, Channels tab or
+    // side of Downloads
     LaunchedEffect(pages) {
         snapshotFlow { pages.isScrollInProgress }
             .collect { scrolling ->
@@ -456,7 +459,10 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
                 when (TA_MAIN_PAGES[pages.settledPage]) {
                     TaHomeRoute -> channelTabs.requestScrollToPage(0)
                     DownloadsRoute -> channelTabs.requestScrollToPage(channelTabs.pageCount - 1)
-                    TaChannelsRoute -> downloadSides.requestScrollToPage(0)
+                    TaChannelsRoute -> {
+                        homeSides.requestScrollToPage(1)
+                        downloadSides.requestScrollToPage(0)
+                    }
                     else -> {}
                 }
             }
@@ -470,8 +476,8 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
             }
     }
 
-    // A swipe handed on by the Channels tabs or the Downloads sides keeps its speed, so a quick
-    // flick turns the main page as easily as any other swipe
+    // A swipe handed on by the sides of Home or Downloads, or the Channels tabs, keeps its speed,
+    // so a quick flick turns the main page as easily as any other swipe
     val defaultConnection = PagerDefaults.pageNestedScrollConnection(pages, Orientation.Horizontal)
     val flickSpeed = with(LocalDensity.current) { MAIN_PAGE_FLICK_SPEED.toPx() }
     val connection =
@@ -524,6 +530,7 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
                         onManageServers = dropUnlessResumed { navigator.navigate(ServersRoute) },
                         onTubeArchivistSettings =
                             dropUnlessResumed { navigator.navigate(TaSettingsRoute) },
+                        sides = homeSides,
                     )
                 TaChannelsRoute ->
                     TaChannelsScreen(

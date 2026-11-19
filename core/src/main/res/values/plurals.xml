@@ -48,4 +48,8 @@
         <item quantity="one">%d couldn\'t be added; Jellyfin may not have it yet.</item>
         <item quantity="other">%d couldn\'t be added; Jellyfin may not have them yet.</item>
     </plurals>
+    <plurals name="ta_video_count">
+        <item quantity="one">%1$s video</item>
+        <item quantity="other">%1$s videos</item>
+    </plurals>
 </resources>

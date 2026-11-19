@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -37,10 +38,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,8 +63,10 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaContinueItem
 import dev.jdtech.jellyfin.film.presentation.tube.TaHomeViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.TaServersInfo
+import dev.jdtech.jellyfin.film.presentation.tube.TaStatsViewModel
 import dev.jdtech.jellyfin.presentation.film.components.HomeHeader
 import dev.jdtech.jellyfin.presentation.film.components.ServerSelectionBottomSheet
+import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 
@@ -74,7 +80,10 @@ fun TaHomeScreen(
     onSettingsClick: () -> Unit,
     onManageServers: () -> Unit,
     onTubeArchivistSettings: () -> Unit,
+    /** Home and the server's stats, when the main pager needs to turn them. */
+    sides: PagerState = rememberSidePagerState(),
     viewModel: TaHomeViewModel = hiltViewModel(),
+    statsViewModel: TaStatsViewModel = hiltViewModel(),
 ) {
     val servers by viewModel.servers.collectAsStateWithLifecycle()
     var showServers by rememberSaveable { mutableStateOf(false) }
@@ -106,107 +115,154 @@ fun TaHomeScreen(
     val gridState = rememberLazyGridState()
     LoadMoreEffect(gridState) { viewModel.loadMore() }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged(),
-        topBar = {
-            // Findroid's own header, with TubeArchivist's logo, on a background that always shows
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-                HomeHeader(
-                    serverName =
-                        servers.jellyfinName ?: stringResource(CoreR.string.ta_tubearchivist),
-                    isLoading = servers.taVersion == null && servers.taError == null,
-                    isError = servers.taError != null,
-                    onServerClick = { showServers = true },
-                    onErrorClick = { showServers = true },
-                    onRetryClick = {
-                        viewModel.loadServers()
-                        viewModel.refresh()
-                    },
-                    onSearchClick = onSearchClick,
-                    onUserClick = onSettingsClick,
-                    logo = { TaLogo(modifier = Modifier.size(32.dp)) },
-                    modifier =
-                        Modifier.windowInsetsPadding(
-                                WindowInsets.statusBars.union(WindowInsets.displayCutout)
+    // The stats load as soon as a swipe starts towards them
+    val scope = rememberCoroutineScope()
+    val stats by statsViewModel.stats.collectAsStateWithLifecycle()
+    LaunchedEffect(sides) {
+        snapshotFlow { sides.currentPage + sides.currentPageOffsetFraction > 0.01f }
+            .collect { if (it) statsViewModel.onShown() }
+    }
+
+    ServerSideTheme(pagerState = sides) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged(),
+            topBar = {
+                // Findroid's own header with TubeArchivist's logo, its background always shown
+                Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                    HomeHeader(
+                        serverName =
+                            servers.jellyfinName ?: stringResource(CoreR.string.ta_tubearchivist),
+                        isLoading = servers.taVersion == null && servers.taError == null,
+                        isError = servers.taError != null,
+                        onServerClick = { showServers = true },
+                        onErrorClick = { showServers = true },
+                        onRetryClick = {
+                            viewModel.loadServers()
+                            viewModel.refresh()
+                        },
+                        onSearchClick = onSearchClick,
+                        onUserClick = onSettingsClick,
+                        logo = { TaLogo(modifier = Modifier.size(32.dp)) },
+                        actions = {
+                            TaSideSwitch(
+                                onServer = sides.onServerSide,
+                                onToggle = { sides.switchSide(scope) },
+                                localIcon = CoreR.drawable.ic_home,
+                                localLabel = stringResource(CoreR.string.ta_side_home),
+                                showLabel = false,
                             )
-                            .padding(
-                                horizontal = MaterialTheme.spacings.medium,
-                                vertical = MaterialTheme.spacings.small,
-                            ),
-                )
-            }
-        },
-        contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-    ) { innerPadding ->
-        PullToRefreshBox(
-            isRefreshing = false,
-            onRefresh = { viewModel.refresh() },
-            modifier = Modifier.padding(innerPadding).fillMaxSize(),
-        ) {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = TA_CARD_MIN_WIDTH),
-                state = gridState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-            ) {
-                // Keeps the page at the top when continue watching loads after the rest
-                item(span = { GridItemSpan(maxLineSpan) }, key = "top") { Spacer(Modifier) }
-                if (featured.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }, key = "featured") {
-                        TaChannelCarousel(
-                            channels = featured,
-                            onChannelClick = onChannelClick,
-                            modifier = Modifier.padding(bottom = MaterialTheme.spacings.small),
-                        )
-                    }
+                        },
+                        modifier =
+                            Modifier.windowInsetsPadding(
+                                    WindowInsets.statusBars.union(WindowInsets.displayCutout)
+                                )
+                                .padding(
+                                    horizontal = MaterialTheme.spacings.medium,
+                                    vertical = MaterialTheme.spacings.small,
+                                ),
+                    )
                 }
-                if (continueWatching.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
-                        Column {
-                            TaSectionTitle(stringResource(CoreR.string.ta_continue_watching))
-                            LazyRow(
-                                horizontalArrangement =
-                                    Arrangement.spacedBy(MaterialTheme.spacings.medium)
-                            ) {
-                                items(continueWatching, key = { it.key }) { item ->
-                                    when (item) {
-                                        is TaContinueItem.Video ->
-                                            TaVideoSmallCard(
-                                                video = item.video,
-                                                onClick = { onVideoClick(item.video.youtubeId) },
-                                            )
-                                        is TaContinueItem.Playlist ->
-                                            TaPlaylistResumeCard(
-                                                item = item,
-                                                onClick = { viewModel.resumePlaylist(item) },
-                                                onLongClick = { onPlaylistClick(item.playlistId) },
-                                            )
+            },
+            contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
+        ) { innerPadding ->
+            TaSidePager(
+                state = sides,
+                modifier = Modifier.padding(innerPadding).fillMaxSize(),
+                phone = {
+                    PullToRefreshBox(
+                        isRefreshing = false,
+                        onRefresh = { viewModel.refresh() },
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = TA_CARD_MIN_WIDTH),
+                            state = gridState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                            verticalArrangement =
+                                Arrangement.spacedBy(MaterialTheme.spacings.small),
+                        ) {
+                            // Keeps the page at the top when continue watching loads after the rest
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "top") {
+                                Spacer(Modifier)
+                            }
+                            if (featured.isNotEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }, key = "featured") {
+                                    TaChannelCarousel(
+                                        channels = featured,
+                                        onChannelClick = onChannelClick,
+                                        modifier =
+                                            Modifier.padding(bottom = MaterialTheme.spacings.small),
+                                    )
+                                }
+                            }
+                            if (continueWatching.isNotEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
+                                    Column {
+                                        TaSectionTitle(
+                                            stringResource(CoreR.string.ta_continue_watching)
+                                        )
+                                        LazyRow(
+                                            horizontalArrangement =
+                                                Arrangement.spacedBy(MaterialTheme.spacings.medium)
+                                        ) {
+                                            items(continueWatching, key = { it.key }) { item ->
+                                                when (item) {
+                                                    is TaContinueItem.Video ->
+                                                        TaVideoSmallCard(
+                                                            video = item.video,
+                                                            onClick = {
+                                                                onVideoClick(item.video.youtubeId)
+                                                            },
+                                                        )
+                                                    is TaContinueItem.Playlist ->
+                                                        TaPlaylistResumeCard(
+                                                            item = item,
+                                                            onClick = {
+                                                                viewModel.resumePlaylist(item)
+                                                            },
+                                                            onLongClick = {
+                                                                onPlaylistClick(item.playlistId)
+                                                            },
+                                                        )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "latest_title") {
+                                TaSectionTitle(stringResource(CoreR.string.ta_latest_videos))
+                            }
+                            items(latest.items, key = { it.youtubeId }) { video ->
+                                TaVideoCard(
+                                    video = video,
+                                    onClick = { onVideoClick(video.youtubeId) },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
+                                TaListFooter(
+                                    state = latest,
+                                    onRetry = { viewModel.loadMore() },
+                                    emptyText = stringResource(CoreR.string.ta_no_videos),
+                                )
+                            }
                         }
                     }
-                }
-                item(span = { GridItemSpan(maxLineSpan) }, key = "latest_title") {
-                    TaSectionTitle(stringResource(CoreR.string.ta_latest_videos))
-                }
-                items(latest.items, key = { it.youtubeId }) { video ->
-                    TaVideoCard(
-                        video = video,
-                        onClick = { onVideoClick(video.youtubeId) },
-                        modifier = Modifier.animateItem(),
+                },
+                server = {
+                    TaHomeStatsPage(
+                        stats = stats,
+                        version = servers.taVersion,
+                        onRefresh = { statsViewModel.refresh() },
+                        onChannelClick = onChannelClick,
+                        modifier = Modifier.fillMaxSize(),
                     )
-                }
-                item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
-                    TaListFooter(
-                        state = latest,
-                        onRetry = { viewModel.loadMore() },
-                        emptyText = stringResource(CoreR.string.ta_no_videos),
-                    )
-                }
-            }
+                },
+            )
         }
     }
 

@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin.tubearchivist
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
@@ -155,6 +156,16 @@ class TaApi(private val appPreferences: AppPreferences) {
 
     suspend fun getChannelNav(channelId: String): TaChannelNav =
         decode(get("api/channel/$channelId/nav/"))
+
+    /** How many videos the channel has on the server, their size and how long they play for. */
+    suspend fun getChannelTotals(channelId: String): TaChannelTotals {
+        val aggs: TaChannelAggsJson = decode(get("api/channel/$channelId/aggs/"))
+        return TaChannelTotals(
+            count = aggs.items.value.toLong(),
+            mediaSize = aggs.size.value.toLong(),
+            duration = aggs.duration.value.toLong(),
+        )
+    }
 
     suspend fun setChannelSubscribed(channelId: String, subscribed: Boolean) {
         post("api/channel/$channelId/", buildJsonObject { put("channel_subscribed", subscribed) })
@@ -404,6 +415,46 @@ class TaApi(private val appPreferences: AppPreferences) {
     suspend fun deleteSchedule(taskName: String) {
         send("DELETE", url("api/task/schedule/$taskName/") {}, null)
     }
+
+    // Stats, as on TubeArchivist's dashboard. Each answers with an error when there is nothing to
+    // count yet
+
+    suspend fun getVideoStats(): TaVideoStats = decode(get("api/stats/video/"))
+
+    suspend fun getChannelStats(): TaCountStats = decode(get("api/stats/channel/"))
+
+    suspend fun getPlaylistStats(): TaCountStats = decode(get("api/stats/playlist/"))
+
+    suspend fun getDownloadStats(): TaDownloadStats = decode(get("api/stats/download/"))
+
+    suspend fun getWatchStats(): TaWatchStats = decode(get("api/stats/watch/"))
+
+    /** The videos downloaded on each of the last eight days that had any, newest first. */
+    suspend fun getDownloadHistory(): List<TaDownloadDay> =
+        json.decodeFromString(
+            ListSerializer(TaDownloadDay.serializer()),
+            get("api/stats/downloadhist/"),
+        )
+
+    suspend fun getBiggestChannels(order: TaBiggestOrder): List<TaBiggestChannel> =
+        json.decodeFromString(
+            ListSerializer(TaBiggestChannel.serializer()),
+            get("api/stats/biggestchannels/") { addQueryParameter("order", order.key) },
+        )
+
+    /**
+     * Whether sizes are shown in metric units (GB, powers of 1000) rather than binary ones (GiB,
+     * powers of 1024), as chosen in TubeArchivist's user settings. Binary when it can't be read, as
+     * that is TubeArchivist's default.
+     */
+    suspend fun usesMetricSizes(): Boolean =
+        try {
+            decode<TaUserConfig>(get("api/user/me/")).fileSizeUnit == "metric"
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            false
+        }
 
     // Settings
 
