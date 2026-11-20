@@ -107,4 +107,7 @@ jobs:
             Built from ${{ github.sha }} on the custom branch.
             Run the .msi to install, or to update an older install. It plays videos with mpv; an
             mpv.conf in %APPDATA%\Winchivist\mpv changes how.
+
+            Winchivist now has its own repository, https://github.com/JustSomecmd/Winchivist, and
+            this version looks there for updates.
           files: desktop/build/compose/binaries/main/msi/*.msi

@@ -44,8 +44,8 @@ class Updates {
     /**
      * Looks for a newer release. Returns whether there is one; throws when GitHub can't be read.
      *
-     * GitHub doesn't list releases in date order, and the phone app's releases are in the same
-     * list, so the newest desktop tags are found first and then their releases.
+     * GitHub doesn't list releases in date order, so the newest tags are found first and then their
+     * releases.
      */
     suspend fun checkForUpdate(): Boolean =
         withContext(Dispatchers.IO) {
@@ -86,7 +86,8 @@ class Updates {
                 .header("Accept", "application/vnd.github+json")
                 .build()
         return client.newCall(request).execute().use { response ->
-            if (response.code == 404) return@use null
+            // 409 is a repository with nothing in it yet
+            if (response.code == 404 || response.code == 409) return@use null
             check(response.isSuccessful) { "GitHub answered ${response.code}" }
             response.body.string()
         }
@@ -135,7 +136,7 @@ class Updates {
         @SerialName("html_url") val page: String? = null,
         val assets: List<Asset> = emptyList(),
     ) {
-        /** Such as 1.0.12, from the tag desktop-1.0.12. */
+        /** Such as 1.1.3, from the tag v1.1.3. */
         val version: String
             get() = versionOf(tag)
     }
@@ -150,8 +151,9 @@ class Updates {
     )
 
     companion object {
-        private const val REPOSITORY = "JustSomecmd/findroid"
-        private const val TAG_PREFIX = "desktop-"
+        // Winchivist's own repository, apart from the phone app's since 1.1
+        private const val REPOSITORY = "JustSomecmd/Winchivist"
+        private const val TAG_PREFIX = "v"
         private const val TAGS_TO_TRY = 3
 
         private fun versionOf(tag: String): String = tag.removePrefix(TAG_PREFIX)
