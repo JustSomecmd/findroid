@@ -194,6 +194,7 @@ class PlayerActivity : BasePlayerActivity() {
         }
 
         val videoNameTextView = binding.playerView.findViewById<TextView>(R.id.video_name)
+        val videoSubtitleTextView = binding.playerView.findViewById<TextView>(R.id.video_subtitle)
 
         val audioButton = binding.playerView.findViewById<ImageButton>(R.id.btn_audio_track)
         val subtitleButton = binding.playerView.findViewById<ImageButton>(R.id.btn_subtitle)
@@ -205,6 +206,7 @@ class PlayerActivity : BasePlayerActivity() {
         val lockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_lockview)
         val unlockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_unlock)
         val rotateButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotate)
+        val playlistButton = binding.playerView.findViewById<ImageButton>(R.id.btn_playlist)
         val autoplayButton = binding.playerView.findViewById<ImageButton>(R.id.btn_autoplay)
         val sleepTimerButton = binding.playerView.findViewById<ImageButton>(R.id.btn_sleep_timer)
         val menuButton = binding.playerView.findViewById<ImageButton>(R.id.btn_menu)
@@ -231,6 +233,7 @@ class PlayerActivity : BasePlayerActivity() {
             SleepTimerDialogFragment(viewModel).show(supportFragmentManager, "sleeptimerdialog")
         }
         menuButton.setOnClickListener { showPlayerMenu() }
+        playlistButton.setOnClickListener { openPlaylist() }
         binding.playerView.findViewById<View>(R.id.up_next_play).setOnClickListener {
             viewModel.playNextNow()
         }
@@ -258,6 +261,7 @@ class PlayerActivity : BasePlayerActivity() {
                 PlayerButton.AUDIO to audioButton,
                 PlayerButton.SUBTITLES to subtitleButton,
                 PlayerButton.ROTATE to rotateButton,
+                PlayerButton.PLAYLIST to playlistButton,
             ),
             menuButton,
         )
@@ -269,8 +273,10 @@ class PlayerActivity : BasePlayerActivity() {
                     viewModel.uiState.collect { uiState ->
                         Timber.d("$uiState")
                         uiState.apply {
-                            // Title
+                            // Title, with the channel or show under it
                             videoNameTextView.text = currentItemTitle
+                            videoSubtitleTextView.text = currentItemSubtitle
+                            videoSubtitleTextView.isVisible = !currentItemSubtitle.isNullOrBlank()
 
                             // Media segment
                             currentSegment?.let { segment ->
@@ -366,6 +372,8 @@ class PlayerActivity : BasePlayerActivity() {
 
                             // Quality: downloads play from the device and can't be converted
                             qualityButton.isVisible = canChangeQuality
+                            // Only while a playlist plays, in a bar or in the menu
+                            playlistButton.isVisible = taPlaylistId != null
 
                             // File Loaded
                             if (fileLoaded) {
@@ -717,19 +725,6 @@ class PlayerActivity : BasePlayerActivity() {
     private fun showPlayerMenu() {
         val state = viewModel.uiState.value
         val items = buildList {
-            // Playing from a playlist: the playlist comes first
-            if (state.taPlaylistId != null) {
-                add(
-                    PlayerMenuItem(
-                        icon = CoreR.drawable.ic_list_video,
-                        title = getString(PlayerR.string.player_playlist),
-                        value = state.taPlaylistName,
-                        opensChoices = true,
-                    ) {
-                        openPlaylist()
-                    }
-                )
-            }
             addAll(menuButtons.mapNotNull { menuItem(it, state) })
             // For finding out why sound and picture drift apart
             add(
@@ -973,6 +968,15 @@ class PlayerActivity : BasePlayerActivity() {
                     opensChoices = true,
                 ) {
                     view.performClick()
+                }
+            PlayerButton.PLAYLIST ->
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_list_video,
+                    title = getString(PlayerR.string.player_playlist),
+                    value = state.taPlaylistName,
+                    opensChoices = true,
+                ) {
+                    openPlaylist()
                 }
             PlayerButton.ROTATE ->
                 PlayerMenuItem(

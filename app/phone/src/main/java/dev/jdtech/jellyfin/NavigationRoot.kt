@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
@@ -211,7 +213,7 @@ fun NavigationRoot(
     val viewModelStoreDecorator = rememberViewModelStoreNavEntryDecorator<NavKey>()
     val entryDecorators =
         remember(saveableStateHolderDecorator, viewModelStoreDecorator) {
-            listOf(saveableStateHolderDecorator, viewModelStoreDecorator)
+            listOf(saveableStateHolderDecorator, viewModelStoreDecorator, OpaquePageDecorator)
         }
 
     // Exposed as a state object (rather than a plain value) so the entry content closures, which
@@ -413,6 +415,29 @@ private val TA_MAIN_PAGES = listOf(TaHomeRoute, TaChannelsRoute, DownloadsRoute)
 
 /** True where the main pager shows the main pages, so their navigation entries stay empty. */
 private val LocalTaMainPagerShown = staticCompositionLocalOf { false }
+
+/** Marks the entries of the main pages, which stay see-through where the main pager shows them. */
+private const val MAIN_PAGE_KEY = "mainPage"
+private val MAIN_PAGE_ENTRY = mapOf<String, Any>(MAIN_PAGE_KEY to true)
+
+/**
+ * Gives each page over the main pager a background of its own, so the main pages under it never
+ * show through, also while a page is loading or has nothing to show.
+ */
+private val OpaquePageDecorator =
+    NavEntryDecorator<NavKey> { entry ->
+        val opaque = LocalTaMainPagerShown.current && entry.metadata[MAIN_PAGE_KEY] != true
+        Box(
+            modifier =
+                if (opaque) {
+                    Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+                } else {
+                    Modifier.fillMaxSize()
+                }
+        ) {
+            entry.Content()
+        }
+    }
 
 /**
  * Home, Channels and Downloads side by side, to swipe between. The two sides of Home, the Channels
@@ -771,7 +796,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
             onSearchExpand = { searchExpanded.value = it },
         )
     }
-    entry<DownloadsRoute> {
+    entry<DownloadsRoute>(metadata = MAIN_PAGE_ENTRY) {
         val onItemClick = resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) }
         // With TubeArchivist, the downloads on this phone and the download queue on the server are
         // two sides to swipe between, or to switch with the title
@@ -983,7 +1008,7 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
     val openPlaylist: (String) -> Unit = { playlistId ->
         navigator.navigate(TaPlaylistRoute(playlistId))
     }
-    entry<TaHomeRoute> {
+    entry<TaHomeRoute>(metadata = MAIN_PAGE_ENTRY) {
         // Shown by the main pager underneath instead
         if (LocalTaMainPagerShown.current) return@entry
         TaHomeScreen(
@@ -999,7 +1024,7 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
             onTubeArchivistSettings = dropUnlessResumed { navigator.navigate(TaSettingsRoute) },
         )
     }
-    entry<TaChannelsRoute> {
+    entry<TaChannelsRoute>(metadata = MAIN_PAGE_ENTRY) {
         if (LocalTaMainPagerShown.current) return@entry
         TaChannelsScreen(
             onChannelClick = resumedAction<String> { openChannel(it) },

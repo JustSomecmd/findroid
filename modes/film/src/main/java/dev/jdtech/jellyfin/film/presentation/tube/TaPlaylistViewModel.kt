@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin.film.presentation.tube
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -68,6 +70,22 @@ constructor(
     val phoneStatus = _phoneStatus.asStateFlow()
 
     private var statusJob: Job? = null
+
+    init {
+        // Watched in the player or on a video's page
+        taApi.followWatchedVideos(
+            viewModelScope,
+            shows = { id -> _videos.value.items.any { it.youtubeId == id } },
+        ) { id, player ->
+            _videos.update { it.withPlayer(id, player) }
+        }
+        // Videos downloaded or deleted on their own pages count towards what's on the phone
+        viewModelScope.launch {
+            MediaChanges.changes.filterIsInstance<MediaChanges.Downloads>().collect {
+                if (_phoneStatus.value != null) checkPhoneStatus()
+            }
+        }
+    }
 
     /**
      * Checks how much of the playlist is on the phone, and keeps checking while its videos are

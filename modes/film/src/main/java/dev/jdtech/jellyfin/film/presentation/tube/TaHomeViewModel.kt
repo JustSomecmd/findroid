@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
+import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TA_WATCH_LATER
 import dev.jdtech.jellyfin.tubearchivist.TaApi
@@ -19,9 +20,12 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -78,6 +82,24 @@ constructor(
     val openPlaylist = _openPlaylist.receiveAsFlow()
 
     private var lastLoad = 0L
+    private var continueJob: Job? = null
+
+    init {
+        // Watched or downloaded elsewhere, such as in the player or on a video's page. Home stays
+        // open under the other pages, so it isn't loaded again on coming back to it.
+        taApi.followWatchedVideos(
+            viewModelScope,
+            shows = { id -> _latest.value.items.any { it.youtubeId == id } },
+        ) { id, player ->
+            _latest.update { it.withPlayer(id, player) }
+        }
+        viewModelScope.launch {
+            MediaChanges.changes.collectLatest {
+                delay(CHANGE_SETTLE_MS)
+                if (lastLoad > 0) loadContinueWatching()
+            }
+        }
+    }
 
     /** Loads the page the first time, and refreshes it when coming back after a while. */
     fun onShown() {
@@ -265,7 +287,9 @@ constructor(
     }
 
     private fun loadContinueWatching() {
-        viewModelScope.launch {
+        // The newest wins, as each one can take a while
+        continueJob?.cancel()
+        continueJob = viewModelScope.launch {
             try {
                 val videos = taApi.getVideos(watch = "continue").data
                 // Most recently watched first. TubeArchivist has no order for these, so Jellyfin's
@@ -404,6 +428,8 @@ constructor(
 
     companion object {
         private const val STALE_AFTER_MS = 60_000L
+        // How long to wait for more changes before loading Continue watching again
+        private const val CHANGE_SETTLE_MS = 300L
         private const val FEATURED_COUNT = 8
         private const val MAX_PLAYLISTS = 5
     }

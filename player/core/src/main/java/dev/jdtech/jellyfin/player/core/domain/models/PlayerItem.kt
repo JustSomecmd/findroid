@@ -23,4 +23,6 @@ data class PlayerItem(
     val isTranscoded: Boolean = false,
     /** Only the sound, without the picture. */
     val isAudioOnly: Boolean = false,
+    /** Where it's from, shown under its name: the channel of a video, the show of an episode. */
+    val subtitle: String? = null,
 ) : Parcelable

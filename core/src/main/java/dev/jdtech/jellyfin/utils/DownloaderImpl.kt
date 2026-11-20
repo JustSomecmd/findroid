@@ -30,6 +30,7 @@ import dev.jdtech.jellyfin.models.toFindroidSourceDto
 import dev.jdtech.jellyfin.models.toFindroidTrickplayInfoDto
 import dev.jdtech.jellyfin.models.toFindroidUserDataDto
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.work.ImagesDownloaderWorker
@@ -73,6 +74,12 @@ class DownloaderImpl(
 
     // Changed whenever this class changes download state in the database, so observers re-check
     private val changes = MutableStateFlow(0)
+
+    /** Notes a change in download state, for [observeDownload] and for pages listing downloads. */
+    private fun changed() {
+        changes.update { it + 1 }
+        MediaChanges.downloadsChanged()
+    }
 
     private val client =
         OkHttpClient.Builder()
@@ -200,7 +207,7 @@ class DownloaderImpl(
                     networkType = networkType(),
                 ),
             )
-            changes.update { it + 1 }
+            changed()
             if (item is FindroidEpisode) saveTubeArchivistDetails(item)
             return null
         } catch (e: CancellationException) {
@@ -252,7 +259,7 @@ class DownloaderImpl(
             // Marked as paused first, so the stopping worker doesn't start the next download
             MediaDownloadQueue.pause(context, item.id, running)
             cancelMediaDownload(item.id)
-            changes.update { it + 1 }
+            changed()
         }
     }
 
@@ -314,7 +321,7 @@ class DownloaderImpl(
                     ),
                 )
             }
-            changes.update { it + 1 }
+            changed()
             null
         }
 
@@ -325,7 +332,7 @@ class DownloaderImpl(
             if (source != null) {
                 deleteItem(item, source)
             } else {
-                changes.update { it + 1 }
+                changed()
             }
         }
     }
@@ -377,7 +384,7 @@ class DownloaderImpl(
         File(context.filesDir, "trickplay/${item.id}").deleteRecursively()
         File(context.filesDir, "images/${item.id}").deleteRecursively()
 
-        changes.update { it + 1 }
+        changed()
         MediaDownloadQueue.startNext(context, workManager)
     }
 
@@ -437,7 +444,7 @@ class DownloaderImpl(
                 interruptedEntry,
                 order,
             )
-            changes.update { it + 1 }
+            changed()
         }
     }
 

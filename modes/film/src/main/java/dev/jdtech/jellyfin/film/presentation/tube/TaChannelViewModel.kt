@@ -88,6 +88,20 @@ class TaChannelViewModel @Inject constructor(private val taApi: TaApi) : ViewMod
 
     private var channelId: String? = null
 
+    init {
+        // Watched in the player or on a video's page
+        taApi.followWatchedVideos(
+            viewModelScope,
+            shows = { id ->
+                _videos.value.items.any { it.youtubeId == id } ||
+                    _serverVideos.value.items.any { it.youtubeId == id }
+            },
+        ) { id, player ->
+            _videos.update { it.withPlayer(id, player) }
+            _serverVideos.update { it.withPlayer(id, player) }
+        }
+    }
+
     fun load(channelId: String) {
         if (this.channelId == channelId && _state.value.channel != null) return
         this.channelId = channelId

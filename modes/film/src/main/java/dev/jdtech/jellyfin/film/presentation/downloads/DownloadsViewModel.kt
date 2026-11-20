@@ -14,23 +14,25 @@ import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.UiText
 import dev.jdtech.jellyfin.models.isDownloading
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.utils.DownloadInfo
 import dev.jdtech.jellyfin.utils.DownloadStatus
 import dev.jdtech.jellyfin.utils.Downloader
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** A download that hasn't finished yet: running, waiting in the queue, paused or failed. */
 /**
  * A download that hasn't finished. [inQueue] is true while it waits in the queue, paused or not.
  */
@@ -55,11 +57,29 @@ constructor(
     val activeDownloads = _activeDownloads.asStateFlow()
 
     private var activeDownloadsJob: Job? = null
+    private var activeDownloadIds: Set<UUID>? = null
     private var startNowJob: Job? = null
+    private var loadJob: Job? = null
+    private var loaded = false
 
-    fun loadItems() {
+    init {
+        // A download deleted on an item's page, finished, or watched in the player shows here
+        // straight away, also while this page stays open under another
         viewModelScope.launch {
-            _state.emit(_state.value.copy(isLoading = true, error = null))
+            MediaChanges.changes.collectLatest {
+                // Changes often come in a burst, such as a stop reported to both servers
+                delay(CHANGE_SETTLE_MS)
+                if (loaded) loadItems(quietly = true)
+            }
+        }
+    }
+
+    /** Loads the downloads. [quietly] keeps what's shown until the new list is ready. */
+    fun loadItems(quietly: Boolean = false) {
+        loaded = true
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            if (!quietly) _state.emit(_state.value.copy(isLoading = true, error = null))
 
             try {
                 val allItems = repository.getDownloads()
@@ -102,6 +122,8 @@ constructor(
                 }
 
                 _state.emit(_state.value.copy(isLoading = false, sections = sections))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _state.emit(_state.value.copy(isLoading = false, error = e))
             }
@@ -143,8 +165,12 @@ constructor(
 
     /** Follows the progress of every unfinished download, running ones first, then the queue. */
     private fun observeActiveDownloads(items: List<FindroidItem>) {
-        activeDownloadsJob?.cancel()
         val unfinished = items.filter { it.isDownloading() }
+        // Followed already, so a reorder in progress isn't disturbed
+        val ids = unfinished.map { it.id }.toSet()
+        if (ids == activeDownloadIds && activeDownloadsJob?.isActive == true) return
+        activeDownloadIds = ids
+        activeDownloadsJob?.cancel()
         if (unfinished.isEmpty()) {
             _activeDownloads.value = emptyList()
             return
@@ -230,3 +256,6 @@ constructor(
 
 // How long a download must stay above the running one before it takes over
 private const val START_NOW_DELAY_MS = 2_000L
+
+// How long to wait for more changes before loading the downloads again
+private const val CHANGE_SETTLE_MS = 300L

@@ -32,6 +32,7 @@ import dev.jdtech.jellyfin.player.local.R
 import dev.jdtech.jellyfin.player.local.domain.PlaylistManager
 import dev.jdtech.jellyfin.player.local.domain.TaQueueEntry
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.Constants
 import dev.jdtech.jellyfin.tubearchivist.TaApi
@@ -100,6 +101,8 @@ constructor(
 
     data class UiState(
         val currentItemTitle: String,
+        /** The channel of the video, or the show of the episode, under the title. */
+        val currentItemSubtitle: String? = null,
         val currentSegment: FindroidSegment?,
         val currentSkipButtonStringRes: Int,
         val currentTrickplay: Trickplay?,
@@ -426,6 +429,7 @@ constructor(
                     Timber.w(e, "Could not save progress in TubeArchivist")
                     taOfflineStore.addPendingProgress(finalTaVideoId, position / 1000.0)
                 }
+                MediaChanges.watched(videoId = finalTaVideoId)
             }
             try {
                 if (mediaId != null && duration != C.TIME_UNSET) {
@@ -489,6 +493,8 @@ constructor(
                 Timber.w(e, "Could not save progress in TubeArchivist")
                 taOfflineStore.addPendingProgress(videoId, seconds)
             }
+            // Pages showing the video update when it's left or paused, not every few seconds
+            if (force) MediaChanges.watched(videoId = videoId)
         }
     }
 
@@ -632,6 +638,7 @@ constructor(
                         _uiState.update {
                             it.copy(
                                 currentItemTitle = itemTitle,
+                                currentItemSubtitle = item.subtitle,
                                 currentSegment = null,
                                 currentChapters = item.chapters,
                                 fileLoaded = false,
@@ -690,6 +697,7 @@ constructor(
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM &&
                 player.playbackState == ExoPlayer.STATE_READY
         ) {
+            val endedVideoId = taVideoId
             viewModelScope.launch {
                 val mediaId = player.currentMediaItem?.mediaId
                 val position = player.currentPosition
@@ -703,6 +711,7 @@ constructor(
                 } catch (e: Exception) {
                     Timber.e(e)
                 }
+                endedVideoId?.let { MediaChanges.watched(videoId = it) }
                 val cancelled = upNextCancelledFor == mediaId
                 // The sleep timer was set to stop here
                 val sleep = _uiState.value.sleepTimer == SleepTimer.EndOfVideo
@@ -915,7 +924,6 @@ constructor(
         return image
     }
 
-    /** Plays the next video right away, saving where this one was left first. */
     /** Tells Jellyfin and TubeArchivist where the video was left, as something else starts. */
     private fun reportLeaving() {
         val mediaId = player.currentMediaItem?.mediaId
@@ -939,6 +947,7 @@ constructor(
         }
     }
 
+    /** Plays the next video right away, saving where this one was left first. */
     fun playNextNow() {
         _uiState.update { it.copy(upNext = null) }
         val mediaId = player.currentMediaItem?.mediaId

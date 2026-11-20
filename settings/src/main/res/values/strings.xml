@@ -172,6 +172,7 @@
     <string name="player_button_audio">Audio track</string>
     <string name="player_button_subtitles">Subtitles</string>
     <string name="player_button_rotate">Rotate screen</string>
+    <string name="player_button_playlist">Playlist</string>
     <string name="player_button_conditional">Only shown when available</string>
     <string name="mpv_options">mpv options</string>
     <string name="advanced">Advanced</string>

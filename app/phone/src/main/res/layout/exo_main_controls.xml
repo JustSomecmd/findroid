@@ -35,17 +35,36 @@
                 android:layout_width="16dp"
                 android:layout_height="0dp" />
 
-            <TextView
-                android:id="@+id/video_name"
+            <!-- The title, with the channel or show under it, smaller and in the accent -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_vertical"
                 android:layout_marginEnd="16dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
-                android:textColor="@android:color/white"
-                tools:text="The Dawn of Despair" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/video_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+                    android:textColor="@android:color/white"
+                    tools:text="The Dawn of Despair" />
+
+                <TextView
+                    android:id="@+id/video_subtitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                    android:textColor="?attr/colorPrimary"
+                    android:visibility="gone"
+                    tools:text="Byte Sized Builds"
+                    tools:visibility="visible" />
+            </LinearLayout>
 
         </LinearLayout>
 
@@ -322,6 +341,17 @@
                         android:contentDescription="@string/player_controls_rotate"
                         android:padding="12dp"
                         android:src="@drawable/ic_rotate_to_portrait"
+                        app:tint="@android:color/white" />
+
+                    <ImageButton
+                        android:id="@+id/btn_playlist"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/transparent_circle_background"
+                        android:contentDescription="@string/player_playlist"
+                        android:padding="12dp"
+                        android:src="@drawable/ic_list_video"
+                        android:visibility="gone"
                         app:tint="@android:color/white" />
 
                 </LinearLayout>

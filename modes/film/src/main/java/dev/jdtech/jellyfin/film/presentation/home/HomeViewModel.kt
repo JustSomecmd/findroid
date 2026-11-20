@@ -11,6 +11,7 @@ import dev.jdtech.jellyfin.models.HomeItem
 import dev.jdtech.jellyfin.models.HomeSection
 import dev.jdtech.jellyfin.models.UiText
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.utils.toView
 import java.util.UUID
@@ -23,6 +24,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -50,6 +53,11 @@ constructor(
     // When Home last finished loading, to skip reloading it moments later
     @Volatile private var lastLoaded = 0L
 
+    init {
+        // Watched or downloaded elsewhere: Home loads again when it's next in view
+        viewModelScope.launch { MediaChanges.changes.collect { lastLoaded = 0L } }
+    }
+
     /** Loads Home again when it comes back into view, unless that was only moments ago. */
     fun refreshIfStale() {
         val sinceLastLoad = SystemClock.elapsedRealtime() - lastLoaded
@@ -57,11 +65,12 @@ constructor(
     }
 
     /**
-     * Reloads Home when the server reports new, changed or removed items, for as long as this is
-     * running. A burst of changes, like during a library scan, leads to a single reload.
+     * Reloads Home when the server reports new, changed or removed items, or when something is
+     * watched or downloaded in the app, for as long as this is running. A burst of changes, like
+     * during a library scan, leads to a single reload.
      */
     suspend fun followLibraryChanges() {
-        repository.libraryChanges().collectLatest {
+        merge(repository.libraryChanges(), MediaChanges.changes.map {}).collectLatest {
             delay(LIBRARY_CHANGE_DELAY_MS)
             loadData()
         }

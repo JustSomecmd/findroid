@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaApiException
@@ -106,6 +107,7 @@ constructor(
                 _messages.send(e.errorText())
                 return@launch
             }
+            MediaChanges.watched(videoId = video.youtubeId)
             // Keep Jellyfin in step
             _state.value.episode?.let { episode ->
                 try {

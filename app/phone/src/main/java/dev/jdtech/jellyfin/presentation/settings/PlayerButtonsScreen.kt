@@ -196,6 +196,7 @@ private fun PlayerButton.nameRes(): Int =
         PlayerButton.AUDIO -> SettingsR.string.player_button_audio
         PlayerButton.SUBTITLES -> SettingsR.string.player_button_subtitles
         PlayerButton.ROTATE -> SettingsR.string.player_button_rotate
+        PlayerButton.PLAYLIST -> SettingsR.string.player_button_playlist
     }
 
 @DrawableRes
@@ -211,18 +212,20 @@ private fun PlayerButton.iconRes(): Int =
         PlayerButton.AUDIO -> CoreR.drawable.ic_speaker
         PlayerButton.SUBTITLES -> CoreR.drawable.ic_closed_caption
         PlayerButton.ROTATE -> CoreR.drawable.ic_rotate_to_portrait
+        PlayerButton.PLAYLIST -> CoreR.drawable.ic_list_video
     }
 
 /**
  * Chapters and subtitles only show for videos that have them, quality only for streams, PiP only if
- * allowed.
+ * allowed, and the playlist only while one plays.
  */
 private fun PlayerButton.isConditional(): Boolean =
     when (this) {
         PlayerButton.CHAPTERS,
         PlayerButton.SUBTITLES,
         PlayerButton.QUALITY,
-        PlayerButton.PIP -> true
+        PlayerButton.PIP,
+        PlayerButton.PLAYLIST -> true
         else -> false
     }
 

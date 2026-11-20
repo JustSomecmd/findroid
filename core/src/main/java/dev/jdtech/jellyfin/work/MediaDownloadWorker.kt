@@ -26,6 +26,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
+import dev.jdtech.jellyfin.repository.MediaChanges
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -371,6 +372,7 @@ constructor(
         database.setSourcePath(sourceId, finalFile.path)
         clearDownloadState(appContext, sourceId)
         showCompletedNotification(itemId, title)
+        MediaChanges.downloadsChanged()
         return Result.success()
     }
 

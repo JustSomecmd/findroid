@@ -676,6 +676,7 @@ class JellyfinRepositoryImpl(
                 database.setUserDataToBeSynced(jellyfinApi.userId!!, itemId, true)
             }
         }
+        MediaChanges.watched(itemId = itemId)
     }
 
     override suspend fun postPlaybackProgress(
@@ -736,6 +737,7 @@ class JellyfinRepositoryImpl(
                 database.setUserDataToBeSynced(jellyfinApi.userId!!, itemId, true)
             }
         }
+        MediaChanges.watched(itemId = itemId)
     }
 
     override suspend fun markAsUnplayed(itemId: UUID) {
@@ -747,6 +749,7 @@ class JellyfinRepositoryImpl(
                 database.setUserDataToBeSynced(jellyfinApi.userId!!, itemId, true)
             }
         }
+        MediaChanges.watched(itemId = itemId)
     }
 
     override fun getBaseUrl() = jellyfinApi.api.baseUrl.orEmpty()

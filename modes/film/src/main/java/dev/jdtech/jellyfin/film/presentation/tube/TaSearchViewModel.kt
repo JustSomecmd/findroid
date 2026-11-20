@@ -28,6 +28,21 @@ class TaSearchViewModel @Inject constructor(private val taApi: TaApi) : ViewMode
 
     private var searchJob: Job? = null
 
+    init {
+        // Watched in the player or on a video's page
+        taApi.followWatchedVideos(
+            viewModelScope,
+            shows = { id -> _state.value.results?.videos?.any { it.youtubeId == id } == true },
+        ) { id, player ->
+            _state.update { state ->
+                state.copy(
+                    results =
+                        state.results?.let { it.copy(videos = it.videos.withPlayer(id, player)) }
+                )
+            }
+        }
+    }
+
     /** Searches a moment after typing stops. */
     fun onQueryChange(query: String) {
         _state.update { it.copy(query = query) }

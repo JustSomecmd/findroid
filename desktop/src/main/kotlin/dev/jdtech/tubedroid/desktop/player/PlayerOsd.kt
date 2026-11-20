@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
@@ -82,6 +83,7 @@ import kotlinx.coroutines.delay
  * mouse moves and hide, with the mouse, after a while of playing. Clicking the picture pauses;
  * double-clicking switches full screen. Skip and up next sit at the bottom right on their own.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun PlayerOsd(
     session: PlayerSession,
@@ -521,6 +523,7 @@ private fun TrackMenu(
  * The seek bar, thin as Jellyfin's: what's been played in the accent, a tick at each chapter, and
  * the time under the mouse above it. Clicking or dragging seeks.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun SeekBar(
     position: Double,

@@ -5,6 +5,8 @@ package dev.jdtech.jellyfin.settings.domain
  * cogwheel, or hide. Their order here is the order they start in.
  */
 enum class PlayerButton(val key: String, val defaultPlacement: PlayerButtonPlacement) {
+    // Opens the TubeArchivist playlist playing; only there while one plays
+    PLAYLIST("playlist", PlayerButtonPlacement.MENU),
     AUTOPLAY("autoplay", PlayerButtonPlacement.TOP),
     QUALITY("quality", PlayerButtonPlacement.MENU),
     SPEED("speed", PlayerButtonPlacement.MENU),
