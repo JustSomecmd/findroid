@@ -22,7 +22,10 @@ fun installImageLoader(api: TaApi) {
                 val request = chain.request()
                 val base = api.baseUrl?.toHttpUrlOrNull()
                 val header = api.authHeader
-                if (base != null && header != null && request.url.host == base.host) {
+                // The port counts too, as Jellyfin is often on the same computer
+                val sameServer =
+                    base != null && request.url.host == base.host && request.url.port == base.port
+                if (sameServer && header != null) {
                     chain.proceed(request.newBuilder().header("Authorization", header).build())
                 } else {
                     chain.proceed(request)

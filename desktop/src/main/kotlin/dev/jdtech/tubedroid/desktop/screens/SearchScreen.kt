@@ -7,12 +7,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,10 +37,11 @@ import dev.jdtech.tubedroid.desktop.Route
 import dev.jdtech.tubedroid.desktop.rememberPageModel
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.ChannelItem
-import dev.jdtech.tubedroid.desktop.ui.GridScrollbar
+import dev.jdtech.tubedroid.desktop.ui.ListScrollbar
 import dev.jdtech.tubedroid.desktop.ui.PageBar
+import dev.jdtech.tubedroid.desktop.ui.PagePadding
 import dev.jdtech.tubedroid.desktop.ui.PlaylistCard
-import dev.jdtech.tubedroid.desktop.ui.SectionTitle
+import dev.jdtech.tubedroid.desktop.ui.SectionRow
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.VideoCard
 import dev.jdtech.tubedroid.desktop.ui.errorText
@@ -63,7 +64,7 @@ class SearchModel(private val api: TaApi, private val scope: CoroutineScope) {
     var error by mutableStateOf<String?>(null)
         private set
 
-    val gridState = LazyGridState()
+    val listState = LazyListState()
     val focus = FocusRequester()
     private var job: Job? = null
 
@@ -99,6 +100,7 @@ fun SearchScreen() {
     val model = rememberPageModel("search") { scope -> SearchModel(app.api, scope) }
     LaunchedEffect(Unit) { runCatching { model.focus.requestFocus() } }
 
+    // Laid out as Jellyfin's search: the box on top, then a row for each kind of result
     Column(modifier = Modifier.fillMaxSize()) {
         PageBar(title = "Search", onBack = null)
         OutlinedTextField(
@@ -109,60 +111,73 @@ fun SearchScreen() {
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { model.onQueryChange(model.query) }),
+            shape = RoundedCornerShape(24.dp),
             modifier =
-                Modifier.padding(horizontal = Spacings.default, vertical = Spacings.medium)
+                Modifier.padding(horizontal = PagePadding, vertical = Spacings.medium)
                     .widthIn(max = 720.dp)
                     .fillMaxWidth()
                     .focusRequester(model.focus),
         )
         val results = model.results
         Box(modifier = Modifier.fillMaxSize()) {
-            LazyVerticalGrid(
-                state = model.gridState,
-                columns = GridCells.Adaptive(minSize = VIDEO_CARD_MIN_WIDTH),
-                contentPadding =
-                    PaddingValues(
-                        start = Spacings.default,
-                        end = Spacings.default,
-                        bottom = Spacings.default,
-                    ),
-                horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
-                verticalArrangement = Arrangement.spacedBy(Spacings.small),
+            LazyColumn(
+                state = model.listState,
+                verticalArrangement = Arrangement.spacedBy(28.dp),
+                contentPadding = PaddingValues(top = Spacings.small, bottom = Spacings.large),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 if (model.loading) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { CircularProgressIndicator() }
+                    item {
+                        CircularProgressIndicator(modifier = Modifier.padding(start = PagePadding))
+                    }
                 }
                 model.error?.let { error ->
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text(text = error, color = MaterialTheme.colorScheme.error)
+                    item {
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = PagePadding),
+                        )
                     }
                 }
                 if (results != null) {
+                    if (results.videos.isNotEmpty()) {
+                        item(key = "videos") {
+                            SectionRow("Videos") {
+                                items(results.videos, key = { it.youtubeId }) { video ->
+                                    VideoCard(
+                                        video = video,
+                                        onClick = { navigator.open(Route.Video(video.youtubeId)) },
+                                        modifier = Modifier.width(ROW_CARD_WIDTH),
+                                    )
+                                }
+                            }
+                        }
+                    }
                     if (results.channels.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle("Channels") }
-                        items(results.channels, key = { "c" + it.id }) { channel ->
-                            ChannelItem(
-                                channel = channel,
-                                onClick = { navigator.open(Route.Channel(channel.id)) },
-                            )
+                        item(key = "channels") {
+                            SectionRow("Channels") {
+                                items(results.channels, key = { it.id }) { channel ->
+                                    ChannelItem(
+                                        channel = channel,
+                                        onClick = { navigator.open(Route.Channel(channel.id)) },
+                                        modifier = Modifier.width(CHANNEL_CARD_WIDTH),
+                                    )
+                                }
+                            }
                         }
                     }
                     if (results.playlists.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle("Playlists") }
-                        items(results.playlists, key = { "p" + it.id }) { playlist ->
-                            PlaylistCard(
-                                playlist = playlist,
-                                onClick = { navigator.open(Route.Playlist(playlist.id)) },
-                            )
-                        }
-                    }
-                    if (results.videos.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle("Videos") }
-                        items(results.videos, key = { "v" + it.youtubeId }) { video ->
-                            VideoCard(
-                                video = video,
-                                onClick = { navigator.open(Route.Video(video.youtubeId)) },
-                            )
+                        item(key = "playlists") {
+                            SectionRow("Playlists") {
+                                items(results.playlists, key = { it.id }) { playlist ->
+                                    PlaylistCard(
+                                        playlist = playlist,
+                                        onClick = { navigator.open(Route.Playlist(playlist.id)) },
+                                        modifier = Modifier.width(ROW_CARD_WIDTH),
+                                    )
+                                }
+                            }
                         }
                     }
                     if (
@@ -170,16 +185,17 @@ fun SearchScreen() {
                             results.playlists.isEmpty() &&
                             results.videos.isEmpty()
                     ) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
+                        item {
                             Text(
                                 "Nothing found",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = PagePadding),
                             )
                         }
                     }
                 }
             }
-            GridScrollbar(model.gridState)
+            ListScrollbar(model.listState)
         }
     }
 }

@@ -10,6 +10,8 @@ import kotlinx.coroutines.withContext
 import org.jellyfin.sdk.api.client.extensions.authenticationApi
 import org.jellyfin.sdk.api.client.extensions.displayPreferenceApi
 import org.jellyfin.sdk.api.client.extensions.libraryApi
+import org.jellyfin.sdk.api.client.extensions.mediaInfoApi
+import org.jellyfin.sdk.api.client.extensions.mediaSegmentApi
 import org.jellyfin.sdk.api.client.extensions.sessionApi
 import org.jellyfin.sdk.api.client.extensions.showApi
 import org.jellyfin.sdk.api.client.extensions.userDataApi
@@ -20,16 +22,22 @@ import org.jellyfin.sdk.model.DeviceInfo
 import org.jellyfin.sdk.model.api.AuthenticateUserByName
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
+import org.jellyfin.sdk.model.api.DeviceProfile
 import org.jellyfin.sdk.model.api.ImageType
 import org.jellyfin.sdk.model.api.ItemFields
 import org.jellyfin.sdk.model.api.ItemSortBy
+import org.jellyfin.sdk.model.api.MediaSegmentDto
 import org.jellyfin.sdk.model.api.PlayMethod
+import org.jellyfin.sdk.model.api.PlaybackInfoDto
+import org.jellyfin.sdk.model.api.PlaybackInfoResponse
 import org.jellyfin.sdk.model.api.PlaybackOrder
 import org.jellyfin.sdk.model.api.PlaybackProgressInfo
 import org.jellyfin.sdk.model.api.PlaybackStartInfo
 import org.jellyfin.sdk.model.api.PlaybackStopInfo
 import org.jellyfin.sdk.model.api.RepeatMode
 import org.jellyfin.sdk.model.api.SortOrder
+import org.jellyfin.sdk.model.api.SubtitleDeliveryMethod
+import org.jellyfin.sdk.model.api.SubtitleProfile
 
 /**
  * Jellyfin, through its own Kotlin library, as the phone app uses it. Signing in keeps the server,
@@ -199,53 +207,124 @@ class JellyfinClient(private val settings: AppSettings) {
         }
     }
 
-    suspend fun reportStart(id: UUID, seconds: Double) {
+    /**
+     * Asks Jellyfin how to play an item, as its own apps do first: the file and its tracks, the
+     * tracks the user's settings pick, and a play session to report on.
+     */
+    suspend fun playbackInfo(id: UUID, startSeconds: Double?): PlaybackInfoResponse =
+        withContext(Dispatchers.IO) {
+            api.mediaInfoApi
+                .getPostedPlaybackInfo(
+                    id,
+                    PlaybackInfoDto(
+                        userId = userId,
+                        startTimeTicks = startSeconds?.let(::ticks),
+                        maxStreamingBitrate = MAX_BITRATE,
+                        deviceProfile = DIRECT_PLAY_PROFILE,
+                        enableDirectPlay = true,
+                        enableDirectStream = true,
+                        enableTranscoding = false,
+                        autoOpenLiveStream = true,
+                    ),
+                )
+                .content
+        }
+
+    /** The parts of an item Jellyfin knows of, such as its intro and credits, to skip. */
+    suspend fun segments(id: UUID): List<MediaSegmentDto> =
+        withContext(Dispatchers.IO) { api.mediaSegmentApi.getItemSegments(id).content.items }
+
+    suspend fun reportStart(state: PlayState) {
         withContext(Dispatchers.IO) {
             api.sessionApi.reportPlaybackStart(
                 PlaybackStartInfo(
-                    itemId = id,
+                    itemId = state.itemId,
+                    mediaSourceId = state.mediaSourceId,
+                    playSessionId = state.playSessionId,
+                    audioStreamIndex = state.audioStreamIndex,
+                    subtitleStreamIndex = state.subtitleStreamIndex,
                     canSeek = true,
-                    isPaused = false,
-                    isMuted = false,
+                    isPaused = state.paused,
+                    isMuted = state.muted,
+                    volumeLevel = state.volume,
                     playMethod = PlayMethod.DIRECT_PLAY,
                     repeatMode = RepeatMode.REPEAT_NONE,
                     playbackOrder = PlaybackOrder.DEFAULT,
-                    positionTicks = ticks(seconds),
+                    positionTicks = ticks(state.seconds),
                 )
             )
         }
     }
 
-    suspend fun reportProgress(id: UUID, seconds: Double, paused: Boolean) {
+    suspend fun reportProgress(state: PlayState) {
         withContext(Dispatchers.IO) {
             api.sessionApi.reportPlaybackProgress(
                 PlaybackProgressInfo(
-                    itemId = id,
+                    itemId = state.itemId,
+                    mediaSourceId = state.mediaSourceId,
+                    playSessionId = state.playSessionId,
+                    audioStreamIndex = state.audioStreamIndex,
+                    subtitleStreamIndex = state.subtitleStreamIndex,
                     canSeek = true,
-                    isPaused = paused,
-                    isMuted = false,
+                    isPaused = state.paused,
+                    isMuted = state.muted,
+                    volumeLevel = state.volume,
                     playMethod = PlayMethod.DIRECT_PLAY,
                     repeatMode = RepeatMode.REPEAT_NONE,
                     playbackOrder = PlaybackOrder.DEFAULT,
-                    positionTicks = ticks(seconds),
+                    positionTicks = ticks(state.seconds),
                 )
             )
         }
     }
 
-    suspend fun reportStop(id: UUID, seconds: Double) {
+    suspend fun reportStop(state: PlayState) {
         withContext(Dispatchers.IO) {
             api.sessionApi.reportPlaybackStopped(
-                PlaybackStopInfo(itemId = id, positionTicks = ticks(seconds), failed = false)
+                PlaybackStopInfo(
+                    itemId = state.itemId,
+                    mediaSourceId = state.mediaSourceId,
+                    playSessionId = state.playSessionId,
+                    positionTicks = ticks(state.seconds),
+                    failed = false,
+                )
             )
         }
     }
 
+    /**
+     * What plays and how, for Jellyfin's list of what's playing and for the tracks it picks next
+     * time. A subtitle index of -1 means subtitles are off.
+     */
+    data class PlayState(
+        val itemId: UUID,
+        val seconds: Double,
+        val paused: Boolean = false,
+        val muted: Boolean = false,
+        /** From 0 to 100. */
+        val volume: Int = 100,
+        val mediaSourceId: String? = null,
+        val playSessionId: String? = null,
+        val audioStreamIndex: Int? = null,
+        val subtitleStreamIndex: Int? = null,
+    )
+
     /** The file itself, as stored on the server, which mpv plays as it is. */
-    fun streamUrl(item: BaseItemDto): String {
-        val source = item.mediaSources?.firstOrNull()?.id ?: item.id.toString().replace("-", "")
-        return "${settings.jellyfinUrl}/Videos/${item.id}/stream?static=true&mediaSourceId=$source"
-    }
+    fun streamUrl(itemId: UUID, mediaSourceId: String, playSessionId: String?): String =
+        "${settings.jellyfinUrl}/Videos/$itemId/stream?static=true&mediaSourceId=$mediaSourceId" +
+            "&deviceId=${settings.deviceId}" +
+            (playSessionId?.let { "&playSessionId=$it" } ?: "")
+
+    /** A file of the server's own, such as a subtitle file, from the path Jellyfin gave for it. */
+    fun serverUrl(path: String): String = settings.jellyfinUrl.orEmpty() + path
+
+    /**
+     * One tile of an item's preview pictures, which Jellyfin makes for the seek bar. The token goes
+     * in the address, as the pictures load without the sign-in header.
+     */
+    fun trickplayTileUrl(itemId: UUID, mediaSourceId: String, width: Int, index: Int): String =
+        "${settings.jellyfinUrl}/Videos/$itemId/Trickplay/$width/$index.jpg" +
+            "?mediaSourceId=$mediaSourceId&api_key=${settings.jellyfinToken}"
 
     /** The header that signs mpv's requests in, as Jellyfin's own apps send it. */
     val authHeader: String
@@ -262,6 +341,41 @@ class JellyfinClient(private val settings: AppSettings) {
     }
 
     companion object {
+        // Higher than any file, so Jellyfin never asks for a smaller copy
+        private const val MAX_BITRATE = 1_000_000_000
+
+        // mpv plays the files as they are, so the profile only says how subtitle files come:
+        // separate files as files, and the rest inside the video
+        private val DIRECT_PLAY_PROFILE =
+            DeviceProfile(
+                name = "Winchivist",
+                maxStaticBitrate = MAX_BITRATE,
+                maxStreamingBitrate = MAX_BITRATE,
+                codecProfiles = emptyList(),
+                containerProfiles = emptyList(),
+                directPlayProfiles = emptyList(),
+                transcodingProfiles = emptyList(),
+                subtitleProfiles =
+                    listOf("srt", "subrip", "ass", "ssa", "vtt", "webvtt", "sub", "smi").map {
+                        SubtitleProfile(it, SubtitleDeliveryMethod.EXTERNAL)
+                    } +
+                        listOf(
+                                "srt",
+                                "subrip",
+                                "ass",
+                                "ssa",
+                                "vtt",
+                                "webvtt",
+                                "sub",
+                                "smi",
+                                "pgssub",
+                                "dvdsub",
+                                "dvbsub",
+                                "mov_text",
+                            )
+                            .map { SubtitleProfile(it, SubtitleDeliveryMethod.EMBED) },
+            )
+
         /** Jellyfin counts time in ticks of 100 nanoseconds. */
         fun ticks(seconds: Double): Long = (seconds * 10_000_000).toLong()
 

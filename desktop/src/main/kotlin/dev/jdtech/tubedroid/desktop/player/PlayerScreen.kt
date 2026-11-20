@@ -68,7 +68,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** A SponsorBlock segment that can be skipped, in seconds. */
-internal data class SkipSegment(val start: Double, val end: Double, val category: String)
+internal data class SkipSegment(
+    val start: Double,
+    val end: Double,
+    val category: String,
+    /** Skipped without asking, rather than with a button. */
+    val auto: Boolean = false,
+)
 
 /** For saving progress after the player has gone, such as when it closes. */
 private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -426,9 +432,14 @@ internal class PlayerSession(
         item.subtitles.forEach { subtitle ->
             player.command("sub-add", subtitle.url, "auto", subtitle.title, subtitle.language ?: "")
         }
+        // The tracks the server picked, such as Jellyfin by the user's language settings
+        item.audioTrack?.let { player.set("aid", it.toString()) }
+        item.subtitleTrack?.let { player.set("sid", if (it == 0) "no" else it.toString()) }
         readTracks(player)
-        val at = item.resumeSeconds ?: 0.0
-        backgroundScope.launch { runCatching { source.started(item, at) } }
+        subtitleId = player.get("sid")?.toIntOrNull()
+        audioId = player.get("aid")?.toIntOrNull()
+        val report = report(item.resumeSeconds ?: 0.0, paused = false)
+        backgroundScope.launch { runCatching { source.started(item, report) } }
     }
 
     fun onLoadFailed(message: String) {
@@ -479,7 +490,7 @@ internal class PlayerSession(
             return
         }
         if (current == skippedSegment) return
-        if (settings.sponsorBlock == AppSettings.SPONSORBLOCK_AUTO) {
+        if (current.auto) {
             skippedSegment = current
             skip(current)
             player.command("show-text", "Skipped: ${categoryName(current.category)}", "2000")
@@ -538,8 +549,20 @@ internal class PlayerSession(
         val current = item ?: return
         if (seconds <= 0 || seconds == lastReported) return
         lastReported = seconds
-        backgroundScope.launch { runCatching { source.progress(current, seconds, paused) } }
+        val report = report(seconds, paused)
+        backgroundScope.launch { runCatching { source.progress(current, report) } }
     }
+
+    /** Where it is and what it plays, with the tracks and volume as last read from mpv. */
+    private fun report(seconds: Double, paused: Boolean) =
+        PlaybackReport(
+            seconds = seconds,
+            paused = paused,
+            muted = muted,
+            volume = volume.roundToInt().coerceIn(0, 100),
+            audioId = audioId,
+            subtitleId = subtitleId,
+        )
 
     /** Saves where it got to and stops mpv. Called before its window goes. */
     fun release() {
@@ -548,7 +571,8 @@ internal class PlayerSession(
         val last = player.getDouble("time-pos")
         val current = item
         if (last != null && current != null) {
-            backgroundScope.launch { runCatching { source.stopped(current, last) } }
+            val report = report(last, paused = true)
+            backgroundScope.launch { runCatching { source.stopped(current, report) } }
         }
         player.destroy()
     }
@@ -570,6 +594,8 @@ internal class PlayerSession(
                 "preview" -> "Preview"
                 "music_offtopic" -> "Non-music section"
                 "filler" -> "Filler"
+                "recap" -> "Recap"
+                "commercial" -> "Commercial"
                 else -> category.replaceFirstChar { it.uppercase() }
             }
     }

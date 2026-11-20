@@ -7,8 +7,11 @@ import dev.jdtech.tubedroid.desktop.AppSettings
 import dev.jdtech.tubedroid.desktop.WatchHistory
 import dev.jdtech.tubedroid.desktop.jellyfin.JellyfinClient
 import java.util.UUID
+import kotlin.coroutines.cancellation.CancellationException
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
+import org.jellyfin.sdk.model.api.MediaSegmentType
+import org.jellyfin.sdk.model.api.MediaStreamType
 
 /** What to play: a TubeArchivist video, or a movie or episode on Jellyfin. */
 sealed interface PlayerRequest {
@@ -41,6 +44,37 @@ internal data class PlayItem(
     val resumeSeconds: Double?,
     val subtitles: List<ExternalSubtitle> = emptyList(),
     val segments: List<SkipSegment> = emptyList(),
+    /** The audio track to start with, as mpv numbers them; null leaves it to mpv. */
+    val audioTrack: Int? = null,
+    /** The subtitle track to start with, as mpv numbers them; 0 is none, null leaves it to mpv. */
+    val subtitleTrack: Int? = null,
+    val trickplay: Trickplay? = null,
+)
+
+/**
+ * Jellyfin's preview pictures for the seek bar: [count] pictures of [width] by [height], one every
+ * [intervalMs], laid out [columns] by [rows] in each tile.
+ */
+internal data class Trickplay(
+    val width: Int,
+    val height: Int,
+    val columns: Int,
+    val rows: Int,
+    val count: Int,
+    val intervalMs: Int,
+    val tileUrl: (index: Int) -> String,
+)
+
+/** Where the player is and what it plays, as told to the server. */
+internal data class PlaybackReport(
+    val seconds: Double,
+    val paused: Boolean,
+    val muted: Boolean = false,
+    /** From 0 to 100. */
+    val volume: Int = 100,
+    /** mpv's audio and subtitle tracks; null when there's none or it's off. */
+    val audioId: Int? = null,
+    val subtitleId: Int? = null,
 )
 
 /** Where the player's videos come from, and where it reports back to: TubeArchivist or Jellyfin. */
@@ -52,11 +86,12 @@ internal interface PlaybackSource {
 
     suspend fun next(current: PlayItem): PlayItem?
 
-    suspend fun started(item: PlayItem, seconds: Double) {}
+    suspend fun started(item: PlayItem, report: PlaybackReport) {}
 
-    suspend fun progress(item: PlayItem, seconds: Double, paused: Boolean)
+    suspend fun progress(item: PlayItem, report: PlaybackReport)
 
-    suspend fun stopped(item: PlayItem, seconds: Double) = progress(item, seconds, paused = true)
+    suspend fun stopped(item: PlayItem, report: PlaybackReport) =
+        progress(item, report.copy(paused = true))
 
     /** Played to the end: marked as watched. */
     suspend fun ended(item: PlayItem)
@@ -130,7 +165,7 @@ internal class TaPlaybackSource(
     }
 
     /** Notes the video as played, and the playlist as being at it, for Continue watching. */
-    override suspend fun started(item: PlayItem, seconds: Double) {
+    override suspend fun started(item: PlayItem, report: PlaybackReport) {
         history.played(item.id)
         val playlistId = request.playlistId ?: return
         history.updatePlaylist(playlistId, playlistName, item.id)
@@ -153,8 +188,8 @@ internal class TaPlaybackSource(
         return api.getVideo(next.youtubeId).toPlayItem(fromStart = startingOver)
     }
 
-    override suspend fun progress(item: PlayItem, seconds: Double, paused: Boolean) {
-        api.postProgress(item.id, seconds)
+    override suspend fun progress(item: PlayItem, report: PlaybackReport) {
+        api.postProgress(item.id, report.seconds)
     }
 
     override suspend fun ended(item: PlayItem) {
@@ -210,19 +245,37 @@ internal class TaPlaybackSource(
             val end = segment.segment.getOrNull(1) ?: return@mapNotNull null
             // Segments that only mark a point, such as highlights, can't be skipped
             if (end - start < 1.0 || segment.actionType == "poi") return@mapNotNull null
-            SkipSegment(start, end, segment.category)
+            SkipSegment(
+                start,
+                end,
+                segment.category,
+                auto = settings.sponsorBlock == AppSettings.SPONSORBLOCK_AUTO,
+            )
         }
 }
 
 /**
- * Jellyfin's movies and episodes, played straight from the file on the server, as Jellyfin Media
- * Player does when it can. mpv picks the file's own audio and subtitle tracks.
+ * Jellyfin's movies and episodes, played straight from the file on the server, as Jellyfin's own
+ * desktop app does: Jellyfin is asked how to play each one first, which gives the file, the tracks
+ * the user's settings pick and a play session, and the tracks picked are told back to it.
  */
 internal class JellyfinPlaybackSource(
     private val client: JellyfinClient,
     private val request: PlayerRequest.Jellyfin,
 ) : PlaybackSource {
     private val items = mutableMapOf<String, BaseItemDto>()
+
+    /** How each item plays, from what Jellyfin said: its file, play session and tracks. */
+    private class Playing(
+        val mediaSourceId: String,
+        val playSessionId: String?,
+        /** Jellyfin's number for each audio track, in mpv's order. */
+        val audioIndexes: List<Int>,
+        /** Jellyfin's number for each subtitle track, in mpv's order: the file's, then the rest. */
+        val subtitleIndexes: List<Int>,
+    )
+
+    private val playing = mutableMapOf<String, Playing>()
 
     override suspend fun first(): PlayItem {
         val item = client.item(UUID.fromString(request.itemId))
@@ -248,33 +301,134 @@ internal class JellyfinPlaybackSource(
         return client.item(next.id).toPlayItem(fromStart = true)
     }
 
-    override suspend fun started(item: PlayItem, seconds: Double) {
-        client.reportStart(UUID.fromString(item.id), seconds)
+    override suspend fun started(item: PlayItem, report: PlaybackReport) {
+        client.reportStart(state(item, report))
     }
 
-    override suspend fun progress(item: PlayItem, seconds: Double, paused: Boolean) {
-        client.reportProgress(UUID.fromString(item.id), seconds, paused)
+    override suspend fun progress(item: PlayItem, report: PlaybackReport) {
+        client.reportProgress(state(item, report))
     }
 
-    override suspend fun stopped(item: PlayItem, seconds: Double) {
-        client.reportStop(UUID.fromString(item.id), seconds)
+    override suspend fun stopped(item: PlayItem, report: PlaybackReport) {
+        client.reportStop(state(item, report))
     }
 
     override suspend fun ended(item: PlayItem) {
         client.setPlayed(UUID.fromString(item.id), true)
     }
 
-    private fun BaseItemDto.toPlayItem(fromStart: Boolean): PlayItem {
+    /** What's playing, with mpv's tracks put back into Jellyfin's numbers. */
+    private fun state(item: PlayItem, report: PlaybackReport): JellyfinClient.PlayState {
+        val info = playing[item.id]
+        return JellyfinClient.PlayState(
+            itemId = UUID.fromString(item.id),
+            seconds = report.seconds,
+            paused = report.paused,
+            muted = report.muted,
+            volume = report.volume,
+            mediaSourceId = info?.mediaSourceId,
+            playSessionId = info?.playSessionId,
+            audioStreamIndex = report.audioId?.let { info?.audioIndexes?.getOrNull(it - 1) },
+            subtitleStreamIndex =
+                if (report.subtitleId == null) -1
+                else info?.subtitleIndexes?.getOrNull(report.subtitleId - 1),
+        )
+    }
+
+    private suspend fun BaseItemDto.toPlayItem(fromStart: Boolean): PlayItem {
         items[id.toString()] = this
         val position = JellyfinClient.seconds(userData?.playbackPositionTicks)
+        val resume = position.takeIf { !fromStart && it > 5 }
+        val info = client.playbackInfo(id, resume)
+        val source = info.mediaSources.firstOrNull() ?: error("Jellyfin has no file for this")
+        val sourceId = source.id ?: id.toString().replace("-", "")
+
+        // mpv numbers each kind of track from 1 in the file's order, and the separate subtitle
+        // files after the file's own, in the order they're added
+        val streams = source.mediaStreams.orEmpty().sortedBy { it.index }
+        val audio = streams.filter { it.type == MediaStreamType.AUDIO && !it.isExternal }
+        val inFile = streams.filter { it.type == MediaStreamType.SUBTITLE && !it.isExternal }
+        val separate = streams.filter {
+            it.type == MediaStreamType.SUBTITLE && it.isExternal && !it.deliveryUrl.isNullOrBlank()
+        }
+        val audioIndexes = audio.map { it.index }
+        val subtitleIndexes = (inFile + separate).map { it.index }
+        playing[id.toString()] =
+            Playing(sourceId, info.playSessionId, audioIndexes, subtitleIndexes)
+
         return PlayItem(
             id = id.toString(),
             title = if (type == BaseItemKind.EPISODE) episodeTitle(this) else name.orEmpty(),
             subtitle = seriesName ?: productionYear?.toString(),
-            url = client.streamUrl(this),
+            url = client.streamUrl(id, sourceId, info.playSessionId),
             header = client.authHeader,
-            resumeSeconds = position.takeIf { !fromStart && it > 5 },
+            resumeSeconds = resume,
+            subtitles =
+                separate.map { stream ->
+                    ExternalSubtitle(
+                        url = client.serverUrl(stream.deliveryUrl.orEmpty()),
+                        title =
+                            stream.displayTitle ?: stream.title ?: stream.language ?: "Subtitles",
+                        language = stream.language,
+                    )
+                },
+            segments = skipSegments(),
+            // Jellyfin picks the tracks by the user's language and subtitle settings
+            audioTrack =
+                source.defaultAudioStreamIndex
+                    ?.let { audioIndexes.indexOf(it) }
+                    ?.takeIf { it >= 0 }
+                    ?.plus(1),
+            subtitleTrack =
+                when (val index = source.defaultSubtitleStreamIndex) {
+                    null -> null
+                    -1 -> 0
+                    else -> subtitleIndexes.indexOf(index).takeIf { it >= 0 }?.plus(1)
+                },
+            trickplay = trickplay(sourceId),
         )
+    }
+
+    /** Intros, credits and the like that Jellyfin knows of, to skip with a button. */
+    private suspend fun BaseItemDto.skipSegments(): List<SkipSegment> =
+        try {
+            client.segments(id).mapNotNull { segment ->
+                val category =
+                    when (segment.type) {
+                        MediaSegmentType.INTRO -> "intro"
+                        MediaSegmentType.OUTRO -> "outro"
+                        MediaSegmentType.RECAP -> "recap"
+                        MediaSegmentType.PREVIEW -> "preview"
+                        MediaSegmentType.COMMERCIAL -> "commercial"
+                        else -> return@mapNotNull null
+                    }
+                val start = JellyfinClient.seconds(segment.startTicks)
+                val end = JellyfinClient.seconds(segment.endTicks)
+                if (end - start < 1.0) null else SkipSegment(start, end, category)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Older servers have none
+            emptyList()
+        }
+
+    /** The smallest of the preview picture sizes, which is plenty for the seek bar. */
+    private fun BaseItemDto.trickplay(sourceId: String): Trickplay? {
+        val sizes = trickplay?.get(sourceId) ?: trickplay?.values?.firstOrNull() ?: return null
+        val info = sizes.values.minByOrNull { it.width } ?: return null
+        if (info.thumbnailCount <= 0 || info.interval <= 0) return null
+        val itemId = id
+        return Trickplay(
+            width = info.width,
+            height = info.height,
+            columns = info.tileWidth,
+            rows = info.tileHeight,
+            count = info.thumbnailCount,
+            intervalMs = info.interval,
+        ) { index ->
+            client.trickplayTileUrl(itemId, sourceId, info.width, index)
+        }
     }
 }
 

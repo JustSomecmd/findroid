@@ -24,9 +24,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -61,11 +63,15 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.Tooltip
@@ -75,6 +81,7 @@ import java.awt.Toolkit
 import java.awt.image.BufferedImage
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 /**
@@ -261,6 +268,7 @@ internal fun OsdBottom(
                 duration = session.duration,
                 chapters = session.chapters,
                 onSeek = session::seekTo,
+                trickplay = session.item?.trickplay,
                 modifier = Modifier.weight(1f).padding(horizontal = Spacings.medium),
             )
             TimeText(formatDuration(session.duration.coerceAtLeast(0.0)))
@@ -521,7 +529,8 @@ private fun TrackMenu(
 
 /**
  * The seek bar, thin as Jellyfin's: what's been played in the accent, a tick at each chapter, and
- * the time under the mouse above it. Clicking or dragging seeks.
+ * the time under the mouse above it, with Jellyfin's preview picture of that moment when it has
+ * them. Clicking or dragging seeks.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -531,6 +540,7 @@ internal fun SeekBar(
     chapters: List<Double>,
     onSeek: (Double) -> Unit,
     modifier: Modifier = Modifier,
+    trickplay: Trickplay? = null,
 ) {
     val accent = MaterialTheme.colorScheme.primary
     var dragging by remember { mutableStateOf<Float?>(null) }
@@ -611,6 +621,18 @@ internal fun SeekBar(
         if (pointed != null && length > 0) {
             val seconds = length * (pointed / constraints.maxWidth).coerceIn(0f, 1f)
             val x = with(LocalDensity.current) { pointed.toDp() }
+            if (trickplay != null) {
+                // Centred over the mouse, above the time, and kept within the bar's ends
+                val gap = with(LocalDensity.current) { 34.dp.roundToPx() }
+                Layout(content = { TrickplayPicture(trickplay, seconds) }) { measurables, _ ->
+                    val picture = measurables.first().measure(Constraints())
+                    val left =
+                        (pointed - picture.width / 2f)
+                            .roundToInt()
+                            .coerceIn(0, (constraints.maxWidth - picture.width).coerceAtLeast(0))
+                    layout(0, 0) { picture.place(left, -picture.height - gap) }
+                }
+            }
             Text(
                 text = formatDuration(seconds),
                 style = MaterialTheme.typography.labelMedium,
@@ -623,6 +645,37 @@ internal fun SeekBar(
         }
     }
 }
+
+/**
+ * Jellyfin's preview picture of the moment [seconds] in. Each tile holds a grid of pictures, so the
+ * tile is drawn at the size that puts the right one in view and cut down to it.
+ */
+@Composable
+private fun TrickplayPicture(trickplay: Trickplay, seconds: Double) {
+    val number = ((seconds * 1000) / trickplay.intervalMs).toInt().coerceIn(0, trickplay.count - 1)
+    val perTile = (trickplay.columns * trickplay.rows).coerceAtLeast(1)
+    val cell = number % perTile
+    val column = cell % trickplay.columns.coerceAtLeast(1)
+    val row = cell / trickplay.columns.coerceAtLeast(1)
+    val width = TRICKPLAY_WIDTH
+    val height = width * trickplay.height / trickplay.width.coerceAtLeast(1)
+    Box(modifier = Modifier.size(width, height).clip(RoundedCornerShape(6.dp)).background(SHADE)) {
+        AsyncImage(
+            model = trickplay.tileUrl(number / perTile),
+            contentDescription = null,
+            // The last tile can have fewer rows, so it's sized by its width alone
+            contentScale = ContentScale.FillWidth,
+            alignment = Alignment.TopStart,
+            modifier =
+                Modifier.wrapContentSize(Alignment.TopStart, unbounded = true)
+                    .offset(x = -width * column, y = -height * row)
+                    .requiredSize(width * trickplay.columns, height * trickplay.rows),
+        )
+    }
+}
+
+/** How wide the seek bar's preview pictures are shown. */
+private val TRICKPLAY_WIDTH = 200.dp
 
 /** A thin bar to set a level with, such as the volume. */
 @Composable

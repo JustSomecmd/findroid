@@ -222,6 +222,7 @@ private fun Sidebar(shell: Shell) {
                 text = "Winchivist",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
             )
         }
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
