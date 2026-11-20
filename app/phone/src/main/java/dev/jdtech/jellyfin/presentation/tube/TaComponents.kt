@@ -11,6 +11,10 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.ScrollableDefaults
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +63,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -70,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
@@ -745,11 +751,10 @@ private const val SIDE_SWIPE_THRESHOLD = 0.3f
 private val SIDE_FLICK_SPEED = 400.dp
 
 /**
- * Swipes that start on something on a side that scrolls sideways too, such as Home's carousel or
- * its row of videos to carry on with, move the pager once that thing is at its end. When such a
- * swipe let go, Compose's own handling stopped the thing's fling, which also left the pager between
- * its sides until the next swipe. Here the pager turns to a side itself when let go between them,
- * as it does for swipes on the pager.
+ * Swipes that start on something on a side that scrolls sideways too, such as Home's carousel, move
+ * the pager once that thing is at its end. When such a swipe let go, Compose's own handling stopped
+ * the thing's fling, which also left the pager between its sides until the next swipe. Here the
+ * pager turns to a side itself when let go between them, as it does for swipes on the pager.
  */
 private class SideSwipeConnection(
     private val state: PagerState,
@@ -781,6 +786,32 @@ private class SideSwipeConnection(
         if (betweenSides) state.animateScrollToPage(state.currentPage)
         return default.onPostFling(consumed, available)
     }
+}
+
+/**
+ * Lets a row scroll sideways by itself, apart from the pages around it that swipe sideways too. Set
+ * on a row whose own scrolling is turned off, it takes the whole swipe, also at the row's ends, and
+ * passes nothing on: the pages never move with the row, a fling in the row never stops or turns
+ * them as the bottom bar turns them, and a page that's still sliding never takes over the row's
+ * swipe. Compose's own scrolling always shares a swipe with the pages around it, so the row is
+ * moved here directly instead.
+ */
+@Composable
+fun rememberSeparateRowScroll(state: LazyListState): Modifier {
+    val fling = ScrollableDefaults.flingBehavior()
+    // Dragging right shows what's to the left, which is the other way round right to left
+    val sign = if (LocalLayoutDirection.current == LayoutDirection.Rtl) 1f else -1f
+    val drag = rememberDraggableState { delta -> state.dispatchRawDelta(delta * sign) }
+    return Modifier.draggable(
+        state = drag,
+        orientation = Orientation.Horizontal,
+        // Catches a row that's still moving, as touching any list does
+        startDragImmediately = state.isScrollInProgress,
+        onDragStarted = { state.stopScroll() },
+        onDragStopped = { velocity ->
+            state.scroll { with(fling) { performFling(velocity * sign) } }
+        },
+    )
 }
 
 /** A label and its value on a server page, such as "Size" and "1.2 GB". */
