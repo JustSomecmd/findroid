@@ -457,6 +457,31 @@ constructor(
         }
     }
 
+    /** The page of what's playing, which tapping its title opens. */
+    sealed interface ItemPage {
+        data class Jrwi(val postId: Long) : ItemPage
+
+        data class TubeArchivist(val videoId: String, val playlistId: String?) : ItemPage
+
+        data class Jellyfin(val itemId: UUID, val isEpisode: Boolean) : ItemPage
+    }
+
+    /**
+     * The page of what's playing: its JRWI post, its TubeArchivist video, or else its Jellyfin
+     * episode or movie.
+     */
+    fun currentItemPage(): ItemPage? {
+        jrwiItem?.let {
+            return ItemPage.Jrwi(it.id)
+        }
+        taVideoId?.let {
+            return ItemPage.TubeArchivist(it, _uiState.value.taPlaylistId)
+        }
+        val mediaId = player.currentMediaItem?.mediaId ?: return null
+        val item = items.firstOrNull { it.itemId.toString() == mediaId } ?: return null
+        return ItemPage.Jellyfin(item.itemId, isEpisode = item.indexNumber != null)
+    }
+
     /** Whether [mediaId] is the audio of a JRWI episode, played from the archiver. */
     private fun isJrwiAudio(mediaId: String?): Boolean =
         mediaId != null && mediaId == jrwiAudioMediaId
@@ -467,9 +492,8 @@ constructor(
         jrwiLastReport = 0L
         if (!jrwiApi.isConfigured) return
         val item = jrwiProgress.itemForEpisode(itemId) ?: return
-        if (player.currentMediaItem?.mediaId == itemId.toString() && item.audio != null) {
-            jrwiItem = item
-        }
+        // Kept without audio too, for the title to open the post
+        if (player.currentMediaItem?.mediaId == itemId.toString()) jrwiItem = item
     }
 
     /**

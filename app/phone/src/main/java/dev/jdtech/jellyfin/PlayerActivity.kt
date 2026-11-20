@@ -58,6 +58,7 @@ import androidx.media3.common.C
 import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerControlView
 import androidx.media3.ui.PlayerView
+import androidx.navigation3.runtime.NavKey
 import coil3.load
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
@@ -195,6 +196,9 @@ class PlayerActivity : BasePlayerActivity() {
 
         val videoNameTextView = binding.playerView.findViewById<TextView>(R.id.video_name)
         val videoSubtitleTextView = binding.playerView.findViewById<TextView>(R.id.video_subtitle)
+        binding.playerView.findViewById<View>(R.id.video_title_area).setOnClickListener {
+            openItemPage()
+        }
 
         val audioButton = binding.playerView.findViewById<ImageButton>(R.id.btn_audio_track)
         val subtitleButton = binding.playerView.findViewById<ImageButton>(R.id.btn_subtitle)
@@ -853,8 +857,28 @@ class PlayerActivity : BasePlayerActivity() {
         playlistOpen = true
     }
 
-    private fun openPlaylistPage(playlistId: String) {
-        PendingNavigation.request(TaPlaylistRoute(playlistId))
+    private fun openPlaylistPage(playlistId: String) = openPage(TaPlaylistRoute(playlistId))
+
+    /** Opens the page of what's playing, from its title: its post, video, episode or movie. */
+    private fun openItemPage() {
+        val route =
+            when (val page = viewModel.currentItemPage() ?: return) {
+                is PlayerViewModel.ItemPage.Jrwi -> JrwiItemRoute(page.postId)
+                is PlayerViewModel.ItemPage.TubeArchivist ->
+                    TaVideoRoute(page.videoId, page.playlistId)
+                is PlayerViewModel.ItemPage.Jellyfin ->
+                    if (page.isEpisode) EpisodeRoute(page.itemId.toString())
+                    else MovieRoute(page.itemId.toString())
+            }
+        openPage(route)
+    }
+
+    /**
+     * Opens a page of the app, with the video carrying on in a small window over it where the phone
+     * has those, or else stopped where it is.
+     */
+    private fun openPage(route: NavKey) {
+        PendingNavigation.request(route)
         val inWindow =
             isPipSupported &&
                 try {

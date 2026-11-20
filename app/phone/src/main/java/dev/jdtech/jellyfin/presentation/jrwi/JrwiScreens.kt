@@ -299,7 +299,10 @@ private fun JrwiShowCard(show: JrwiShow, onClick: () -> Unit) {
     }
 }
 
-/** An item with its picture on top, as in a row of what's new. */
+/**
+ * An item with its picture on top, as in a row of what's new. Its text always takes the same lines,
+ * so every card is as tall as the others and the shows under the row stay put.
+ */
 @Composable
 private fun JrwiItemCard(item: JrwiItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Column(modifier = modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick)) {
@@ -307,18 +310,19 @@ private fun JrwiItemCard(item: JrwiItem, onClick: () -> Unit, modifier: Modifier
         Text(
             text = item.title,
             style = MaterialTheme.typography.titleSmall,
+            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = MaterialTheme.spacings.small),
         )
-        itemDetails(item)?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
+        Text(
+            text = itemDetails(item).orEmpty(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            minLines = 1,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

@@ -608,10 +608,12 @@ private fun TaPlaylistResumeCard(
                 )
             }
         }
+        // As tall as the video cards beside it, whatever the length of the name
         Column(modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 10.dp)) {
             Text(
                 text = item.name,
                 style = MaterialTheme.typography.bodyMedium,
+                minLines = 2,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )

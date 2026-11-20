@@ -161,7 +161,10 @@ fun TaVideoCard(
     }
 }
 
-/** A smaller video card for rows that scroll sideways. */
+/**
+ * A smaller video card for rows that scroll sideways. Its title always takes two lines, so every
+ * card is as tall as the others and what's under the row stays put.
+ */
 @Composable
 fun TaVideoSmallCard(video: TaVideo, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Column(
@@ -173,6 +176,7 @@ fun TaVideoSmallCard(video: TaVideo, onClick: () -> Unit, modifier: Modifier = M
             Text(
                 text = video.title,
                 style = MaterialTheme.typography.bodyMedium,
+                minLines = 2,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
