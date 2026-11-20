@@ -15,11 +15,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,7 +24,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
@@ -41,7 +36,9 @@ import dev.jdtech.tubedroid.desktop.ui.GridScrollbar
 import dev.jdtech.tubedroid.desktop.ui.ListFooter
 import dev.jdtech.tubedroid.desktop.ui.LoadMoreEffect
 import dev.jdtech.tubedroid.desktop.ui.PageBar
+import dev.jdtech.tubedroid.desktop.ui.PagePadding
 import dev.jdtech.tubedroid.desktop.ui.PagedList
+import dev.jdtech.tubedroid.desktop.ui.RoundIconButton
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.errorText
 import kotlin.coroutines.cancellation.CancellationException
@@ -96,18 +93,19 @@ fun ChannelsScreen() {
     var subscribing by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        PageBar(title = "Channels", onBack = null) {
-            FilledTonalButton(onClick = { subscribing = true }) { Text("Subscribe") }
+        PageBar(
+            title = "Channels",
+            onBack = null,
+            tabs = ChannelsTab.entries.map { it.label },
+            selectedTab = model.tab.ordinal,
+            onTabSelected = { model.tab = ChannelsTab.entries[it] },
+        ) {
+            RoundIconButton(
+                icon = "ic_plus",
+                label = "Subscribe to channels",
+                onClick = { subscribing = true },
+            )
             RefreshButton(onClick = model::refresh)
-        }
-        TintedTabRow(selected = model.tab.ordinal) {
-            ChannelsTab.entries.forEach { tab ->
-                Tab(
-                    selected = model.tab == tab,
-                    onClick = { model.tab = tab },
-                    text = { Text(tab.label) },
-                )
-            }
         }
         when (model.tab) {
             ChannelsTab.SUBSCRIBED ->
@@ -142,21 +140,6 @@ fun ChannelsScreen() {
     }
 }
 
-/** A tab row in the same tint of the accent as the phone app's. */
-@Composable
-fun TintedTabRow(selected: Int, tabs: @Composable () -> Unit) {
-    PrimaryTabRow(
-        selectedTabIndex = selected,
-        containerColor =
-            lerp(
-                MaterialTheme.colorScheme.surfaceContainer,
-                MaterialTheme.colorScheme.primary,
-                0.1f,
-            ),
-        tabs = tabs,
-    )
-}
-
 @Composable
 private fun ChannelGrid(
     list: PagedList<TaChannel>,
@@ -168,9 +151,10 @@ private fun ChannelGrid(
     Box(modifier = Modifier.fillMaxSize()) {
         LazyVerticalGrid(
             state = state,
-            columns = GridCells.Adaptive(minSize = 160.dp),
-            contentPadding = PaddingValues(Spacings.default),
-            horizontalArrangement = Arrangement.spacedBy(Spacings.small),
+            columns = GridCells.Adaptive(minSize = 170.dp),
+            contentPadding =
+                PaddingValues(start = PagePadding, end = PagePadding, top = 8.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
             verticalArrangement = Arrangement.spacedBy(Spacings.small),
         ) {
             items(list.items, key = { it.id }) { channel ->

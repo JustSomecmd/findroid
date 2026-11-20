@@ -27,6 +27,9 @@ interface Navigator {
 
     fun play(request: PlayerRequest)
 
+    /** Goes to one of the sidebar's sections. */
+    fun select(section: Section)
+
     /** Shows a short message at the bottom of the window. */
     fun message(text: String)
 }

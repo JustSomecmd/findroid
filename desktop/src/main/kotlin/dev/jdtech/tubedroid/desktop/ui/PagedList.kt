@@ -27,6 +27,10 @@ class PagedList<T>(
     var endReached by mutableStateOf(false)
         private set
 
+    /** How many there are in all, as TubeArchivist counts them, once the first page is in. */
+    var total by mutableStateOf<Int?>(null)
+        private set
+
     private var page = 0
     private var job: Job? = null
 
@@ -40,6 +44,7 @@ class PagedList<T>(
                 page += 1
                 items = (items + next.data).distinctBy(key)
                 endReached = !next.hasMore
+                next.paginate?.let { total = it.totalHits }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -65,6 +70,7 @@ class PagedList<T>(
                 page = 1
                 items = first.data.distinctBy(key)
                 endReached = !first.hasMore
+                total = first.paginate?.totalHits
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

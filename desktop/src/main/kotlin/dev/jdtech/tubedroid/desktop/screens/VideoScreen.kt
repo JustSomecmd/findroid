@@ -10,8 +10,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,12 +21,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +39,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,15 +58,23 @@ import dev.jdtech.tubedroid.desktop.rememberPageModel
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.ColumnScrollbar
 import dev.jdtech.tubedroid.desktop.ui.ConfirmDialog
+import dev.jdtech.tubedroid.desktop.ui.DetailButton
+import dev.jdtech.tubedroid.desktop.ui.DetailHeader
+import dev.jdtech.tubedroid.desktop.ui.DetailLine
+import dev.jdtech.tubedroid.desktop.ui.DetailMoreButton
 import dev.jdtech.tubedroid.desktop.ui.InfoRow
+import dev.jdtech.tubedroid.desktop.ui.ItemAction
+import dev.jdtech.tubedroid.desktop.ui.ManageButton
 import dev.jdtech.tubedroid.desktop.ui.PageBar
+import dev.jdtech.tubedroid.desktop.ui.PagePadding
 import dev.jdtech.tubedroid.desktop.ui.PageState
 import dev.jdtech.tubedroid.desktop.ui.SectionCard
+import dev.jdtech.tubedroid.desktop.ui.SectionRow
 import dev.jdtech.tubedroid.desktop.ui.SectionTitle
 import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.TaAvatar
-import dev.jdtech.tubedroid.desktop.ui.VideoRow
+import dev.jdtech.tubedroid.desktop.ui.VideoCard
 import dev.jdtech.tubedroid.desktop.ui.VideoThumbnail
 import dev.jdtech.tubedroid.desktop.ui.anyDate
 import dev.jdtech.tubedroid.desktop.ui.errorText
@@ -78,6 +82,7 @@ import dev.jdtech.tubedroid.desktop.ui.formatCount
 import dev.jdtech.tubedroid.desktop.ui.formatDuration
 import dev.jdtech.tubedroid.desktop.ui.formatSize
 import dev.jdtech.tubedroid.desktop.ui.fullDate
+import dev.jdtech.tubedroid.desktop.ui.openInBrowser
 import dev.jdtech.tubedroid.desktop.ui.rememberLinkedText
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -222,17 +227,9 @@ fun VideoScreen(videoId: String, playlistId: String?) {
             Column(modifier = Modifier.fillMaxSize()) {
                 PageBar(title = null, onBack = if (canGoBack) navigator::back else null) {
                     // The video on the server, in the server's colors
-                    FilterChip(
-                        selected = model.onServer,
+                    ManageButton(
+                        on = model.onServer,
                         onClick = { model.onServer = !model.onServer },
-                        label = { Text("Manage") },
-                        leadingIcon = {
-                            AppIcon(
-                                name = "ic_server",
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        },
                     )
                     OpenInWebButton("/video/$videoId/")
                 }
@@ -273,10 +270,9 @@ fun VideoScreen(videoId: String, playlistId: String?) {
 }
 
 /**
- * The thumbnail on the left with the title, channel and buttons beside it, then the description and
- * comments, with similar videos down the right.
+ * The video as Jellyfin shows an item: the thumbnail as the backdrop and the poster, the title with
+ * its facts, round buttons, the channel and description, then similar videos and comments.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun VideoContent(model: VideoModel, video: TaVideo, onPlay: (fromStart: Boolean) -> Unit) {
     val app = LocalApp.current
@@ -284,165 +280,120 @@ fun VideoContent(model: VideoModel, video: TaVideo, onPlay: (fromStart: Boolean)
     var saveDialog by remember { mutableStateOf(false) }
     var descriptionExpanded by rememberSaveable { mutableStateOf(false) }
     val download = app.downloads.stateOf(video.youtubeId)
+    val player = video.player
+    val watched = player?.watched == true
+    val position = player?.position?.takeIf { !watched && it > 5 }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(model.scroll).padding(Spacings.default)
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacings.default)) {
-                Box(
-                    modifier =
-                        Modifier.weight(0.5f).widthIn(max = 720.dp).clickable { onPlay(false) }
-                ) {
-                    VideoThumbnail(video = video, modifier = Modifier.fillMaxWidth())
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-                        modifier = Modifier.align(Alignment.Center).size(64.dp),
-                    ) {
-                        AppIcon(
-                            name = "ic_play",
-                            contentDescription = "Play",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.padding(18.dp),
-                        )
+        Column(modifier = Modifier.fillMaxSize().verticalScroll(model.scroll)) {
+            DetailHeader(
+                title = video.title,
+                info = videoInfo(video),
+                backdrop = {
+                    TaImage(path = video.thumbUrl, modifier = Modifier.fillMaxSize().blur(16.dp))
+                },
+                poster = {
+                    Box(modifier = Modifier.clickable { onPlay(false) }) {
+                        VideoThumbnail(video = video, modifier = Modifier.fillMaxWidth())
                     }
-                }
-                Column(modifier = Modifier.weight(0.5f)) {
-                    Text(text = video.title, style = MaterialTheme.typography.headlineSmall)
-                    Spacer(Modifier.height(Spacings.extraSmall))
-                    Text(
-                        text = videoDetails(video),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                },
+                posterWidth = 440.dp,
+                buttons = {
+                    DetailButton(
+                        icon = "ic_play",
+                        label = position?.let { "Resume from ${formatDuration(it)}" } ?: "Play",
+                        onClick = { onPlay(false) },
+                        main = true,
                     )
-                    video.channel?.let { channel ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier =
-                                Modifier.padding(vertical = Spacings.medium)
-                                    .clip(MaterialTheme.shapes.medium)
-                                    .clickable { navigator.open(Route.Channel(channel.id)) }
-                                    .padding(Spacings.extraSmall),
-                        ) {
-                            TaAvatar(path = channel.thumbUrl, size = 44.dp)
-                            Spacer(Modifier.width(Spacings.medium))
-                            Column {
-                                Text(
-                                    text = channel.name,
-                                    style = MaterialTheme.typography.titleSmall,
-                                )
-                                channel.subs?.let {
-                                    Text(
-                                        text = "${formatCount(it)} subscribers",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    val player = video.player
-                    val position = player?.position?.takeIf { player.watched.not() && it > 5 }
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(Spacings.small),
-                        verticalArrangement = Arrangement.spacedBy(Spacings.small),
-                    ) {
-                        Button(onClick = { onPlay(false) }) {
-                            AppIcon(
-                                name = "ic_play",
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(Spacings.small))
-                            Text(
-                                if (position != null) "Resume from ${formatDuration(position)}"
-                                else "Play"
-                            )
-                        }
-                        if (position != null) {
-                            OutlinedButton(onClick = { onPlay(true) }) {
-                                Text("Play from the start")
-                            }
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                model.setWatched(player?.watched != true, navigator::message)
-                            }
-                        ) {
-                            AppIcon(
-                                name = if (player?.watched == true) "ic_eye_off" else "ic_eye",
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(Spacings.small))
-                            Text(
-                                if (player?.watched == true) "Mark as unwatched"
-                                else "Mark as watched"
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                model.loadCustomPlaylists()
-                                saveDialog = true
-                            }
-                        ) {
-                            AppIcon(
-                                name = "ic_list_plus",
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(Spacings.small))
-                            Text("Save to playlist")
-                        }
-                        DownloadButton(
-                            download = download,
-                            canDownload = video.mediaUrl != null,
-                            onDownload = { app.downloads.start(video) },
-                            onCancel = { app.downloads.cancel(video.youtubeId) },
+                    if (position != null) {
+                        DetailButton(
+                            icon = "ic_rotate_ccw",
+                            label = "Play from the start",
+                            onClick = { onPlay(true) },
                         )
+                    }
+                    DetailButton(
+                        icon = "ic_check",
+                        label = if (watched) "Mark as unwatched" else "Mark as watched",
+                        onClick = { model.setWatched(!watched, navigator::message) },
+                        on = watched,
+                    )
+                    DetailButton(
+                        icon = "ic_list_plus",
+                        label = "Save to playlist",
+                        onClick = {
+                            model.loadCustomPlaylists()
+                            saveDialog = true
+                        },
+                    )
+                    DownloadButton(
+                        download = download,
+                        canDownload = video.mediaUrl != null,
+                        onDownload = { app.downloads.start(video) },
+                        onCancel = { app.downloads.cancel(video.youtubeId) },
+                    )
+                    DetailMoreButton(
+                        actions =
+                            listOfNotNull(
+                                video.channel?.let { channel ->
+                                    ItemAction("Go to ${channel.name}") {
+                                        navigator.open(Route.Channel(channel.id))
+                                    }
+                                },
+                                ItemAction("Manage on the server") { model.onServer = true },
+                                ItemAction("Open in TubeArchivist") {
+                                    app.api
+                                        .mediaUrl("/video/${video.youtubeId}/")
+                                        ?.let(::openInBrowser)
+                                },
+                            )
+                    )
+                },
+                details = {
+                    video.channel?.let { channel ->
+                        DetailLine(label = "Channel", value = channel.name) {
+                            navigator.open(Route.Channel(channel.id))
+                        }
                     }
                     if (download != null) DownloadProgress(download)
-                }
-            }
-
-            Spacer(Modifier.height(Spacings.large))
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacings.large)) {
-                Column(modifier = Modifier.weight(2f)) {
                     video.description
                         ?.takeIf { it.isNotBlank() }
                         ?.let { description ->
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                shape = MaterialTheme.shapes.medium,
+                            Text(
+                                text = rememberLinkedText(description),
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = if (descriptionExpanded) Int.MAX_VALUE else 5,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier =
-                                    Modifier.fillMaxWidth().clickable {
-                                        descriptionExpanded = !descriptionExpanded
-                                    },
-                            ) {
-                                Text(
-                                    text = rememberLinkedText(description),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = if (descriptionExpanded) Int.MAX_VALUE else 6,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier =
-                                        Modifier.padding(Spacings.medium).animateContentSize(),
-                                )
-                            }
-                        }
-                    Comments(model.comments)
-                }
-                if (model.similar.isNotEmpty()) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        SectionTitle("Similar videos")
-                        model.similar.forEach { similar ->
-                            VideoRow(
-                                video = similar,
-                                onClick = { navigator.open(Route.Video(similar.youtubeId)) },
+                                    Modifier.padding(top = Spacings.small)
+                                        .widthIn(max = 900.dp)
+                                        .clip(MaterialTheme.shapes.small)
+                                        .clickable { descriptionExpanded = !descriptionExpanded }
+                                        .animateContentSize(),
                             )
                         }
+                },
+            )
+            if (model.similar.isNotEmpty()) {
+                SectionRow(
+                    title = "More like this",
+                    modifier = Modifier.padding(top = Spacings.large),
+                ) {
+                    items(model.similar, key = { it.youtubeId }) { similar ->
+                        VideoCard(
+                            video = similar,
+                            onClick = { navigator.open(Route.Video(similar.youtubeId)) },
+                            modifier = Modifier.width(ROW_CARD_WIDTH),
+                        )
                     }
                 }
+            }
+            Column(
+                modifier =
+                    Modifier.padding(horizontal = PagePadding, vertical = Spacings.large)
+                        .widthIn(max = 1000.dp)
+            ) {
+                Comments(model.comments)
             }
         }
         ColumnScrollbar(model.scroll)
@@ -453,6 +404,7 @@ fun VideoContent(model: VideoModel, video: TaVideo, onPlay: (fromStart: Boolean)
     }
 }
 
+/** Downloading the video to this PC, as a round button: start, cancel, or show the file. */
 @Composable
 private fun DownloadButton(
     download: LocalDownload?,
@@ -462,31 +414,28 @@ private fun DownloadButton(
 ) {
     when (download?.state) {
         LocalDownload.State.RUNNING ->
-            OutlinedButton(onClick = onCancel) { Text("Cancel download") }
+            DetailButton(
+                icon = "ic_x",
+                label = "Cancel the download",
+                onClick = onCancel,
+                on = true,
+            )
         LocalDownload.State.DONE ->
-            OutlinedButton(
+            DetailButton(
+                icon = "ic_download",
+                label = "On this PC: show in folder",
                 onClick = {
                     runCatching { java.awt.Desktop.getDesktop().open(download.file.parentFile) }
-                }
-            ) {
-                AppIcon(
-                    name = "ic_check",
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(Spacings.small))
-                Text("Show in folder")
-            }
+                },
+                on = true,
+            )
         else ->
-            OutlinedButton(onClick = onDownload, enabled = canDownload) {
-                AppIcon(
-                    name = "ic_download",
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(Spacings.small))
-                Text("Download to this PC")
-            }
+            DetailButton(
+                icon = "ic_download",
+                label = "Download to this PC",
+                onClick = onDownload,
+                enabled = canDownload,
+            )
     }
 }
 
@@ -770,10 +719,11 @@ private fun VideoServerSide(model: VideoModel, video: TaVideo) {
     }
 }
 
-private fun videoDetails(video: TaVideo): String {
-    val parts = mutableListOf<String>()
-    video.stats?.viewCount?.let { parts.add("${formatCount(it)} views") }
-    video.stats?.likeCount?.let { parts.add("${formatCount(it)} likes") }
-    fullDate(video.published)?.let { parts.add(it) }
-    return parts.joinToString(" • ")
-}
+/** The facts under the title, as on Jellyfin: the date, the length, views and likes. */
+private fun videoInfo(video: TaVideo): List<String> =
+    listOfNotNull(
+        fullDate(video.published),
+        video.player?.duration?.takeIf { it > 0 }?.let { formatDuration(it) },
+        video.stats?.viewCount?.let { "${formatCount(it)} views" },
+        video.stats?.likeCount?.let { "${formatCount(it)} likes" },
+    )

@@ -10,16 +10,13 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.tubedroid.desktop.LocalApp
@@ -30,8 +27,10 @@ import dev.jdtech.tubedroid.desktop.ui.GridScrollbar
 import dev.jdtech.tubedroid.desktop.ui.ListFooter
 import dev.jdtech.tubedroid.desktop.ui.LoadMoreEffect
 import dev.jdtech.tubedroid.desktop.ui.PageBar
+import dev.jdtech.tubedroid.desktop.ui.PagePadding
 import dev.jdtech.tubedroid.desktop.ui.PagedList
 import dev.jdtech.tubedroid.desktop.ui.PlaylistCard
+import dev.jdtech.tubedroid.desktop.ui.RoundIconButton
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.errorText
 import kotlin.coroutines.cancellation.CancellationException
@@ -95,21 +94,24 @@ fun PlaylistsScreen() {
     var dialog by remember { mutableStateOf<PlaylistsDialog?>(null) }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        PageBar(title = "Playlists", onBack = null) {
-            TextButton(onClick = { dialog = PlaylistsDialog.NEW }) { Text("New playlist") }
-            FilledTonalButton(onClick = { dialog = PlaylistsDialog.SUBSCRIBE }) {
-                Text("Subscribe to a playlist")
-            }
+        PageBar(
+            title = "Playlists",
+            onBack = null,
+            tabs = PlaylistsTab.entries.map { it.label },
+            selectedTab = model.tab.ordinal,
+            onTabSelected = { model.tab = PlaylistsTab.entries[it] },
+        ) {
+            RoundIconButton(
+                icon = "ic_plus",
+                label = "New playlist",
+                onClick = { dialog = PlaylistsDialog.NEW },
+            )
+            RoundIconButton(
+                icon = "ic_youtube",
+                label = "Subscribe to playlists from YouTube",
+                onClick = { dialog = PlaylistsDialog.SUBSCRIBE },
+            )
             RefreshButton(onClick = model::refresh)
-        }
-        TintedTabRow(selected = model.tab.ordinal) {
-            PlaylistsTab.entries.forEach { tab ->
-                Tab(
-                    selected = model.tab == tab,
-                    onClick = { model.tab = tab },
-                    text = { Text(tab.label) },
-                )
-            }
         }
         val list = model.lists.getValue(model.tab)
         val state = model.grids.getValue(model.tab)
@@ -118,7 +120,13 @@ fun PlaylistsScreen() {
             LazyVerticalGrid(
                 state = state,
                 columns = GridCells.Adaptive(minSize = VIDEO_CARD_MIN_WIDTH),
-                contentPadding = PaddingValues(Spacings.default),
+                contentPadding =
+                    PaddingValues(
+                        start = PagePadding,
+                        end = PagePadding,
+                        top = 8.dp,
+                        bottom = 24.dp,
+                    ),
                 horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
                 verticalArrangement = Arrangement.spacedBy(Spacings.small),
             ) {

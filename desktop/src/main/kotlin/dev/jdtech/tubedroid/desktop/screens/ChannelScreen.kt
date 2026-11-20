@@ -4,29 +4,27 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -39,6 +37,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
@@ -50,21 +51,28 @@ import dev.jdtech.tubedroid.desktop.LocalApp
 import dev.jdtech.tubedroid.desktop.LocalCanGoBack
 import dev.jdtech.tubedroid.desktop.LocalNavigator
 import dev.jdtech.tubedroid.desktop.Route
+import dev.jdtech.tubedroid.desktop.player.PlayerRequest
 import dev.jdtech.tubedroid.desktop.rememberPageModel
-import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.ConfirmDialog
+import dev.jdtech.tubedroid.desktop.ui.DetailButton
+import dev.jdtech.tubedroid.desktop.ui.DetailHeader
+import dev.jdtech.tubedroid.desktop.ui.DetailMoreButton
 import dev.jdtech.tubedroid.desktop.ui.GridScrollbar
+import dev.jdtech.tubedroid.desktop.ui.HeaderTabs
 import dev.jdtech.tubedroid.desktop.ui.InfoRow
+import dev.jdtech.tubedroid.desktop.ui.ItemAction
 import dev.jdtech.tubedroid.desktop.ui.ListFooter
 import dev.jdtech.tubedroid.desktop.ui.LoadMoreEffect
+import dev.jdtech.tubedroid.desktop.ui.ManageButton
 import dev.jdtech.tubedroid.desktop.ui.PageBar
+import dev.jdtech.tubedroid.desktop.ui.PagePadding
 import dev.jdtech.tubedroid.desktop.ui.PageState
 import dev.jdtech.tubedroid.desktop.ui.PagedList
 import dev.jdtech.tubedroid.desktop.ui.PlaylistCard
+import dev.jdtech.tubedroid.desktop.ui.RoundIconButton
 import dev.jdtech.tubedroid.desktop.ui.SectionCard
 import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
 import dev.jdtech.tubedroid.desktop.ui.Spacings
-import dev.jdtech.tubedroid.desktop.ui.TaAvatar
 import dev.jdtech.tubedroid.desktop.ui.TaImage
 import dev.jdtech.tubedroid.desktop.ui.VideoCard
 import dev.jdtech.tubedroid.desktop.ui.VideoRow
@@ -75,6 +83,8 @@ import dev.jdtech.tubedroid.desktop.ui.formatCount
 import dev.jdtech.tubedroid.desktop.ui.formatNumber
 import dev.jdtech.tubedroid.desktop.ui.formatPlaytime
 import dev.jdtech.tubedroid.desktop.ui.formatSize
+import dev.jdtech.tubedroid.desktop.ui.openInBrowser
+import dev.jdtech.tubedroid.desktop.ui.rememberLinkedText
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
@@ -277,6 +287,10 @@ fun ChannelScreen(channelId: String) {
         Surface(color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.fillMaxSize()) {
                 PageBar(title = null, onBack = if (canGoBack) navigator::back else null) {
+                    ManageButton(
+                        on = model.onServer,
+                        onClick = { model.onServer = !model.onServer },
+                    )
                     OpenInWebButton("/channel/$channelId/")
                 }
                 val channel = model.channel
@@ -297,7 +311,6 @@ fun ChannelScreen(channelId: String) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChannelContent(model: ChannelModel, channel: TaChannel) {
     val navigator = LocalNavigator.current
@@ -311,11 +324,7 @@ private fun ChannelContent(model: ChannelModel, channel: TaChannel) {
             state = state,
             columns = GridCells.Adaptive(minSize = VIDEO_CARD_MIN_WIDTH),
             contentPadding =
-                PaddingValues(
-                    start = Spacings.default,
-                    end = Spacings.default,
-                    bottom = Spacings.default,
-                ),
+                PaddingValues(start = PagePadding, end = PagePadding, bottom = Spacings.large),
             horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
             verticalArrangement = Arrangement.spacedBy(Spacings.small),
         ) {
@@ -349,106 +358,92 @@ private fun ChannelContent(model: ChannelModel, channel: TaChannel) {
     }
 }
 
-/** The banner, name, numbers and subscribe button, then the tabs and Manage. */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * The channel as Jellyfin shows a show: its banner across the top, its picture, name, numbers and
+ * round buttons, its description, then the tabs of what it has.
+ */
 @Composable
 private fun ChannelHeader(model: ChannelModel, channel: TaChannel) {
+    val app = LocalApp.current
     val navigator = LocalNavigator.current
+    var descriptionExpanded by remember { mutableStateOf(false) }
+    val totals = model.totals
     Column {
-        channel.bannerUrl?.let { banner ->
-            TaImage(
-                path = banner,
-                modifier =
-                    Modifier.bleed(Spacings.default)
-                        .fillMaxWidth()
-                        .aspectRatio(BANNER_ASPECT_RATIO),
-            )
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(vertical = Spacings.medium),
-        ) {
-            TaAvatar(path = channel.thumbUrl, size = 88.dp)
-            Spacer(Modifier.width(Spacings.medium))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = channel.name,
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                channel.subs?.let {
-                    Text(
-                        text = "${formatCount(it)} subscribers",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        DetailHeader(
+            title = channel.name,
+            info =
+                listOfNotNull(
+                    channel.subs?.let { "${formatCount(it)} subscribers" },
+                    totals?.let { "${formatNumber(it.count)} videos" },
+                    totals?.let { formatPlaytime(it.duration) },
+                    totals?.let { formatSize(it.mediaSize, model.metricSizes) },
+                ),
+            backdrop = {
+                if (channel.bannerUrl != null) {
+                    TaImage(path = channel.bannerUrl, modifier = Modifier.fillMaxSize())
+                } else {
+                    TaImage(path = channel.thumbUrl, modifier = Modifier.fillMaxSize().blur(24.dp))
                 }
-                model.totals?.let { totals ->
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
-                        modifier = Modifier.padding(top = Spacings.extraSmall),
-                    ) {
-                        Total("ic_film", "${formatNumber(totals.count)} videos")
-                        Total("ic_clock", formatPlaytime(totals.duration))
-                        Total(
-                            "ic_database",
-                            formatSize(totals.mediaSize, model.metricSizes),
+            },
+            poster = {
+                TaImage(
+                    path = channel.thumbUrl,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                )
+            },
+            posterWidth = 220.dp,
+            buttons = {
+                val newest = model.videos(ChannelTab.VIDEOS).items.firstOrNull()
+                DetailButton(
+                    icon = "ic_play",
+                    label = newest?.let { "Play the newest: ${it.title}" } ?: "Play the newest",
+                    onClick = {
+                        newest?.let { navigator.play(PlayerRequest.Ta(videoId = it.youtubeId)) }
+                    },
+                    main = true,
+                    enabled = newest != null,
+                )
+                DetailButton(
+                    icon = if (channel.subscribed) "ic_heart_filled" else "ic_heart",
+                    label = if (channel.subscribed) "Subscribed: unsubscribe" else "Subscribe",
+                    onClick = { model.setSubscribed(!channel.subscribed, navigator::message) },
+                    on = channel.subscribed,
+                )
+                DetailMoreButton(
+                    actions =
+                        listOf(
+                            ItemAction("Manage on the server") { model.onServer = true },
+                            ItemAction("Open in TubeArchivist") {
+                                app.api.mediaUrl("/channel/${channel.id}/")?.let(::openInBrowser)
+                            },
+                        )
+                )
+            },
+            details = {
+                channel.description
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { description ->
+                        Text(
+                            text = rememberLinkedText(description),
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = if (descriptionExpanded) Int.MAX_VALUE else 4,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier =
+                                Modifier.widthIn(max = 900.dp)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .clickable { descriptionExpanded = !descriptionExpanded },
                         )
                     }
-                }
-            }
-            if (channel.subscribed) {
-                OutlinedButton(onClick = { model.setSubscribed(false, navigator::message) }) {
-                    Text("Unsubscribe")
-                }
-            } else {
-                Button(onClick = { model.setSubscribed(true, navigator::message) }) {
-                    Text("Subscribe")
-                }
-            }
-        }
-        // The channel's tabs, then Manage, which shows the channel on the server in its colors
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacings.small)) {
-            model.tabs.forEach { option ->
-                FilterChip(
-                    selected = !model.onServer && option == model.tab,
-                    onClick = {
-                        model.tab = option
-                        model.onServer = false
-                    },
-                    label = { Text(option.label) },
-                )
-            }
-            FilterChip(
-                selected = model.onServer,
-                onClick = { model.onServer = true },
-                label = { Text("Manage") },
-                leadingIcon = {
-                    AppIcon(
-                        name = "ic_server",
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                },
-            )
-        }
-        Spacer(Modifier.size(Spacings.small))
-    }
-}
-
-@Composable
-private fun Total(icon: String, text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        AppIcon(
-            name = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(16.dp),
+            },
+            modifier = Modifier.bleed(PagePadding),
         )
-        Spacer(Modifier.width(4.dp))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        HeaderTabs(
+            tabs = model.tabs.map { it.label },
+            selected = model.tabs.indexOf(model.tab).coerceAtLeast(0),
+            onSelect = { model.tab = model.tabs[it] },
+            modifier =
+                Modifier.padding(top = Spacings.large, bottom = Spacings.small)
+                    .offset(x = (-14).dp),
         )
     }
 }
@@ -581,25 +576,14 @@ private fun ChannelServerSide(model: ChannelModel, channel: TaChannel) {
 }
 
 /** A banner as wide as the page, cutting a little off the ends of YouTube's strip. */
-private const val BANNER_ASPECT_RATIO = 7f
 
 /** A top bar button that opens the page in TubeArchivist's web interface. */
 @Composable
 fun OpenInWebButton(path: String) {
     val api = LocalApp.current.api
-    androidx.compose.material3.TextButton(
-        onClick = {
-            api.mediaUrl(path)?.let { url ->
-                runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(url)) }
-            }
-        }
-    ) {
-        AppIcon(
-            name = "ic_external_link",
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text("Open in TubeArchivist")
-    }
+    RoundIconButton(
+        icon = "ic_external_link",
+        label = "Open in TubeArchivist",
+        onClick = { api.mediaUrl(path)?.let(::openInBrowser) },
+    )
 }

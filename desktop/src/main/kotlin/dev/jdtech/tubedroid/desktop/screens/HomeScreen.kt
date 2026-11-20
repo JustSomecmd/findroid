@@ -1,36 +1,20 @@
 package dev.jdtech.tubedroid.desktop.screens
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ContextMenuArea
-import androidx.compose.foundation.ContextMenuItem
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PageSize
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,16 +22,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.tubearchivist.TA_WATCH_LATER
 import dev.jdtech.jellyfin.tubearchivist.TaApi
@@ -58,22 +36,26 @@ import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.tubedroid.desktop.LocalApp
 import dev.jdtech.tubedroid.desktop.LocalNavigator
 import dev.jdtech.tubedroid.desktop.Route
+import dev.jdtech.tubedroid.desktop.Section
 import dev.jdtech.tubedroid.desktop.WatchHistory
 import dev.jdtech.tubedroid.desktop.player.PlayerRequest
 import dev.jdtech.tubedroid.desktop.rememberPageModel
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
+import dev.jdtech.tubedroid.desktop.ui.ChannelItem
 import dev.jdtech.tubedroid.desktop.ui.ConfirmDialog
-import dev.jdtech.tubedroid.desktop.ui.GridScrollbar
+import dev.jdtech.tubedroid.desktop.ui.ItemAction
+import dev.jdtech.tubedroid.desktop.ui.LibraryTile
 import dev.jdtech.tubedroid.desktop.ui.ListFooter
-import dev.jdtech.tubedroid.desktop.ui.LoadMoreEffect
+import dev.jdtech.tubedroid.desktop.ui.ListScrollbar
+import dev.jdtech.tubedroid.desktop.ui.MediaCard
 import dev.jdtech.tubedroid.desktop.ui.PageBar
 import dev.jdtech.tubedroid.desktop.ui.PagedList
-import dev.jdtech.tubedroid.desktop.ui.SectionTitle
+import dev.jdtech.tubedroid.desktop.ui.RoundIconButton
+import dev.jdtech.tubedroid.desktop.ui.SectionRow
 import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
 import dev.jdtech.tubedroid.desktop.ui.Spacings
-import dev.jdtech.tubedroid.desktop.ui.TaImage
 import dev.jdtech.tubedroid.desktop.ui.VideoCard
-import dev.jdtech.tubedroid.desktop.ui.VideoThumbnail
+import dev.jdtech.tubedroid.desktop.ui.VideoThumbnailContent
 import dev.jdtech.tubedroid.desktop.ui.errorText
 import dev.jdtech.tubedroid.desktop.ui.formatCount
 import kotlin.coroutines.cancellation.CancellationException
@@ -104,7 +86,7 @@ class HomeModel(
             api.getVideos(page = page, sort = "downloaded", order = "desc")
         }
 
-    val gridState = LazyGridState()
+    val listState = LazyListState()
 
     /** The playlist behind the Watch Later button, once it's been found. */
     var watchLater by mutableStateOf<TaPlaylist?>(null)
@@ -325,19 +307,10 @@ fun HomeScreen() {
     LaunchedEffect(Unit) { model.onShown() }
     val openPlaylist: (String) -> Unit = { navigator.open(Route.Playlist(it)) }
     Column(modifier = Modifier.fillMaxSize()) {
-        PageBar(title = "Home", onBack = null) {
-            WatchLaterButton(
-                playlist = model.watchLater,
-                busy = model.watchLaterBusy,
-                onClick = { model.openWatchLater(openPlaylist, navigator::message) },
-            )
-            RefreshButton(onClick = model::refresh)
-        }
+        PageBar(title = "Home", onBack = null) { RefreshButton(onClick = model::refresh) }
         HomeContent(
-            featured = model.featured,
-            continueWatching = model.continueWatching,
-            latest = model.latest,
-            gridState = model.gridState,
+            model = model,
+            onWatchLater = { model.openWatchLater(openPlaylist, navigator::message) },
         )
     }
 
@@ -351,40 +324,6 @@ fun HomeScreen() {
             onConfirm = { model.createWatchLater(openPlaylist, navigator::message) },
             onDismiss = { model.offerWatchLater = false },
         )
-    }
-}
-
-/**
- * Opens the Watch Later playlist, with how many videos are in it once that's known. A spinner takes
- * the place of the clock while it's being looked up or made.
- */
-@Composable
-private fun WatchLaterButton(playlist: TaPlaylist?, busy: Boolean, onClick: () -> Unit) {
-    FilledTonalButton(onClick = onClick) {
-        Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-            if (busy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = LocalContentColor.current,
-                )
-            } else {
-                AppIcon(
-                    name = "ic_clock",
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-        Spacer(Modifier.width(Spacings.small))
-        Text(TA_WATCH_LATER)
-        if (playlist != null) {
-            val count = playlist.entries.size
-            Text(
-                text = "  ·  $count ${if (count == 1) "video" else "videos"}",
-                color = LocalContentColor.current.copy(alpha = 0.7f),
-            )
-        }
     }
 }
 
@@ -430,144 +369,194 @@ fun StatsScreen() {
     }
 }
 
+/**
+ * Home as Jellyfin has it: rows that scroll sideways. My media first, with the libraries and Watch
+ * Later, then what to carry on with, the latest videos and the channels.
+ */
 @Composable
-fun HomeContent(
-    featured: List<TaChannel>,
-    continueWatching: List<ContinueItem>,
-    latest: PagedList<TaVideo>,
-    gridState: LazyGridState,
-) {
+fun HomeContent(model: HomeModel, onWatchLater: () -> Unit) {
     val navigator = LocalNavigator.current
-    LoadMoreEffect(gridState) { latest.loadMore() }
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyVerticalGrid(
-            state = gridState,
-            columns = GridCells.Adaptive(minSize = VIDEO_CARD_MIN_WIDTH),
-            contentPadding = PaddingValues(Spacings.default),
-            horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
-            verticalArrangement = Arrangement.spacedBy(Spacings.small),
+        LazyColumn(
+            state = model.listState,
+            verticalArrangement = Arrangement.spacedBy(28.dp),
+            contentPadding = PaddingValues(top = Spacings.small, bottom = Spacings.large),
             modifier = Modifier.fillMaxSize(),
         ) {
-            // Always there, even while empty, so the page opens at the top once the carousel
-            // and the videos to carry on with arrive after the latest videos
-            item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
-                Column {
-                    if (featured.isNotEmpty()) {
-                        ChannelCarousel(
-                            channels = featured,
-                            onChannelClick = { navigator.open(Route.Channel(it)) },
-                            modifier = Modifier.padding(bottom = Spacings.small),
+            item(key = "media") {
+                SectionRow("My media") {
+                    item {
+                        LibraryTile(
+                            name = "Videos",
+                            icon = "ic_film",
+                            detail = model.latest.total?.let { "${formatCount(it)} videos" },
+                            onClick = { navigator.select(Section.VIDEOS) },
+                            modifier = Modifier.width(TILE_WIDTH),
                         )
                     }
-                    if (continueWatching.isNotEmpty()) {
-                        SectionTitle("Continue watching")
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacings.medium)) {
-                            items(continueWatching, key = { it.key }) { item ->
-                                when (item) {
-                                    is ContinueItem.Video ->
-                                        VideoCard(
-                                            video = item.video,
-                                            onClick = {
-                                                navigator.open(Route.Video(item.video.youtubeId))
-                                            },
-                                            modifier = Modifier.width(CONTINUE_CARD_WIDTH),
-                                        )
-                                    is ContinueItem.Playlist ->
-                                        PlaylistResumeCard(
-                                            item = item,
-                                            onClick = {
-                                                navigator.play(
-                                                    PlayerRequest.Ta(
-                                                        videoId = item.video.youtubeId,
-                                                        playlistId = item.playlistId,
-                                                    )
+                    item {
+                        LibraryTile(
+                            name = "Channels",
+                            icon = "ic_users",
+                            detail = null,
+                            onClick = { navigator.select(Section.CHANNELS) },
+                            modifier = Modifier.width(TILE_WIDTH),
+                        )
+                    }
+                    item {
+                        LibraryTile(
+                            name = "Playlists",
+                            icon = "ic_list_video",
+                            detail = null,
+                            onClick = { navigator.select(Section.PLAYLISTS) },
+                            modifier = Modifier.width(TILE_WIDTH),
+                        )
+                    }
+                    item {
+                        LibraryTile(
+                            name = TA_WATCH_LATER,
+                            icon = "ic_clock",
+                            detail =
+                                when {
+                                    model.watchLaterBusy -> "Looking for it..."
+                                    else ->
+                                        model.watchLater?.entries?.size?.let {
+                                            "$it ${if (it == 1) "video" else "videos"}"
+                                        }
+                                },
+                            onClick = onWatchLater,
+                            modifier = Modifier.width(TILE_WIDTH),
+                        )
+                    }
+                    item {
+                        LibraryTile(
+                            name = "On this PC",
+                            icon = "ic_download",
+                            detail = null,
+                            onClick = { navigator.select(Section.DOWNLOADS) },
+                            modifier = Modifier.width(TILE_WIDTH),
+                        )
+                    }
+                }
+            }
+            if (model.continueWatching.isNotEmpty()) {
+                item(key = "continue") {
+                    SectionRow("Continue watching") {
+                        items(model.continueWatching, key = { it.key }) { item ->
+                            when (item) {
+                                is ContinueItem.Video ->
+                                    VideoCard(
+                                        video = item.video,
+                                        onClick = {
+                                            navigator.open(Route.Video(item.video.youtubeId))
+                                        },
+                                        modifier = Modifier.width(ROW_CARD_WIDTH),
+                                    )
+                                is ContinueItem.Playlist ->
+                                    PlaylistResumeCard(
+                                        item = item,
+                                        onPlay = {
+                                            navigator.play(
+                                                PlayerRequest.Ta(
+                                                    videoId = item.video.youtubeId,
+                                                    playlistId = item.playlistId,
                                                 )
-                                            },
-                                            onOpenPlaylist = {
-                                                navigator.open(Route.Playlist(item.playlistId))
-                                            },
-                                            modifier = Modifier.width(CONTINUE_CARD_WIDTH),
-                                        )
-                                }
+                                            )
+                                        },
+                                        onOpenPlaylist = {
+                                            navigator.open(Route.Playlist(item.playlistId))
+                                        },
+                                        modifier = Modifier.width(ROW_CARD_WIDTH),
+                                    )
                             }
                         }
                     }
                 }
             }
-            item(span = { GridItemSpan(maxLineSpan) }, key = "latest_title") {
-                SectionTitle("Latest videos")
+            item(key = "latest") {
+                SectionRow(
+                    "Latest videos",
+                    onTitleClick = { navigator.select(Section.VIDEOS) },
+                ) {
+                    items(model.latest.items.take(LATEST_IN_ROW), key = { it.youtubeId }) { video ->
+                        VideoCard(
+                            video = video,
+                            onClick = { navigator.open(Route.Video(video.youtubeId)) },
+                            modifier = Modifier.width(ROW_CARD_WIDTH),
+                        )
+                    }
+                }
+                if (model.latest.items.isEmpty())
+                    ListFooter(model.latest, emptyText = "No videos yet")
             }
-            items(latest.items, key = { it.youtubeId }) { video ->
-                VideoCard(video = video, onClick = { navigator.open(Route.Video(video.youtubeId)) })
-            }
-            item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
-                ListFooter(latest, emptyText = "No videos yet")
+            if (model.featured.isNotEmpty()) {
+                item(key = "channels") {
+                    SectionRow(
+                        "Channels",
+                        onTitleClick = { navigator.select(Section.CHANNELS) },
+                    ) {
+                        items(model.featured, key = { it.id }) { channel ->
+                            ChannelItem(
+                                channel = channel,
+                                onClick = { navigator.open(Route.Channel(channel.id)) },
+                                modifier = Modifier.width(CHANNEL_CARD_WIDTH),
+                            )
+                        }
+                    }
+                }
             }
         }
-        GridScrollbar(gridState)
+        ListScrollbar(model.listState)
     }
 }
 
-private val CONTINUE_CARD_WIDTH = 300.dp
+private val TILE_WIDTH = 260.dp
+val ROW_CARD_WIDTH = 300.dp
+val CHANNEL_CARD_WIDTH = 170.dp
+private const val LATEST_IN_ROW = 24
 
 /**
  * A playlist being watched through, on Continue watching: the video it's at, with the playlist's
- * name and how far into it that is. Clicking carries on playing the playlist from there, and its
- * right-click menu opens the playlist's page, as holding it does on the phone.
+ * name and how far into it that is. Clicking opens the playlist; its play button carries on from
+ * there.
  */
 @Composable
 private fun PlaylistResumeCard(
     item: ContinueItem.Playlist,
-    onClick: () -> Unit,
+    onPlay: () -> Unit,
     onOpenPlaylist: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ContextMenuArea(items = { listOf(ContextMenuItem("Open playlist", onOpenPlaylist)) }) {
-        Column(modifier = modifier.clip(MaterialTheme.shapes.medium).clickable(onClick = onClick)) {
-            Box {
-                VideoThumbnail(video = item.video, modifier = Modifier.fillMaxWidth())
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier =
-                        Modifier.align(Alignment.TopStart)
-                            .padding(Spacings.small)
-                            .background(
-                                Color.Black.copy(alpha = 0.75f),
-                                MaterialTheme.shapes.extraSmall,
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                ) {
-                    AppIcon(
-                        name = "ic_list_video",
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = "${item.number} of ${item.count}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                    )
-                }
-            }
-            Column(
-                modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 10.dp)
-            ) {
-                Text(
-                    text = item.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = item.video.title,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+    MediaCard(
+        title = item.name,
+        subtitle = item.video.title,
+        onClick = onOpenPlaylist,
+        onPlay = onPlay,
+        actions =
+            listOf(ItemAction("Carry on", onPlay), ItemAction("Open playlist", onOpenPlaylist)),
+        modifier = modifier,
+    ) {
+        VideoThumbnailContent(item.video)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+                Modifier.align(Alignment.TopStart)
+                    .padding(Spacings.small)
+                    .background(Color.Black.copy(alpha = 0.75f), MaterialTheme.shapes.extraSmall)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+        ) {
+            AppIcon(
+                name = "ic_list_video",
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = "${item.number} of ${item.count}",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
+            )
         }
     }
 }
@@ -575,153 +564,8 @@ private fun PlaylistResumeCard(
 /** How wide video cards are at least, so wider windows fit more side by side. */
 val VIDEO_CARD_MIN_WIDTH = 260.dp
 
-/** How many carousel pages sit side by side: one in a narrow window, up to three in a wide one. */
-fun carouselPages(width: Dp): Int =
-    when {
-        width >= 840.dp -> 3
-        width >= 600.dp -> 2
-        else -> 1
-    }
-
-private val carouselPageSize =
-    object : PageSize {
-        override fun Density.calculateMainAxisPageSize(availableSpace: Int, pageSpacing: Int): Int {
-            val pages = carouselPages(availableSpace.toDp())
-            return (availableSpace - (pages - 1) * pageSpacing) / pages
-        }
-    }
-
-/**
- * Channels picked at random, turning to the next ones every few seconds, with their banners as the
- * backdrop. The arrows at the ends turn it by hand.
- */
-@Composable
-fun ChannelCarousel(
-    channels: List<TaChannel>,
-    onChannelClick: (channelId: String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val pagerState = rememberPagerState(pageCount = { channels.size })
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(pagerState) {
-        while (true) {
-            delay(AUTO_SCROLL_DELAY_MS)
-            val next = if (pagerState.canScrollForward) pagerState.currentPage + 1 else 0
-            pagerState.animateScrollToPage(next)
-        }
-    }
-    Box(modifier = modifier) {
-        HorizontalPager(
-            state = pagerState,
-            pageSize = carouselPageSize,
-            pageSpacing = Spacings.medium,
-            key = { page -> channels[page].id },
-        ) { page ->
-            val channel = channels[page]
-            ChannelCarouselItem(channel = channel, onClick = { onChannelClick(channel.id) })
-        }
-        CarouselArrow(
-            icon = "ic_arrow_left",
-            onClick = {
-                scope.launch {
-                    pagerState.animateScrollToPage(
-                        if (pagerState.canScrollBackward) pagerState.currentPage - 1
-                        else channels.lastIndex
-                    )
-                }
-            },
-            modifier = Modifier.align(Alignment.CenterStart).padding(start = Spacings.small),
-        )
-        CarouselArrow(
-            icon = "ic_arrow_right",
-            onClick = {
-                scope.launch {
-                    pagerState.animateScrollToPage(
-                        if (pagerState.canScrollForward) pagerState.currentPage + 1 else 0
-                    )
-                }
-            },
-            modifier = Modifier.align(Alignment.CenterEnd).padding(end = Spacings.small),
-        )
-    }
-}
-
-@Composable
-private fun CarouselArrow(icon: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        shape = CircleShape,
-        color = Color.Black.copy(alpha = 0.45f),
-        modifier = modifier.clip(CircleShape).clickable(onClick = onClick),
-    ) {
-        AppIcon(
-            name = icon,
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.padding(Spacings.small).size(20.dp),
-        )
-    }
-}
-
-@Composable
-private fun ChannelCarouselItem(channel: TaChannel, onClick: () -> Unit) {
-    val colorStops =
-        arrayOf(
-            0.0f to Color.Black.copy(alpha = 0.1f),
-            0.5f to Color.Black.copy(alpha = 0.5f),
-            1f to Color.Black.copy(alpha = 0.6f),
-        )
-    Box(
-        modifier =
-            Modifier.aspectRatio(1.77f)
-                .clip(MaterialTheme.shapes.large)
-                .clickable(onClick = onClick)
-    ) {
-        // The full banner as uploaded, which fits this shape, or else the strip shown on YouTube
-        TaImage(path = channel.tvArtUrl ?: channel.bannerUrl, modifier = Modifier.fillMaxSize())
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawRect(brush = Brush.verticalGradient(colorStops = colorStops))
-        }
-        Column(
-            verticalArrangement = Arrangement.spacedBy(Spacings.small),
-            modifier =
-                Modifier.fillMaxWidth()
-                    .padding(horizontal = Spacings.default, vertical = Spacings.medium)
-                    .align(Alignment.BottomStart),
-        ) {
-            channel.subs?.let { subs ->
-                Text(
-                    text = "${formatCount(subs)} subscribers",
-                    color = Color.LightGray,
-                    overflow = TextOverflow.Ellipsis,
-                    maxLines = 1,
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
-            Text(
-                text = channel.name,
-                color = Color.White,
-                overflow = TextOverflow.Ellipsis,
-                maxLines = 2,
-                style = MaterialTheme.typography.titleLarge,
-            )
-        }
-    }
-}
-
-/** A round button with the refresh icon, for the top bar. */
+/** A round button with the refresh icon, for the header. */
 @Composable
 fun RefreshButton(onClick: () -> Unit) {
-    Surface(
-        shape = CircleShape,
-        color = Color.Transparent,
-        modifier = Modifier.clip(CircleShape).clickable(onClick = onClick),
-    ) {
-        AppIcon(
-            name = "ic_refresh",
-            contentDescription = "Refresh",
-            modifier = Modifier.padding(Spacings.small).size(20.dp),
-        )
-    }
+    RoundIconButton(icon = "ic_refresh", label = "Refresh", onClick = onClick)
 }
-
-private const val AUTO_SCROLL_DELAY_MS = 6000L

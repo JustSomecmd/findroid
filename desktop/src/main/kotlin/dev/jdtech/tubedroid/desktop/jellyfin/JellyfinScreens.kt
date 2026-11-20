@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -30,14 +28,10 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -62,15 +56,21 @@ import dev.jdtech.tubedroid.desktop.player.episodeTitle
 import dev.jdtech.tubedroid.desktop.rememberPageModel
 import dev.jdtech.tubedroid.desktop.screens.RefreshButton
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
+import dev.jdtech.tubedroid.desktop.ui.CardShape
 import dev.jdtech.tubedroid.desktop.ui.ColumnScrollbar
+import dev.jdtech.tubedroid.desktop.ui.DetailButton
+import dev.jdtech.tubedroid.desktop.ui.DetailHeader
+import dev.jdtech.tubedroid.desktop.ui.DetailLine
 import dev.jdtech.tubedroid.desktop.ui.GridScrollbar
+import dev.jdtech.tubedroid.desktop.ui.HeaderTabs
 import dev.jdtech.tubedroid.desktop.ui.ListScrollbar
 import dev.jdtech.tubedroid.desktop.ui.LoadMoreEffect
+import dev.jdtech.tubedroid.desktop.ui.MediaCard
 import dev.jdtech.tubedroid.desktop.ui.PageBar
+import dev.jdtech.tubedroid.desktop.ui.PagePadding
 import dev.jdtech.tubedroid.desktop.ui.PageState
-import dev.jdtech.tubedroid.desktop.ui.SectionTitle
+import dev.jdtech.tubedroid.desktop.ui.SectionRow
 import dev.jdtech.tubedroid.desktop.ui.Spacings
-import dev.jdtech.tubedroid.desktop.ui.bleed
 import dev.jdtech.tubedroid.desktop.ui.errorText
 import dev.jdtech.tubedroid.desktop.ui.formatDuration
 import java.util.UUID
@@ -161,22 +161,16 @@ fun JellyfinHomeScreen() {
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = model.listState,
-                contentPadding = PaddingValues(bottom = Spacings.default),
+                verticalArrangement = Arrangement.spacedBy(28.dp),
+                contentPadding = PaddingValues(top = Spacings.small, bottom = Spacings.large),
             ) {
                 items(model.rows, key = { it.title }) { row ->
-                    SectionTitle(
-                        row.title,
-                        modifier = Modifier.padding(horizontal = Spacings.default),
-                    )
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = Spacings.default),
-                        horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
-                    ) {
+                    SectionRow(row.title) {
                         items(row.items, key = { it.id }) { item ->
                             if (row.wide) {
                                 WideCard(item = item, modifier = Modifier.width(300.dp))
                             } else {
-                                PosterCard(item = item, modifier = Modifier.width(160.dp))
+                                PosterCard(item = item, modifier = Modifier.width(170.dp))
                             }
                         }
                     }
@@ -260,8 +254,14 @@ fun JellyfinLibraryScreen(movies: Boolean) {
         Box(modifier = Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 state = model.gridState,
-                columns = GridCells.Adaptive(minSize = 150.dp),
-                contentPadding = PaddingValues(Spacings.default),
+                columns = GridCells.Adaptive(minSize = 170.dp),
+                contentPadding =
+                    PaddingValues(
+                        start = PagePadding,
+                        end = PagePadding,
+                        top = 8.dp,
+                        bottom = 24.dp,
+                    ),
                 horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
                 verticalArrangement = Arrangement.spacedBy(Spacings.medium),
             ) {
@@ -358,87 +358,73 @@ fun JellyfinItemScreen(itemId: String) {
             PageState(loading = model.loading, error = model.error, onRetry = model::load)
             return@Column
         }
+        val episode = item.type == BaseItemKind.EPISODE
+        val position = JellyfinClient.seconds(item.userData?.playbackPositionTicks)
+        val played = item.userData?.played == true
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
-                modifier =
-                    Modifier.verticalScroll(model.scroll)
-                        .padding(
-                            start = Spacings.default,
-                            end = Spacings.default,
-                            bottom = Spacings.default,
-                        )
+                modifier = Modifier.verticalScroll(model.scroll).padding(bottom = Spacings.large)
             ) {
-                Backdrop(item)
-                Row(horizontalArrangement = Arrangement.spacedBy(Spacings.large)) {
-                    JellyfinImage(
-                        url = posterUrl(item),
-                        modifier =
-                            Modifier.padding(top = Spacings.medium)
-                                .width(if (item.type == BaseItemKind.EPISODE) 320.dp else 220.dp)
-                                .aspectRatio(
-                                    if (item.type == BaseItemKind.EPISODE) 16f / 9f else 2f / 3f
-                                )
-                                .clip(MaterialTheme.shapes.medium),
-                    )
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(Spacings.small),
-                        modifier = Modifier.weight(1f).padding(top = Spacings.medium),
-                    ) {
-                        if (item.type == BaseItemKind.EPISODE) {
-                            item.seriesName?.let { show ->
-                                Text(
-                                    text = show,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier =
-                                        Modifier.clickable(enabled = item.seriesId != null) {
-                                            item.seriesId?.let {
-                                                navigator.open(Route.JellyfinShow(it.toString()))
-                                            }
-                                        },
-                                )
-                            }
+                DetailHeader(
+                    title = if (episode) episodeTitle(item) else item.name.orEmpty(),
+                    info = itemInfo(item),
+                    backdrop = {
+                        JellyfinImage(
+                            url = backdropUrl(app.jellyfin, item),
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    },
+                    poster = {
+                        JellyfinImage(
+                            url = posterUrl(item),
+                            modifier =
+                                Modifier.fillMaxWidth()
+                                    .aspectRatio(if (episode) 16f / 9f else 2f / 3f),
+                        )
+                    },
+                    posterWidth = if (episode) 400.dp else 240.dp,
+                    buttons = {
+                        DetailButton(
+                            icon = "ic_play",
+                            label =
+                                if (position > 5) "Resume from ${formatDuration(position)}"
+                                else "Play",
+                            onClick = {
+                                navigator.play(PlayerRequest.Jellyfin(item.id.toString()))
+                            },
+                            main = true,
+                        )
+                        if (position > 5) {
+                            DetailButton(
+                                icon = "ic_rotate_ccw",
+                                label = "Play from the start",
+                                onClick = {
+                                    navigator.play(
+                                        PlayerRequest.Jellyfin(item.id.toString(), fromStart = true)
+                                    )
+                                },
+                            )
                         }
-                        Text(
-                            text =
-                                if (item.type == BaseItemKind.EPISODE) episodeTitle(item)
-                                else item.name.orEmpty(),
-                            style = MaterialTheme.typography.headlineMedium,
+                        DetailButton(
+                            icon = "ic_check",
+                            label = if (played) "Mark unwatched" else "Mark watched",
+                            onClick = { model.setPlayed(!played, navigator::message) },
+                            on = played,
                         )
-                        Text(
-                            text = itemDetails(item),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        item.genres
-                            ?.takeIf { it.isNotEmpty() }
-                            ?.let { genres ->
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(Spacings.small)
-                                ) {
-                                    genres.forEach { genre ->
-                                        Surface(
-                                            shape = MaterialTheme.shapes.small,
-                                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        ) {
-                                            Text(
-                                                text = genre,
-                                                style = MaterialTheme.typography.labelMedium,
-                                                modifier =
-                                                    Modifier.padding(
-                                                        horizontal = 10.dp,
-                                                        vertical = 4.dp,
-                                                    ),
-                                            )
-                                        }
+                    },
+                    details = {
+                        if (episode) {
+                            item.seriesName?.let { show ->
+                                DetailLine(label = "Show", value = show) {
+                                    item.seriesId?.let {
+                                        navigator.open(Route.JellyfinShow(it.toString()))
                                     }
                                 }
                             }
-                        Progress(item)
-                        PlayButtons(
-                            item = item,
-                            onSetPlayed = { model.setPlayed(it, navigator::message) },
-                        )
+                        }
+                        item.genres
+                            ?.takeIf { it.isNotEmpty() }
+                            ?.let { DetailLine(label = "Genres", value = it.joinToString(", ")) }
                         item.overview?.let { overview ->
                             Text(
                                 text = overview,
@@ -447,46 +433,10 @@ fun JellyfinItemScreen(itemId: String) {
                                     Modifier.widthIn(max = 900.dp).padding(top = Spacings.small),
                             )
                         }
-                    }
-                }
+                    },
+                )
             }
             ColumnScrollbar(model.scroll)
-        }
-    }
-}
-
-/** Play or carry on, play from the start, and mark as watched or not. */
-@Composable
-private fun PlayButtons(item: BaseItemDto, onSetPlayed: (Boolean) -> Unit) {
-    val navigator = LocalNavigator.current
-    val position = JellyfinClient.seconds(item.userData?.playbackPositionTicks)
-    val played = item.userData?.played == true
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(Spacings.small),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Button(onClick = { navigator.play(PlayerRequest.Jellyfin(item.id.toString())) }) {
-            AppIcon(name = "ic_play", contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(Spacings.small))
-            Text(if (position > 5) "Resume from ${formatDuration(position)}" else "Play")
-        }
-        if (position > 5) {
-            OutlinedButton(
-                onClick = {
-                    navigator.play(PlayerRequest.Jellyfin(item.id.toString(), fromStart = true))
-                }
-            ) {
-                Text("Play from the start")
-            }
-        }
-        TextButton(onClick = { onSetPlayed(!played) }) {
-            AppIcon(
-                name = if (played) "ic_eye_off" else "ic_check",
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(Spacings.small))
-            Text(if (played) "Mark unwatched" else "Mark watched")
         }
     }
 }
@@ -585,90 +535,85 @@ fun JellyfinShowScreen(seriesId: String) {
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = model.listState,
-                contentPadding =
-                    PaddingValues(
-                        start = Spacings.default,
-                        end = Spacings.default,
-                        bottom = Spacings.default,
-                    ),
+                contentPadding = PaddingValues(bottom = Spacings.large),
                 verticalArrangement = Arrangement.spacedBy(Spacings.small),
             ) {
                 item(key = "header") {
                     Column {
-                        Backdrop(show)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(Spacings.large),
-                            modifier = Modifier.padding(top = Spacings.medium),
-                        ) {
-                            JellyfinImage(
-                                url = posterUrl(show),
-                                modifier =
-                                    Modifier.width(200.dp)
-                                        .aspectRatio(2f / 3f)
-                                        .clip(MaterialTheme.shapes.medium),
-                            )
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(Spacings.small),
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text(
-                                    show.name.orEmpty(),
-                                    style = MaterialTheme.typography.headlineMedium,
+                        DetailHeader(
+                            title = show.name.orEmpty(),
+                            info = itemInfo(show),
+                            backdrop = {
+                                JellyfinImage(
+                                    url = backdropUrl(app.jellyfin, show),
+                                    modifier = Modifier.fillMaxSize(),
                                 )
-                                Text(
-                                    text = itemDetails(show),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            },
+                            poster = {
+                                JellyfinImage(
+                                    url = posterUrl(show),
+                                    modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                                 )
-                                model.nextUp?.let { next ->
-                                    Button(
-                                        onClick = {
-                                            navigator.play(
-                                                PlayerRequest.Jellyfin(next.id.toString())
-                                            )
+                            },
+                            posterWidth = 240.dp,
+                            buttons = {
+                                val next = model.nextUp
+                                DetailButton(
+                                    icon = "ic_play",
+                                    label = next?.let { "Play ${episodeTitle(it)}" } ?: "Play",
+                                    onClick = {
+                                        next?.let {
+                                            navigator.play(PlayerRequest.Jellyfin(it.id.toString()))
                                         }
-                                    ) {
-                                        AppIcon(
-                                            name = "ic_play",
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                        Spacer(Modifier.width(Spacings.small))
-                                        Text("Play ${episodeTitle(next)}")
+                                    },
+                                    main = true,
+                                    enabled = next != null,
+                                )
+                            },
+                            details = {
+                                show.genres
+                                    ?.takeIf { it.isNotEmpty() }
+                                    ?.let {
+                                        DetailLine(label = "Genres", value = it.joinToString(", "))
                                     }
-                                }
                                 show.overview?.let {
                                     Text(
                                         text = it,
                                         style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 8,
+                                        maxLines = 6,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.widthIn(max = 900.dp),
                                     )
                                 }
-                            }
-                        }
+                            },
+                        )
                         if (model.seasons.size > 1) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(Spacings.small),
+                            HeaderTabs(
+                                tabs = model.seasons.map { it.name.orEmpty() },
+                                selected =
+                                    model.seasons
+                                        .indexOfFirst { it.id == model.season?.id }
+                                        .coerceAtLeast(0),
+                                onSelect = { model.select(model.seasons[it]) },
                                 modifier =
-                                    Modifier.padding(top = Spacings.large, bottom = Spacings.small)
-                                        .horizontalScrollIfNeeded(),
-                            ) {
-                                model.seasons.forEach { season ->
-                                    FilterChip(
-                                        selected = model.season?.id == season.id,
-                                        onClick = { model.select(season) },
-                                        label = { Text(season.name.orEmpty()) },
-                                    )
-                                }
-                            }
+                                    Modifier.padding(
+                                            start = PagePadding - 14.dp,
+                                            top = Spacings.large,
+                                            bottom = Spacings.small,
+                                        )
+                                        .horizontalScroll(rememberScrollState()),
+                            )
                         } else {
                             Spacer(Modifier.height(Spacings.large))
                         }
                     }
                 }
-                items(model.episodes, key = { it.id }) { episode -> EpisodeRow(episode) }
+                items(model.episodes, key = { it.id }) { episode ->
+                    EpisodeRow(
+                        episode = episode,
+                        modifier = Modifier.padding(horizontal = PagePadding - 8.dp),
+                    )
+                }
             }
             ListScrollbar(model.listState)
         }
@@ -677,21 +622,20 @@ fun JellyfinShowScreen(seriesId: String) {
 
 /** An episode: its picture, number and name, what it's about, and whether it was watched. */
 @Composable
-private fun EpisodeRow(episode: BaseItemDto) {
+private fun EpisodeRow(episode: BaseItemDto, modifier: Modifier = Modifier) {
     val app = LocalApp.current
     val navigator = LocalNavigator.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacings.medium),
         modifier =
-            Modifier.fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
+            modifier
+                .fillMaxWidth()
+                .clip(CardShape)
                 .clickable { navigator.open(Route.JellyfinItem(episode.id.toString())) }
                 .padding(Spacings.small),
     ) {
-        Box(
-            modifier = Modifier.width(240.dp).aspectRatio(16f / 9f).clip(MaterialTheme.shapes.small)
-        ) {
+        Box(modifier = Modifier.width(240.dp).aspectRatio(16f / 9f).clip(CardShape)) {
             JellyfinImage(url = wideUrl(app.jellyfin, episode), modifier = Modifier.fillMaxSize())
             WatchedMarks(episode)
         }
@@ -724,35 +668,24 @@ private fun EpisodeRow(episode: BaseItemDto) {
 
 // Pieces
 
-/** A movie's or show's poster, with its name and year. */
+/** A movie's or show's poster, with its name and year, as Jellyfin's cards. */
 @Composable
 fun PosterCard(item: BaseItemDto, modifier: Modifier = Modifier) {
     val navigator = LocalNavigator.current
-    Column(
-        modifier =
-            modifier.clip(MaterialTheme.shapes.medium).clickable { navigator.open(item.route()) }
+    MediaCard(
+        title = item.name.orEmpty(),
+        subtitle = item.productionYear?.toString(),
+        onClick = { navigator.open(item.route()) },
+        onPlay =
+            if (item.type == BaseItemKind.SERIES) null
+            else {
+                { navigator.play(PlayerRequest.Jellyfin(item.id.toString())) }
+            },
+        aspectRatio = 2f / 3f,
+        modifier = modifier,
     ) {
-        Box(
-            modifier =
-                Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(MaterialTheme.shapes.medium)
-        ) {
-            JellyfinImage(url = posterUrl(item), modifier = Modifier.fillMaxSize())
-            WatchedMarks(item)
-        }
-        Text(
-            text = item.name.orEmpty(),
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = Spacings.small),
-        )
-        item.productionYear?.let {
-            Text(
-                text = it.toString(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        JellyfinImage(url = posterUrl(item), modifier = Modifier.fillMaxSize())
+        WatchedMarks(item)
     }
 }
 
@@ -761,38 +694,16 @@ fun PosterCard(item: BaseItemDto, modifier: Modifier = Modifier) {
 fun WideCard(item: BaseItemDto, modifier: Modifier = Modifier) {
     val app = LocalApp.current
     val navigator = LocalNavigator.current
-    Column(
-        modifier =
-            modifier.clip(MaterialTheme.shapes.medium).clickable {
-                navigator.play(PlayerRequest.Jellyfin(item.id.toString()))
-            }
+    val episode = item.type == BaseItemKind.EPISODE
+    MediaCard(
+        title = if (episode) item.seriesName.orEmpty() else item.name.orEmpty(),
+        subtitle = if (episode) episodeTitle(item) else item.productionYear?.toString(),
+        onClick = { navigator.open(item.route()) },
+        onPlay = { navigator.play(PlayerRequest.Jellyfin(item.id.toString())) },
+        modifier = modifier,
     ) {
-        Box(
-            modifier =
-                Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(MaterialTheme.shapes.medium)
-        ) {
-            JellyfinImage(url = wideUrl(app.jellyfin, item), modifier = Modifier.fillMaxSize())
-            WatchedMarks(item)
-        }
-        Text(
-            text =
-                if (item.type == BaseItemKind.EPISODE) item.seriesName.orEmpty()
-                else item.name.orEmpty(),
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier =
-                Modifier.padding(top = Spacings.small).clickable { navigator.open(item.route()) },
-        )
-        if (item.type == BaseItemKind.EPISODE) {
-            Text(
-                text = episodeTitle(item),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        JellyfinImage(url = wideUrl(app.jellyfin, item), modifier = Modifier.fillMaxSize())
+        WatchedMarks(item)
     }
 }
 
@@ -844,30 +755,6 @@ private fun WatchedMarks(item: BaseItemDto) {
     }
 }
 
-/** How far a movie or episode got, as a bar under its details. */
-@Composable
-private fun Progress(item: BaseItemDto) {
-    val percent = item.userData?.playedPercentage ?: return
-    if (percent <= 0 || item.userData?.played == true) return
-    LinearProgressIndicator(
-        progress = { (percent / 100).toFloat().coerceIn(0f, 1f) },
-        modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth(),
-    )
-}
-
-/** The wide picture behind the top of an item's page, as wide as the page. */
-@Composable
-private fun Backdrop(item: BaseItemDto) {
-    val app = LocalApp.current
-    val url = backdropUrl(app.jellyfin, item) ?: return
-    Box(
-        modifier =
-            Modifier.bleed(Spacings.default).fillMaxWidth().aspectRatio(BACKDROP_ASPECT_RATIO)
-    ) {
-        JellyfinImage(url = url, modifier = Modifier.fillMaxSize())
-    }
-}
-
 /** A picture from Jellyfin, which doesn't need signing in for. */
 @Composable
 fun JellyfinImage(url: String?, modifier: Modifier = Modifier) {
@@ -878,6 +765,32 @@ fun JellyfinImage(url: String?, modifier: Modifier = Modifier) {
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest),
     )
 }
+
+/**
+ * The facts under an item's name, as on Jellyfin: year, length, rating, age rating, seasons, and
+ * when it would end if started now.
+ */
+private fun itemInfo(item: BaseItemDto): List<String> =
+    listOfNotNull(
+        item.productionYear?.toString(),
+        item.runTimeTicks?.let { runtime(JellyfinClient.seconds(it)) },
+        item.communityRating?.let { "★ %.1f".format(it) },
+        item.officialRating,
+        item.childCount
+            ?.takeIf { item.type == BaseItemKind.SERIES }
+            ?.let { if (it == 1) "1 season" else "$it seasons" },
+        item.runTimeTicks
+            ?.takeIf { item.type != BaseItemKind.SERIES }
+            ?.let { ticks ->
+                val left =
+                    JellyfinClient.seconds(ticks) -
+                        JellyfinClient.seconds(item.userData?.playbackPositionTicks)
+                "Ends at " +
+                    java.time.LocalTime.now()
+                        .plusSeconds(left.toLong().coerceAtLeast(0))
+                        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+            },
+    )
 
 /** Year, length, rating and age rating, such as "2019 · 1 h 52 min · ★ 7.8 · 12". */
 private fun itemDetails(item: BaseItemDto): String =
@@ -937,10 +850,3 @@ private fun backdropUrl(client: JellyfinClient, item: BaseItemDto): String? {
     val tag = item.parentBackdropImageTags?.firstOrNull() ?: return null
     return client.imageUrl(parent, ImageType.BACKDROP, tag, 1600)
 }
-
-/** Lets a row of season chips scroll sideways when there are more than fit. */
-@Composable
-private fun Modifier.horizontalScrollIfNeeded(): Modifier =
-    this.then(Modifier.horizontalScroll(rememberScrollState()))
-
-private const val BACKDROP_ASPECT_RATIO = 3.2f

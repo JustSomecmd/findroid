@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,14 +17,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -43,9 +43,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.jdtech.tubedroid.desktop.jellyfin.JellyfinHomeScreen
 import dev.jdtech.tubedroid.desktop.jellyfin.JellyfinItemScreen
@@ -64,6 +67,7 @@ import dev.jdtech.tubedroid.desktop.screens.SearchScreen
 import dev.jdtech.tubedroid.desktop.screens.SettingsScreen
 import dev.jdtech.tubedroid.desktop.screens.StatsScreen
 import dev.jdtech.tubedroid.desktop.screens.VideoScreen
+import dev.jdtech.tubedroid.desktop.screens.VideosScreen
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
 import dev.jdtech.tubedroid.desktop.ui.WinchivistLogo
@@ -98,7 +102,7 @@ class Shell : Navigator {
         get() = stacks.getValue(section).size > 1
 
     /** Goes to a section, or back to its first page when it's already showing. */
-    fun select(target: Section) {
+    override fun select(target: Section) {
         if (target == section) {
             val stack = stacks.getValue(section)
             while (stack.size > 1) stack.removeAt(stack.lastIndex).dispose()
@@ -155,7 +159,7 @@ fun ShellContent(shell: Shell) {
                 PlayerScreen(request = request, onClose = shell::closePlayer)
             } else {
                 Row(modifier = Modifier.fillMaxSize()) {
-                    SectionRail(shell)
+                    Sidebar(shell)
                     Surface(
                         color = MaterialTheme.colorScheme.background,
                         modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -184,8 +188,13 @@ fun ShellContent(shell: Shell) {
     }
 }
 
+/**
+ * The sidebar, as Jellyfin's menu: the app's name at the top, Home, then TubeArchivist's and
+ * Jellyfin's libraries under their names, the server's pages in the server's colors, and Settings
+ * at the bottom.
+ */
 @Composable
-private fun SectionRail(shell: Shell) {
+private fun Sidebar(shell: Shell) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var updateOpen by remember { mutableStateOf(false) }
@@ -197,50 +206,53 @@ private fun SectionRail(shell: Shell) {
         }
     }
 
-    NavigationRail(
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        header = {
-            WinchivistLogo(modifier = Modifier.padding(top = 12.dp).size(40.dp))
-            Spacer(Modifier.height(8.dp))
-        },
+    Column(
+        modifier =
+            Modifier.width(SIDEBAR_WIDTH)
+                .fillMaxHeight()
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 10.dp),
         ) {
-            RailItems(shell, RailGroup.TUBEARCHIVIST)
+            WinchivistLogo(modifier = Modifier.size(32.dp))
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "Winchivist",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            SidebarItems(shell, RailGroup.TOP)
+            SidebarHeader("TubeArchivist")
+            SidebarItems(shell, RailGroup.TUBEARCHIVIST)
+            if (app.jellyfin.isSignedIn) {
+                SidebarHeader("Jellyfin")
+                SidebarItems(shell, RailGroup.JELLYFIN)
+            }
             // TubeArchivist itself, in the server's colors as its pages are
             ServerSideTheme(onServer = true) {
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
                     modifier =
-                        Modifier.padding(vertical = 8.dp)
-                            .clip(MaterialTheme.shapes.large)
+                        Modifier.padding(horizontal = 8.dp, vertical = 12.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .padding(vertical = 6.dp),
+                            .padding(vertical = 4.dp)
                 ) {
-                    RailGroupLabel("Server")
-                    RailItems(shell, RailGroup.SERVER)
+                    SidebarHeader("Server", top = 6.dp)
+                    SidebarItems(shell, RailGroup.SERVER, inset = 0.dp)
                 }
-            }
-            if (app.jellyfin.isSignedIn) {
-                RailGroupLabel("Jellyfin")
-                RailItems(shell, RailGroup.JELLYFIN)
             }
         }
         app.updates.available?.let { release ->
-            NavigationRailItem(
+            SidebarItem(
+                label = "Update to ${release.version}",
+                icon = "ic_download",
                 selected = false,
+                accent = true,
                 onClick = { updateOpen = true },
-                icon = { AppIcon(name = "ic_download", contentDescription = null) },
-                label = { Text("Update") },
-                colors =
-                    NavigationRailItemDefaults.colors(
-                        unselectedIconColor = MaterialTheme.colorScheme.primary,
-                        unselectedTextColor = MaterialTheme.colorScheme.primary,
-                    ),
             )
             if (updateOpen) {
                 UpdateDialog(
@@ -262,32 +274,78 @@ private fun SectionRail(shell: Shell) {
                 )
             }
         }
-        RailItems(shell, RailGroup.END)
-        Spacer(Modifier.height(12.dp))
+        SidebarItems(shell, RailGroup.END)
+        Spacer(Modifier.height(10.dp))
     }
 }
 
+private val SIDEBAR_WIDTH = 232.dp
+
 @Composable
-private fun RailItems(shell: Shell, group: RailGroup) {
+private fun SidebarItems(shell: Shell, group: RailGroup, inset: Dp = 8.dp) {
     Section.entries
         .filter { it.group == group }
         .forEach { section ->
-            NavigationRailItem(
+            SidebarItem(
+                label = section.label,
+                icon = section.icon,
                 selected = shell.section == section,
                 onClick = { shell.select(section) },
-                icon = { AppIcon(name = section.icon, contentDescription = null) },
-                label = { Text(section.label) },
+                inset = inset,
             )
         }
 }
 
+/** A line of the sidebar: icon and name, lit in the accent while its section shows. */
 @Composable
-private fun RailGroupLabel(text: String) {
+private fun SidebarItem(
+    label: String,
+    icon: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    accent: Boolean = false,
+    inset: Dp = 8.dp,
+) {
+    val lit = selected || accent
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier.fillMaxWidth()
+                .padding(horizontal = inset, vertical = 1.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(
+                    if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                    else Color.Transparent
+                )
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        AppIcon(
+            name = icon,
+            contentDescription = null,
+            tint =
+                if (lit) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color =
+                if (lit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun SidebarHeader(text: String, top: Dp = 18.dp) {
     Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelSmall,
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+        modifier = Modifier.padding(start = 22.dp, top = top, bottom = 6.dp),
     )
 }
 
@@ -331,6 +389,7 @@ private const val UPDATE_CHECK_DELAY_MS = 5_000L
 private fun PageContent(route: Route) {
     when (route) {
         Route.Home -> HomeScreen()
+        Route.Videos -> VideosScreen()
         Route.Channels -> ChannelsScreen()
         Route.Playlists -> PlaylistsScreen()
         Route.Downloads -> DownloadsScreen()

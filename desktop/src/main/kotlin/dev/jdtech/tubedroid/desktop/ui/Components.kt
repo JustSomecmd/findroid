@@ -1,18 +1,13 @@
 package dev.jdtech.tubedroid.desktop.ui
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -50,7 +45,6 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.Dp
@@ -60,6 +54,8 @@ import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylist
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.tubedroid.desktop.LocalApp
+import dev.jdtech.tubedroid.desktop.LocalNavigator
+import dev.jdtech.tubedroid.desktop.player.PlayerRequest
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** An image from TubeArchivist, by the path the API gives, such as /cache/videos/... */
@@ -100,77 +96,75 @@ fun OverlayLabel(text: String, modifier: Modifier = Modifier) {
 /** A video's thumbnail with its length, watched tick and how far it was watched. */
 @Composable
 fun VideoThumbnail(video: TaVideo, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.aspectRatio(16f / 9f).clip(MaterialTheme.shapes.medium)) {
-        TaImage(path = video.thumbUrl, modifier = Modifier.fillMaxSize())
-        val player = video.player
-        if (player != null && player.duration > 0) {
-            OverlayLabel(
-                text = formatDuration(player.duration),
-                modifier = Modifier.align(Alignment.BottomEnd).padding(Spacings.small),
+    Box(modifier = modifier.aspectRatio(16f / 9f).clip(CardShape)) { VideoThumbnailContent(video) }
+}
+
+/** What a video's thumbnail shows, inside a card's picture. */
+@Composable
+fun BoxScope.VideoThumbnailContent(video: TaVideo) {
+    TaImage(path = video.thumbUrl, modifier = Modifier.fillMaxSize())
+    val player = video.player
+    if (player != null && player.duration > 0) {
+        OverlayLabel(
+            text = formatDuration(player.duration),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(Spacings.small),
+        )
+    }
+    if (player?.watched == true) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.align(Alignment.TopEnd).padding(Spacings.small),
+        ) {
+            AppIcon(
+                name = "ic_check",
+                contentDescription = "Watched",
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.padding(4.dp).size(14.dp),
             )
         }
-        if (player?.watched == true) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.align(Alignment.TopEnd).padding(Spacings.small),
-            ) {
-                AppIcon(
-                    name = "ic_check",
-                    contentDescription = "Watched",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(4.dp).size(14.dp),
-                )
-            }
-        }
-        val progress = player?.progress
-        if (player?.watched != true && progress != null && progress > 0) {
+    }
+    val progress = player?.progress
+    if (player?.watched != true && progress != null && progress > 0) {
+        Box(
+            modifier =
+                Modifier.align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .background(Color.Black.copy(alpha = 0.4f))
+        ) {
             Box(
                 modifier =
-                    Modifier.align(Alignment.BottomStart)
-                        .fillMaxWidth()
+                    Modifier.fillMaxWidth((progress / 100).toFloat().coerceIn(0f, 1f))
                         .height(4.dp)
-                        .background(Color.Black.copy(alpha = 0.4f))
-            ) {
-                Box(
-                    modifier =
-                        Modifier.fillMaxWidth((progress / 100).toFloat().coerceIn(0f, 1f))
-                            .height(4.dp)
-                            .background(MaterialTheme.colorScheme.primary)
-                )
-            }
+                        .background(MaterialTheme.colorScheme.primary)
+            )
         }
     }
 }
 
-// Clear of the card's rounded corners, which would cut off the first letters
-private val CardTextPadding = PaddingValues(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 10.dp)
-
-/** A video with its thumbnail on top, as in a feed. */
+/**
+ * A video as a card, as Jellyfin shows episodes: the thumbnail, then the title and the channel. The
+ * play button on hover plays it straight away.
+ */
 @Composable
 fun VideoCard(
     video: TaVideo,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     showChannel: Boolean = true,
+    actions: List<ItemAction> = emptyList(),
 ) {
-    Column(modifier = modifier.clip(MaterialTheme.shapes.medium).clickable(onClick = onClick)) {
-        VideoThumbnail(video = video, modifier = Modifier.fillMaxWidth())
-        Column(modifier = Modifier.padding(CardTextPadding)) {
-            Text(
-                text = video.title,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = videoSubtitle(video, showChannel),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+    val navigator = LocalNavigator.current
+    MediaCard(
+        title = video.title,
+        subtitle = videoSubtitle(video, showChannel),
+        onClick = onClick,
+        onPlay = { navigator.play(PlayerRequest.Ta(videoId = video.youtubeId)) },
+        actions = actions,
+        modifier = modifier,
+    ) {
+        VideoThumbnailContent(video)
     }
 }
 
@@ -187,7 +181,7 @@ fun VideoRow(
         modifier =
             modifier
                 .fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
+                .clip(CardShape)
                 .clickable(onClick = onClick)
                 .padding(Spacings.extraSmall),
     ) {
@@ -227,67 +221,49 @@ fun videoSubtitle(video: TaVideo, showChannel: Boolean): String {
     return parts.joinToString(" • ")
 }
 
+/** A channel as a square card with its picture, its name and how many subscribe to it. */
 @Composable
 fun ChannelItem(channel: TaChannel, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier =
-            modifier
-                .clip(MaterialTheme.shapes.medium)
-                .clickable(onClick = onClick)
-                .padding(Spacings.small),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    MediaCard(
+        title = channel.name,
+        subtitle = channel.subs?.let { "${formatCount(it)} subscribers" },
+        onClick = onClick,
+        aspectRatio = 1f,
+        modifier = modifier,
     ) {
-        TaAvatar(path = channel.thumbUrl, size = 96.dp)
-        Spacer(Modifier.height(Spacings.small))
-        Text(
-            text = channel.name,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        channel.subs?.let { subs ->
-            Text(
-                text = "${formatCount(subs)} subscribers",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
+        TaImage(path = channel.thumbUrl, modifier = Modifier.fillMaxSize())
     }
 }
 
+/** A playlist as a card: its picture with how many videos it has, its name and channel. */
 @Composable
 fun PlaylistCard(playlist: TaPlaylist, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier = modifier.clip(MaterialTheme.shapes.medium).clickable(onClick = onClick)) {
-        Box(
-            modifier =
-                Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(MaterialTheme.shapes.medium)
-        ) {
-            TaImage(path = playlist.thumbUrl, modifier = Modifier.fillMaxSize())
-            if (playlist.entries.isNotEmpty()) {
-                OverlayLabel(
-                    text = "${playlist.entries.size} videos",
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(Spacings.small),
-                )
-            }
-        }
-        Column(modifier = Modifier.padding(CardTextPadding)) {
-            Text(
-                text = playlist.name,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+    val navigator = LocalNavigator.current
+    val first = playlist.entries.firstOrNull { it.downloaded }
+    MediaCard(
+        title = playlist.name,
+        subtitle = playlist.channelName,
+        onClick = onClick,
+        onPlay =
+            first?.let { entry ->
+                {
+                    navigator.play(
+                        PlayerRequest.Ta(
+                            videoId = entry.youtubeId,
+                            playlistId = playlist.id,
+                            fromStart = true,
+                        )
+                    )
+                }
+            },
+        modifier = modifier,
+    ) {
+        TaImage(path = playlist.thumbUrl, modifier = Modifier.fillMaxSize())
+        if (playlist.entries.isNotEmpty()) {
+            OverlayLabel(
+                text = "${playlist.entries.size} videos",
+                modifier = Modifier.align(Alignment.BottomEnd).padding(Spacings.small),
             )
-            playlist.channelName?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
     }
 }
@@ -296,8 +272,8 @@ fun PlaylistCard(playlist: TaPlaylist, onClick: () -> Unit, modifier: Modifier =
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Medium,
         modifier = modifier.padding(vertical = Spacings.small),
     )
 }
@@ -423,108 +399,6 @@ fun rememberLinkedText(text: String): AnnotatedString {
 }
 
 private val urlPattern = Regex("""https?://[^\s<>"]+""")
-
-/**
- * Which side of a page is shown: this computer's, or the server's, with its settings and actions.
- * Tapping flips it; the page's colors swap to show the server side.
- */
-@Composable
-fun SideSwitch(
-    onServer: Boolean,
-    onToggle: () -> Unit,
-    localLabel: String,
-    modifier: Modifier = Modifier,
-    localIcon: String = "ic_monitor",
-) {
-    Surface(
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = modifier.clip(CircleShape).clickable(onClick = onToggle),
-    ) {
-        Row(modifier = Modifier.padding(2.dp)) {
-            SideSegment(icon = localIcon, label = localLabel, selected = !onServer)
-            SideSegment(icon = "ic_server", label = "Server", selected = onServer)
-        }
-    }
-}
-
-@Composable
-private fun SideSegment(icon: String, label: String, selected: Boolean) {
-    val background by
-        animateColorAsState(
-            if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-            label = "side background",
-        )
-    val content by
-        animateColorAsState(
-            if (selected) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-            label = "side content",
-        )
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier =
-            Modifier.clip(CircleShape)
-                .background(background)
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-                .animateContentSize(),
-    ) {
-        AppIcon(
-            name = icon,
-            contentDescription = label,
-            tint = content,
-            modifier = Modifier.size(18.dp),
-        )
-        if (selected) {
-            Spacer(Modifier.width(6.dp))
-            Text(text = label, style = MaterialTheme.typography.labelLarge, color = content)
-        }
-    }
-}
-
-/**
- * The bar at the top of a page: a back button when there's somewhere to go back to, and actions.
- */
-@Composable
-fun PageBar(
-    title: String?,
-    onBack: (() -> Unit)?,
-    modifier: Modifier = Modifier,
-    actions: @Composable RowScope.() -> Unit = {},
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacings.small),
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .height(64.dp)
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .padding(horizontal = Spacings.medium),
-    ) {
-        if (onBack != null) {
-            Surface(
-                shape = CircleShape,
-                color = Color.Transparent,
-                modifier = Modifier.clip(CircleShape).clickable(onClick = onBack),
-            ) {
-                AppIcon(
-                    name = "ic_arrow_left",
-                    contentDescription = "Back",
-                    modifier = Modifier.padding(Spacings.small).size(22.dp),
-                )
-            }
-        }
-        Text(
-            text = title.orEmpty(),
-            style = MaterialTheme.typography.titleLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        actions()
-    }
-}
 
 /** Asks before something that can't be undone, such as deleting videos from the server. */
 @Composable
