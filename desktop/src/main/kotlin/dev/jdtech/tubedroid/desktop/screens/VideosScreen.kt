@@ -125,7 +125,9 @@ fun VideosScreen() {
         )
         LibraryToolbar(
             count =
-                model.videos.total?.let { "${formatCount(it)} ${model.type.label.lowercase()}" },
+                model.videos.total?.let {
+                    "${formatCount(it.toLong())} ${model.type.label.lowercase()}"
+                },
             sortLabel = model.sort.label,
             sortOptions = VideoSort.entries.map { it.label },
             onSort = { model.show(sort = VideoSort.entries[it]) },

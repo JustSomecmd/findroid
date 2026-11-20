@@ -281,6 +281,14 @@ private fun PlaybackSettings(settings: AppSettings) {
         checked = settings.autoplay,
         onChange = { settings.autoplay = it },
     )
+    SwitchRow(
+        title = "Controls over the video",
+        subtitle =
+            "As on Jellyfin. Turn this off if the controls show on black instead of over the " +
+                "picture; they then sit above and below it",
+        checked = settings.playerControlsOverVideo,
+        onChange = { settings.playerControlsOverVideo = it },
+    )
     ChoiceRow(
         title = "SponsorBlock",
         subtitle = "For videos TubeArchivist has SponsorBlock segments for",

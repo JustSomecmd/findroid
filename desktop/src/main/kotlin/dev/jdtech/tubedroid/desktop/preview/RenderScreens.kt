@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.window.WindowState
@@ -44,8 +45,11 @@ import dev.jdtech.tubedroid.desktop.Section
 import dev.jdtech.tubedroid.desktop.Shell
 import dev.jdtech.tubedroid.desktop.ShellContent
 import dev.jdtech.tubedroid.desktop.player.MpvLoader
+import dev.jdtech.tubedroid.desktop.player.PlayerOsd
 import dev.jdtech.tubedroid.desktop.player.PlayerRequest
+import dev.jdtech.tubedroid.desktop.player.PlayerSession
 import dev.jdtech.tubedroid.desktop.player.PlaylistPanel
+import dev.jdtech.tubedroid.desktop.player.TaPlaybackSource
 import dev.jdtech.tubedroid.desktop.screens.ChannelModel
 import dev.jdtech.tubedroid.desktop.screens.SearchModel
 import dev.jdtech.tubedroid.desktop.screens.SettingsScreen
@@ -192,6 +196,59 @@ fun main(args: Array<String>) {
         }
         println("Rendered player-playlist")
         playlistScene.close()
+
+        // The controls over the video, with a made-up picture behind them
+        val osdSession =
+            PlayerSession(
+                TaPlaybackSource(
+                    graph.api,
+                    settings,
+                    graph.history,
+                    PlayerRequest.Ta(
+                        videoId = SampleData.videos[2].youtubeId,
+                        playlistId = SampleData.playlists[1].id,
+                    ),
+                ),
+                settings,
+                this,
+            )
+        osdSession.load()
+        osdSession.showForPreview(
+            position = 312.0,
+            duration = 790.0,
+            chapters = listOf(150.0, 612.0),
+        )
+        val osdScene =
+            ImageComposeScene(width = 1360, height = 860, density = Density(1f)) {
+                CompositionLocalProvider(LocalApp provides graph) {
+                    TubedroidTheme(accent = settings.accent) {
+                        Box(
+                            modifier =
+                                Modifier.fillMaxSize()
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(
+                                                ComposeColor(0xFF4A6B8C),
+                                                ComposeColor(0xFF22331F),
+                                            )
+                                        )
+                                    )
+                        ) {
+                            PlayerOsd(session = osdSession, onClose = {}, onOpenPlaylistPage = {})
+                        }
+                    }
+                }
+            }
+        repeat(16) {
+            osdScene.render(time)
+            time += 200_000_000L
+            delay(200)
+        }
+        osdScene.render(time).encodeToData(EncodedImageFormat.PNG)?.let {
+            File(output, "player-osd.png").writeBytes(it.bytes)
+        }
+        println("Rendered player-osd")
+        osdScene.close()
 
         val firstRun =
             ImageComposeScene(width = 1360, height = 860, density = Density(1f)) {

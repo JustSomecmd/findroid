@@ -699,3 +699,11 @@ fun videoCount(count: Long): String = "${formatNumber(count)} video${if (count =
 /** 0.2612 as 26.1. */
 private fun formatPercent(fraction: Double): String =
     String.format(Locale.getDefault(), "%.1f", fraction * 100)
+
+/** How many cards sit side by side: one in a narrow window, up to three in a wide one. */
+private fun carouselPages(width: Dp): Int =
+    when {
+        width >= 840.dp -> 3
+        width >= 600.dp -> 2
+        else -> 1
+    }

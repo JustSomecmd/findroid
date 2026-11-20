@@ -1,7 +1,5 @@
 package dev.jdtech.tubedroid.desktop.player
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +32,7 @@ import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.ListScrollbar
 import dev.jdtech.tubedroid.desktop.ui.Spacings
+import dev.jdtech.tubedroid.desktop.ui.Tooltip
 import dev.jdtech.tubedroid.desktop.ui.VideoThumbnail
 
 /** How wide the playlist beside the video is. */
@@ -87,7 +86,7 @@ internal fun PlaylistPanel(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                WithTooltip(if (loop) "Looping the playlist" else "Loop the playlist") {
+                Tooltip(if (loop) "Looping the playlist" else "Loop the playlist") {
                     FilledIconToggleButton(checked = loop, onCheckedChange = onLoopChange) {
                         AppIcon(
                             name = "ic_repeat",
@@ -96,7 +95,7 @@ internal fun PlaylistPanel(
                         )
                     }
                 }
-                WithTooltip("Open the playlist's page") {
+                Tooltip("Open the playlist's page") {
                     IconButton(onClick = onOpenPage) {
                         AppIcon(
                             name = "ic_external_link",
@@ -180,25 +179,4 @@ private fun PlaylistRow(number: Int, video: TaVideo, current: Boolean, onClick: 
             }
         }
     }
-}
-
-/** A tooltip with [text] when the mouse rests on [content]. */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-internal fun WithTooltip(text: String, content: @Composable () -> Unit) {
-    TooltipArea(
-        tooltip = {
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.inverseSurface,
-            ) {
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
-        },
-        content = content,
-    )
 }

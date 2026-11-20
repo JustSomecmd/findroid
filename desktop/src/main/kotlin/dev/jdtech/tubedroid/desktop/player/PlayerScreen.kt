@@ -4,35 +4,22 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,32 +27,39 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.awt.ComposeDialog
 import androidx.compose.ui.awt.SwingPanel
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPlacement
 import com.sun.jna.Native
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.tubedroid.desktop.AppSettings
 import dev.jdtech.tubedroid.desktop.LocalApp
+import dev.jdtech.tubedroid.desktop.LocalAppWindow
 import dev.jdtech.tubedroid.desktop.LocalNavigator
 import dev.jdtech.tubedroid.desktop.LocalWindowState
 import dev.jdtech.tubedroid.desktop.Route
-import dev.jdtech.tubedroid.desktop.ui.AppIcon
 import dev.jdtech.tubedroid.desktop.ui.Spacings
+import dev.jdtech.tubedroid.desktop.ui.TubedroidTheme
 import dev.jdtech.tubedroid.desktop.ui.errorText
-import dev.jdtech.tubedroid.desktop.ui.formatDuration
 import java.awt.Canvas
 import java.awt.GraphicsEnvironment
-import java.awt.HeadlessException
+import java.awt.IllegalComponentStateException
 import java.awt.KeyEventDispatcher
 import java.awt.KeyboardFocusManager
-import java.awt.MouseInfo
-import java.awt.Point
+import java.awt.Window
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import java.awt.event.KeyEvent
 import java.util.Locale
+import javax.swing.RootPaneContainer
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -113,13 +107,112 @@ internal class PlayerSession(
     var speed by mutableStateOf(1.0)
         private set
 
-    /** The subtitle showing, by its name or language, or null when they're off. */
-    var subtitle by mutableStateOf<String?>(null)
+    /** A subtitle or sound track of the video, as mpv numbers them, with a name to show. */
+    data class Track(val id: Int, val label: String)
+
+    var subtitleTracks by mutableStateOf<List<Track>>(emptyList())
         private set
 
-    /** Whether the video has subtitles to switch between. */
-    var hasSubtitles by mutableStateOf(false)
+    var audioTracks by mutableStateOf<List<Track>>(emptyList())
         private set
+
+    /** The subtitle track showing, or null when they're off, and the sound track playing. */
+    var subtitleId by mutableStateOf<Int?>(null)
+        private set
+
+    var audioId by mutableStateOf<Int?>(null)
+        private set
+
+    /** Where the video's chapters start, in seconds, for the marks on the seek bar. */
+    var chapters by mutableStateOf<List<Double>>(emptyList())
+        private set
+
+    /** Whether mpv's playback info shows over the video. */
+    var statsShown by mutableStateOf(false)
+        private set
+
+    // Called off from the Up next card, for this video
+    private var upNextCancelled by mutableStateOf(false)
+
+    /** Whether the Up next card shows: near the end, when the next video plays on its own. */
+    val showUpNext: Boolean
+        get() =
+            upNext != null &&
+                settings.autoplay &&
+                !upNextCancelled &&
+                duration > 0 &&
+                duration - position in 0.0..UP_NEXT_SECONDS
+
+    /** Stops the next video playing on its own after this one. */
+    fun cancelUpNext() {
+        upNextCancelled = true
+    }
+
+    fun changeSpeed(value: Double) {
+        speed = value
+        player?.set("speed", value.toString())
+    }
+
+    fun selectSubtitle(id: Int?) {
+        subtitleId = id
+        player?.set("sid", id?.toString() ?: "no")
+    }
+
+    fun selectAudio(id: Int) {
+        audioId = id
+        player?.set("aid", id.toString())
+    }
+
+    /**
+     * Shows or hides mpv's own playback info over the video: formats, decoder and dropped frames.
+     */
+    fun toggleStats() {
+        statsShown = !statsShown
+        player?.command("script-binding", "stats/display-stats-toggle")
+    }
+
+    /** Reads the video's subtitle and sound tracks and its chapters from mpv. */
+    private fun readTracks(player: MpvPlayer) {
+        val count = player.get("track-list/count")?.toIntOrNull() ?: 0
+        val subtitles = mutableListOf<Track>()
+        val audio = mutableListOf<Track>()
+        for (index in 0 until count) {
+            val id = player.get("track-list/$index/id")?.toIntOrNull() ?: continue
+            val title = player.get("track-list/$index/title")?.takeIf { it.isNotBlank() }
+            val language =
+                player
+                    .get("track-list/$index/lang")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(::languageName)
+            val label =
+                when {
+                    title != null && language != null && !title.contains(language) ->
+                        "$title ($language)"
+                    else -> title ?: language ?: "Track $id"
+                }
+            when (player.get("track-list/$index/type")) {
+                "sub" -> subtitles += Track(id, label)
+                "audio" -> audio += Track(id, label)
+            }
+        }
+        subtitleTracks = subtitles
+        audioTracks = audio
+        val chapterCount = player.get("chapter-list/count")?.toIntOrNull() ?: 0
+        chapters = (0 until chapterCount).mapNotNull { player.getDouble("chapter-list/$it/time") }
+    }
+
+    /** A language's name in English, from a code such as en or eng. */
+    private fun languageName(code: String): String =
+        Locale.forLanguageTag(code).getDisplayLanguage(Locale.ENGLISH).ifBlank { code }
+
+    /** Shows the controls as at a point of the video, for the page renders without mpv. */
+    internal fun showForPreview(position: Double, duration: Double, chapters: List<Double>) {
+        this.position = position
+        this.duration = duration
+        this.chapters = chapters
+        loading = false
+        paused = true
+    }
 
     fun togglePause() {
         player?.command("cycle", "pause")
@@ -290,6 +383,10 @@ internal class PlayerSession(
         segment = null
         ended = false
         upNext = null
+        upNextCancelled = false
+        chapters = emptyList()
+        subtitleTracks = emptyList()
+        audioTracks = emptyList()
         position = item.resumeSeconds ?: 0.0
         lastReported = -1.0
         lastReport = System.currentTimeMillis()
@@ -329,8 +426,7 @@ internal class PlayerSession(
         item.subtitles.forEach { subtitle ->
             player.command("sub-add", subtitle.url, "auto", subtitle.title, subtitle.language ?: "")
         }
-        val tracks = player.get("track-list/count")?.toIntOrNull() ?: 0
-        hasSubtitles = (0 until tracks).any { player.get("track-list/$it/type") == "sub" }
+        readTracks(player)
         val at = item.resumeSeconds ?: 0.0
         backgroundScope.launch { runCatching { source.started(item, at) } }
     }
@@ -354,12 +450,8 @@ internal class PlayerSession(
         muted = player.getFlag("mute")
         player.getDouble("volume")?.let { volume = it }
         player.getDouble("speed")?.let { speed = it }
-        subtitle =
-            if (player.get("sid") == "no") null
-            else
-                player.get("current-tracks/sub/title")?.takeIf { it.isNotBlank() }
-                    ?: player.get("current-tracks/sub/lang")?.takeIf { it.isNotBlank() }
-                    ?: "On"
+        subtitleId = player.get("sid")?.toIntOrNull()
+        audioId = player.get("aid")?.toIntOrNull()
         // Until the new file has loaded, mpv's state can still be the last one's
         if (loading) return
         checkSegment(player)
@@ -416,7 +508,7 @@ internal class PlayerSession(
         val length = duration.takeIf { it > 0 } ?: position
         reportProgress(length, paused = true)
         backgroundScope.launch { runCatching { source.ended(current) } }
-        if (settings.autoplay && upNext != null) {
+        if (settings.autoplay && upNext != null && !upNextCancelled) {
             scope.launch {
                 delay(1500)
                 if (ended && item == current) playNext()
@@ -463,7 +555,10 @@ internal class PlayerSession(
 
     companion object {
         private const val PROGRESS_INTERVAL_MS = 10_000L
-        private val SPEEDS = listOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+        val SPEEDS = listOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+
+        /** How long before the end the Up next card shows, in seconds. */
+        private const val UP_NEXT_SECONDS = 20.0
 
         fun categoryName(category: String): String =
             when (category) {
@@ -481,15 +576,17 @@ internal class PlayerSession(
 }
 
 /**
- * Plays a video with mpv, drawn inside the window. mpv's own controls show on the video, its
- * keyboard shortcuts work once the video is clicked, and its double click goes full screen, as in
- * Jellyfin Media Player.
+ * Plays a video with mpv, drawn inside the window, with controls as Jellyfin's over it. mpv draws
+ * in a native window of its own that nothing in this window can be drawn over, so the controls sit
+ * in a see-through window on top, kept over the video as the window moves. Turned off in the
+ * settings, they go above and below the video instead.
  */
 @Composable
 fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
     val app = LocalApp.current
     val navigator = LocalNavigator.current
     val windowState = LocalWindowState.current
+    val appWindow = LocalAppWindow.current
     val scope = rememberCoroutineScope()
     val session =
         remember(request) {
@@ -545,328 +642,202 @@ fun PlayerScreen(request: PlayerRequest, onClose: () -> Unit) {
         onDispose { focusManager?.removeKeyEventDispatcher(keys) }
     }
 
-    // In full screen the bars hide until the mouse moves, which is read from the screen as mpv's
-    // window doesn't pass it on. They stay while the mouse is on them
-    val barsHover = remember { MutableInteractionSource() }
-    val onBars by barsHover.collectIsHoveredAsState()
-    var barsShown by remember { mutableStateOf(true) }
-    LaunchedEffect(session.fullscreen) {
-        barsShown = true
-        if (!session.fullscreen) return@LaunchedEffect
-        var last = pointerLocation()
-        var lastMove = System.currentTimeMillis()
-        while (isActive) {
-            delay(100)
-            val now = pointerLocation()
-            if (now != last) {
-                last = now
-                lastMove = System.currentTimeMillis()
-                barsShown = true
-            } else if (System.currentTimeMillis() - lastMove > BARS_HIDE_AFTER_MS) {
-                barsShown = onBars
-            }
-        }
+    val openPlaylistPage = {
+        val playlistId = (request as? PlayerRequest.Ta)?.playlistId
+        close()
+        if (playlistId != null) navigator.open(Route.Playlist(playlistId))
     }
-    val showBars = !session.fullscreen || barsShown
+    val video: @Composable () -> Unit = {
+        MpvVideo(lib = lib, session = session, settings = app.settings, onShutdown = { close() })
+    }
 
-    // Light text and icons on the dark bars; nothing else around them sets it
-    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-        Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-            if (showBars) {
-                PlayerBar(
-                    session = session,
-                    onClose = close,
-                    modifier = Modifier.hoverable(barsHover),
-                )
-            }
-            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                Box(
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (lib == null) {
-                        Message(MpvLoader.loadError ?: "Couldn't load mpv")
-                    } else {
-                        SwingPanel(
-                            background = Color.Black,
-                            modifier = Modifier.fillMaxSize(),
-                            factory = {
-                                MpvCanvas(
-                                    onReady = { canvas ->
-                                        try {
-                                            session.player =
-                                                MpvPlayer.create(
-                                                    lib = lib,
-                                                    wid = Native.getComponentID(canvas),
-                                                    options = mpvOptions(app.settings),
-                                                    onEvent = { event ->
-                                                        scope.launch(Dispatchers.Main) {
-                                                            when (event) {
-                                                                MpvEvent.FileLoaded ->
-                                                                    session.onFileLoaded()
-                                                                is MpvEvent.LoadFailed ->
-                                                                    session.onLoadFailed(
-                                                                        event.message
-                                                                    )
-                                                                MpvEvent.Shutdown -> close()
-                                                            }
-                                                        }
-                                                    },
-                                                )
-                                        } catch (e: Exception) {
-                                            session.error = e.message ?: e.toString()
-                                        }
-                                    },
-                                    onGone = { session.release() },
-                                )
-                            },
-                        )
-                    }
+    val overlay =
+        app.settings.playerControlsOverVideo &&
+            appWindow != null &&
+            lib != null &&
+            !GraphicsEnvironment.isHeadless()
+    if (overlay) {
+        var videoBounds by remember { mutableStateOf<Rect?>(null) }
+        Box(
+            modifier =
+                Modifier.fillMaxSize().background(Color.Black).onGloballyPositioned {
+                    videoBounds = it.boundsInWindow()
                 }
-                // Beside the video rather than over it, as mpv draws in a window of its own
-                AnimatedVisibility(
-                    visible = session.playlistOpen && !session.fullscreen,
-                    enter = expandHorizontally(expandFrom = Alignment.Start),
-                    exit = shrinkHorizontally(shrinkTowards = Alignment.Start),
-                ) {
-                    PlaylistPanel(
-                        name = session.playlistName,
-                        videos = session.playlistVideos,
-                        currentVideoId = session.item?.id,
-                        loop = session.loop,
-                        onPlay = session::playFromPlaylist,
-                        onLoopChange = session::changeLoop,
-                        onOpenPage = {
-                            val playlistId = (request as? PlayerRequest.Ta)?.playlistId
-                            close()
-                            if (playlistId != null) navigator.open(Route.Playlist(playlistId))
-                        },
+        ) {
+            video()
+        }
+        OverlayWindow(owner = appWindow!!, bounds = videoBounds) {
+            CompositionLocalProvider(LocalApp provides app) {
+                TubedroidTheme(accent = app.settings.accent) {
+                    PlayerOsd(
+                        session = session,
+                        onClose = { close() },
+                        onOpenPlaylistPage = openPlaylistPage,
                     )
                 }
             }
-            if (showBars) {
-                ControlBar(session = session, modifier = Modifier.hoverable(barsHover))
-            }
         }
+    } else {
+        PlayerWithBars(
+            session = session,
+            onClose = { close() },
+            onOpenPlaylistPage = openPlaylistPage,
+            video = video,
+        )
     }
 }
-
-/** Where the mouse is on the screen, or null when that can't be told. */
-private fun pointerLocation(): Point? =
-    try {
-        MouseInfo.getPointerInfo()?.location
-    } catch (e: HeadlessException) {
-        null
-    }
-
-private const val BARS_HIDE_AFTER_MS = 2_500L
 
 /**
- * The controls under the video: a seek bar with the times, play and pause, ten seconds back and
- * forward, the sound, speed, subtitles and full screen. They're Winchivist's own, as mpv's
- * on-screen controls can't be used while it draws inside Winchivist.
+ * The controls above and below the video rather than over it, for when the window over the video
+ * can't be shown. The playlist opens beside the video.
  */
 @Composable
-private fun ControlBar(session: PlayerSession, modifier: Modifier = Modifier) {
-    Column(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                .padding(horizontal = Spacings.medium, vertical = 4.dp)
-    ) {
-        SeekBar(session)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = session::togglePause) {
-                AppIcon(
-                    name = if (session.paused) "ic_play" else "ic_pause",
-                    contentDescription = if (session.paused) "Play" else "Pause",
+private fun PlayerWithBars(
+    session: PlayerSession,
+    onClose: () -> Unit,
+    onOpenPlaylistPage: () -> Unit,
+    video: @Composable () -> Unit,
+) {
+    val bars = MaterialTheme.colorScheme.surfaceContainerLowest
+    Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        OsdTop(
+            session = session,
+            onClose = onClose,
+            modifier = Modifier.background(bars).padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            Box(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentAlignment = Alignment.Center,
+            ) {
+                video()
+            }
+            AnimatedVisibility(
+                visible = session.playlistOpen,
+                enter = expandHorizontally(expandFrom = Alignment.Start),
+                exit = shrinkHorizontally(shrinkTowards = Alignment.Start),
+            ) {
+                PlaylistPanel(
+                    name = session.playlistName,
+                    videos = session.playlistVideos,
+                    currentVideoId = session.item?.id,
+                    loop = session.loop,
+                    onPlay = session::playFromPlaylist,
+                    onLoopChange = session::changeLoop,
+                    onOpenPage = onOpenPlaylistPage,
                 )
             }
-            IconButton(onClick = { session.seekBy(-10.0) }) {
-                AppIcon(
-                    name = "ic_rewind",
-                    contentDescription = "10 seconds back",
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            IconButton(onClick = { session.seekBy(10.0) }) {
-                AppIcon(
-                    name = "ic_fast_forward",
-                    contentDescription = "10 seconds forward",
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            IconButton(onClick = session::toggleMute) {
-                AppIcon(
-                    name = if (session.muted) "ic_volume_0" else "ic_volume",
-                    contentDescription = if (session.muted) "Sound on" else "Mute",
-                )
-            }
-            Slider(
-                value = if (session.muted) 0f else session.volume.toFloat().coerceIn(0f, 100f),
-                onValueChange = { session.changeVolume(it.toDouble()) },
-                valueRange = 0f..100f,
-                modifier = Modifier.width(110.dp),
+        }
+        Column(horizontalAlignment = Alignment.End, modifier = Modifier.background(bars)) {
+            OsdExtras(session = session, modifier = Modifier.padding(top = 8.dp, end = 20.dp))
+            OsdBottom(
+                session = session,
+                onMenu = {},
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
             )
-            Spacer(Modifier.width(Spacings.medium))
-            Text(
-                text =
-                    formatDuration(session.position) +
-                        " / " +
-                        formatDuration(session.duration.coerceAtLeast(0.0)),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = session::cycleSpeed) {
-                Text(String.format(Locale.ROOT, "%sx", session.speed.toString().removeSuffix(".0")))
-            }
-            if (session.hasSubtitles) {
-                TextButton(onClick = session::cycleSubtitles) {
-                    AppIcon(
-                        name = "ic_closed_caption",
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(Spacings.small))
-                    Text(
-                        text = session.subtitle ?: "Off",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 160.dp),
-                    )
-                }
-            }
-            IconButton(onClick = session::toggleFullscreen) {
-                AppIcon(
-                    name = if (session.fullscreen) "ic_minimize" else "ic_maximize",
-                    contentDescription =
-                        if (session.fullscreen) "Leave full screen" else "Full screen",
-                )
-            }
         }
     }
 }
 
-/** The bar to seek with. While it's dragged it shows where it's going and seeks on letting go. */
+/** mpv's picture, in a native window inside this one, or why it can't play. */
 @Composable
-private fun SeekBar(session: PlayerSession) {
-    var dragging by remember { mutableStateOf<Float?>(null) }
-    val duration = session.duration.toFloat()
-    Slider(
-        value = (dragging ?: session.position.toFloat()).coerceIn(0f, duration.coerceAtLeast(0f)),
-        onValueChange = { dragging = it },
-        onValueChangeFinished = {
-            dragging?.let { session.seekTo(it.toDouble()) }
-            dragging = null
+private fun MpvVideo(
+    lib: MpvLib?,
+    session: PlayerSession,
+    settings: AppSettings,
+    onShutdown: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    if (lib == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Message(MpvLoader.loadError ?: "Couldn't load mpv")
+        }
+        return
+    }
+    SwingPanel(
+        background = Color.Black,
+        modifier = Modifier.fillMaxSize(),
+        factory = {
+            MpvCanvas(
+                onReady = { canvas ->
+                    try {
+                        session.player =
+                            MpvPlayer.create(
+                                lib = lib,
+                                wid = Native.getComponentID(canvas),
+                                options = mpvOptions(settings),
+                                onEvent = { event ->
+                                    scope.launch(Dispatchers.Main) {
+                                        when (event) {
+                                            MpvEvent.FileLoaded -> session.onFileLoaded()
+                                            is MpvEvent.LoadFailed ->
+                                                session.onLoadFailed(event.message)
+                                            MpvEvent.Shutdown -> onShutdown()
+                                        }
+                                    }
+                                },
+                            )
+                    } catch (e: Exception) {
+                        session.error = e.message ?: e.toString()
+                    }
+                },
+                onGone = { session.release() },
+            )
         },
-        valueRange = 0f..duration.coerceAtLeast(1f),
-        enabled = duration > 0f,
-        modifier = Modifier.fillMaxWidth(),
     )
 }
 
-/** The bar above the video: back, the title, and what's next. Hidden in full screen. */
+/**
+ * A see-through window of its own, kept exactly over [bounds] of [owner]'s content: it moves and
+ * resizes with it, stays above it, and never takes the keyboard from it. Only what's drawn in it
+ * shows; mpv's picture shows through the rest.
+ */
 @Composable
-private fun PlayerBar(session: PlayerSession, onClose: () -> Unit, modifier: Modifier = Modifier) {
-    val item = session.item
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacings.small),
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                .padding(horizontal = Spacings.small, vertical = 6.dp),
-    ) {
-        IconButton(onClick = onClose) {
-            AppIcon(name = "ic_arrow_left", contentDescription = "Back")
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item?.title.orEmpty(),
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            val details =
-                listOfNotNull(
-                        item?.subtitle,
-                        session.duration
-                            .takeIf { it > 0 }
-                            ?.let { formatDuration(session.position) + " / " + formatDuration(it) },
-                    )
-                    .joinToString(" • ")
-            Text(
-                text = details,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
-        if (session.loading && session.error == null) {
-            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-        }
-        session.error?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-                maxLines = 2,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-        }
-        session.segment?.let { segment ->
-            FilledTonalButton(onClick = { session.skip(segment) }) {
-                AppIcon(
-                    name = "ic_skip_forward",
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(Spacings.small))
-                Text("Skip ${PlayerSession.categoryName(segment.category).lowercase()}")
+private fun OverlayWindow(owner: Window, bounds: Rect?, content: @Composable () -> Unit) {
+    val density = LocalDensity.current.density
+    val latest = rememberUpdatedState(content)
+    var moves by remember { mutableIntStateOf(0) }
+    val dialog =
+        remember(owner) {
+            ComposeDialog(owner, java.awt.Dialog.ModalityType.MODELESS).apply {
+                isUndecorated = true
+                isTransparent = true
+                focusableWindowState = false
+                setContent { latest.value() }
             }
         }
-        session.upNext?.let { next ->
-            TextButton(onClick = session::playNext) {
-                Text(
-                    text = "Next: $next",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(220.dp),
-                )
-                Spacer(Modifier.width(Spacings.small))
-                AppIcon(
-                    name = "ic_skip_forward",
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-        if (session.hasPlaylist) {
-            WithTooltip(if (session.playlistOpen) "Close the playlist" else "Show the playlist") {
-                FilledTonalButton(
-                    onClick = session::togglePlaylist,
-                    colors =
-                        ButtonDefaults.filledTonalButtonColors(
-                            containerColor =
-                                if (session.playlistOpen) {
-                                    MaterialTheme.colorScheme.secondaryContainer
-                                } else {
-                                    Color.Transparent
-                                }
-                        ),
-                ) {
-                    AppIcon(
-                        name = "ic_list_video",
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(Spacings.small))
-                    Text("Playlist")
+    DisposableEffect(owner, dialog) {
+        val follow =
+            object : ComponentAdapter() {
+                override fun componentMoved(e: ComponentEvent) {
+                    moves++
+                }
+
+                override fun componentResized(e: ComponentEvent) {
+                    moves++
                 }
             }
+        owner.addComponentListener(follow)
+        onDispose {
+            owner.removeComponentListener(follow)
+            dialog.dispose()
         }
+    }
+    LaunchedEffect(dialog, bounds, moves) {
+        val area = bounds ?: return@LaunchedEffect
+        val origin =
+            try {
+                ((owner as? RootPaneContainer)?.contentPane ?: owner).locationOnScreen
+            } catch (e: IllegalComponentStateException) {
+                return@LaunchedEffect
+            }
+        dialog.setBounds(
+            origin.x + (area.left / density).roundToInt(),
+            origin.y + (area.top / density).roundToInt(),
+            (area.width / density).roundToInt().coerceAtLeast(1),
+            (area.height / density).roundToInt().coerceAtLeast(1),
+        )
+        if (!dialog.isVisible) dialog.isVisible = true
     }
 }
 

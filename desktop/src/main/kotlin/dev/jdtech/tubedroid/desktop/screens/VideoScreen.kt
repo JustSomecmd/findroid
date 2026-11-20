@@ -74,6 +74,7 @@ import dev.jdtech.tubedroid.desktop.ui.SectionTitle
 import dev.jdtech.tubedroid.desktop.ui.ServerSideTheme
 import dev.jdtech.tubedroid.desktop.ui.Spacings
 import dev.jdtech.tubedroid.desktop.ui.TaAvatar
+import dev.jdtech.tubedroid.desktop.ui.TaImage
 import dev.jdtech.tubedroid.desktop.ui.VideoCard
 import dev.jdtech.tubedroid.desktop.ui.VideoThumbnail
 import dev.jdtech.tubedroid.desktop.ui.anyDate

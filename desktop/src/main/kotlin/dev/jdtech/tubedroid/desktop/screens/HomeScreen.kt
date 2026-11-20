@@ -389,7 +389,8 @@ fun HomeContent(model: HomeModel, onWatchLater: () -> Unit) {
                         LibraryTile(
                             name = "Videos",
                             icon = "ic_film",
-                            detail = model.latest.total?.let { "${formatCount(it)} videos" },
+                            detail =
+                                model.latest.total?.let { "${formatCount(it.toLong())} videos" },
                             onClick = { navigator.select(Section.VIDEOS) },
                             modifier = Modifier.width(TILE_WIDTH),
                         )

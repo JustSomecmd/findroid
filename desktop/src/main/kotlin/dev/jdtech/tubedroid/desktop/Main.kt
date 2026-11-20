@@ -24,6 +24,9 @@ import org.jetbrains.skia.Image
 /** The window, so the player can make it fill the screen. */
 val LocalWindowState = staticCompositionLocalOf<WindowState> { error("No window") }
 
+/** The app's window itself, for the player's controls to float over. None in the page renders. */
+val LocalAppWindow = staticCompositionLocalOf<java.awt.Window?> { null }
+
 fun main() {
     val graph = AppGraph(AppSettings())
     installImageLoader(graph.api)
@@ -55,6 +58,7 @@ fun main() {
             CompositionLocalProvider(
                 LocalApp provides graph,
                 LocalWindowState provides windowState,
+                LocalAppWindow provides window,
             ) {
                 TubedroidTheme(accent = graph.settings.accent) {
                     if (graph.settings.isConfigured) {

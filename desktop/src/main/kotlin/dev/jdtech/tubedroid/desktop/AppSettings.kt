@@ -25,6 +25,12 @@ class AppSettings(private val prefs: Preferences = Preferences.userRoot().node("
     /** Whether the next video of a playlist plays when one ends. */
     var autoplay: Boolean by storedBoolean("autoplay", true)
 
+    /**
+     * Whether the player's controls float over the video, as on Jellyfin, rather than sit above and
+     * below it.
+     */
+    var playerControlsOverVideo: Boolean by storedBoolean("player_controls_over_video", true)
+
     /** What to do at a SponsorBlock segment: button, auto or off. */
     var sponsorBlock: String by stored<String>("sponsorblock", SPONSORBLOCK_BUTTON)
 
