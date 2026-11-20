@@ -1,4 +1,4 @@
-// TubeArchivist's API and models in plain Kotlin, shared by the phone app and the desktop app
+// TubeArchivist's API and models in plain Kotlin, the same in the phone app and Winchivist
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)

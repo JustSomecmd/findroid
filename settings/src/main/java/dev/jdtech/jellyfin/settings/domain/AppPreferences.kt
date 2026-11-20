@@ -25,6 +25,10 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     // A notification when YouTube's bot detection stops the server's downloads
     val tubeArchivistBotNotifications = Preference("pref_ta_bot_notifications", true)
 
+    // The JRWI archiver, with its shows, posts and audio
+    val jrwiUrl = Preference<String?>("pref_jrwi_url", null)
+    val jrwiToken = Preference<String?>("pref_jrwi_token", null)
+
     // Language
     val preferredAudioLanguage = Preference<String?>("pref_audio_language", null)
     val preferredSubtitleLanguage = Preference<String?>("pref_subtitle_language", null)

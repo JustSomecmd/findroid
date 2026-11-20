@@ -555,6 +555,7 @@ class PlayerActivity : BasePlayerActivity() {
             startFromBeginning = startFromBeginning,
             startPositionMs = intent.extras?.getLong("position", 0L),
             taPlaylistId = intent.extras?.getString("taPlaylistId"),
+            jrwiAudioPostId = intent.extras?.getLong(EXTRA_JRWI_AUDIO, 0L)?.takeIf { it > 0 },
         )
         hideSystemUI()
     }
@@ -609,6 +610,7 @@ class PlayerActivity : BasePlayerActivity() {
             startFromBeginning = startFromBeginning,
             startPositionMs = intent.extras?.getLong("position", 0L),
             taPlaylistId = intent.extras?.getString("taPlaylistId"),
+            jrwiAudioPostId = intent.extras?.getLong(EXTRA_JRWI_AUDIO, 0L)?.takeIf { it > 0 },
         )
     }
 
@@ -1365,6 +1367,9 @@ class PlayerActivity : BasePlayerActivity() {
 
 private const val ACTION_PIP_CONTROL = "dev.jdtech.jellyfin.PIP_CONTROL"
 private const val EXTRA_REOPEN_IN_PIP = "reopenInPip"
+
+/** The post ID of a JRWI episode's audio, to play from the archiver rather than Jellyfin. */
+const val EXTRA_JRWI_AUDIO = "jrwiAudioPostId"
 private const val EXTRA_PIP_CONTROL = "control"
 private const val PIP_CONTROL_PLAY = 1
 private const val PIP_CONTROL_PAUSE = 2

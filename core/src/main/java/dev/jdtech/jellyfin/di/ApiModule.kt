@@ -8,6 +8,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.jdtech.jellyfin.api.JellyfinApi
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
+import dev.jdtech.jellyfin.jrwi.JrwiApi
+import dev.jdtech.jellyfin.jrwi.JrwiConfig
+import dev.jdtech.jellyfin.jrwi.JrwiJellyfinLookup
+import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
+import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.JellyfinPlaylistSessionStore
 import dev.jdtech.jellyfin.tubearchivist.TaApi
@@ -16,6 +21,7 @@ import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
+import javax.inject.Provider
 import javax.inject.Singleton
 import kotlinx.coroutines.runBlocking
 
@@ -74,6 +80,34 @@ object ApiModule {
     @Provides
     fun provideTaJellyfinLookup(jellyfinApi: JellyfinApi): TaJellyfinLookup =
         TaJellyfinLookup(jellyfinApi)
+
+    @Singleton
+    @Provides
+    fun provideJrwiApi(appPreferences: AppPreferences): JrwiApi =
+        JrwiApi(
+            object : JrwiConfig {
+                override val url: String?
+                    get() = appPreferences.getValue(appPreferences.jrwiUrl)
+
+                override val token: String?
+                    get() = appPreferences.getValue(appPreferences.jrwiToken)
+            }
+        )
+
+    @Singleton
+    @Provides
+    fun provideJrwiJellyfinLookup(jellyfinApi: JellyfinApi): JrwiJellyfinLookup =
+        JrwiJellyfinLookup(jellyfinApi)
+
+    @Singleton
+    @Provides
+    fun provideJrwiProgressSync(
+        jrwiApi: JrwiApi,
+        lookup: JrwiJellyfinLookup,
+        taApi: TaApi,
+        // Online or offline, as it is at the time
+        repository: Provider<JellyfinRepository>,
+    ): JrwiProgressSync = JrwiProgressSync(jrwiApi, lookup, taApi) { repository.get() }
 
     @Singleton
     @Provides

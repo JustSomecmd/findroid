@@ -694,6 +694,17 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                 }
                             },
                         ),
+                        PreferenceCategory(
+                            nameStringResource = R.string.settings_category_jrwi,
+                            descriptionStringRes = R.string.settings_category_jrwi_summary,
+                            iconDrawableId = R.drawable.ic_dice,
+                            supportedDeviceTypes = listOf(DeviceType.PHONE),
+                            onClick = {
+                                viewModelScope.launch {
+                                    eventsChannel.send(SettingsEvent.NavigateToJrwi)
+                                }
+                            },
+                        ),
                         PreferenceSwitch(
                             nameStringResource = R.string.settings_tubearchivist_interface,
                             descriptionStringRes =

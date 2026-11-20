@@ -26,12 +26,14 @@ import coil3.svg.SvgDecoder
 import com.google.android.material.color.DynamicColors
 import dagger.hilt.android.HiltAndroidApp
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.settings.domain.models.Preference
 import dev.jdtech.jellyfin.work.NewItemsWorker
 import dev.jdtech.jellyfin.work.SyncWorker
 import dev.jdtech.jellyfin.work.TaBotCheckWorker
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import kotlin.time.ExperimentalTime
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
@@ -107,25 +109,18 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
             .build()
     }
 
-    // Images from TubeArchivist need its API token, unless it was set up without that
+    // Images from TubeArchivist and the JRWI archiver need their API tokens
     private val imageClient by lazy {
         OkHttpClient.Builder()
             .addInterceptor { chain ->
                 val request = chain.request()
-                val base =
-                    appPreferences
-                        .getValue(appPreferences.tubeArchivistUrl)
-                        ?.trim()
-                        ?.toHttpUrlOrNull()
-                val token = appPreferences.getValue(appPreferences.tubeArchivistToken)?.trim()
-                val url = request.url
-                if (
-                    base != null &&
-                        !token.isNullOrEmpty() &&
-                        url.host == base.host &&
-                        url.port == base.port &&
-                        url.scheme == base.scheme
-                ) {
+                val token =
+                    tokenFor(
+                        request.url,
+                        appPreferences.tubeArchivistUrl,
+                        appPreferences.tubeArchivistToken,
+                    ) ?: tokenFor(request.url, appPreferences.jrwiUrl, appPreferences.jrwiToken)
+                if (token != null) {
                     chain.proceed(
                         request.newBuilder().header("Authorization", "Token $token").build()
                     )
@@ -134,6 +129,19 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
                 }
             }
             .build()
+    }
+
+    /** The token set for the server at [url]'s address, if it's that server. */
+    private fun tokenFor(
+        url: HttpUrl,
+        address: Preference<String?>,
+        token: Preference<String?>,
+    ): String? {
+        val base = appPreferences.getValue(address)?.trim()?.toHttpUrlOrNull() ?: return null
+        val value =
+            appPreferences.getValue(token)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val sameServer = url.host == base.host && url.port == base.port && url.scheme == base.scheme
+        return value.takeIf { sameServer }
     }
 
     private fun scheduleUserDataSync(workManager: WorkManager) {

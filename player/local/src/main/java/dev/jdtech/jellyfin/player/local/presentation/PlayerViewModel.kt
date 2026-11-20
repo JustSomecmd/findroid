@@ -22,6 +22,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.jdtech.jellyfin.jrwi.JrwiApi
+import dev.jdtech.jellyfin.jrwi.JrwiItem
+import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidSegmentType
 import dev.jdtech.jellyfin.player.core.domain.models.PlayerChapter
@@ -78,6 +81,8 @@ constructor(
     private val taOfflineStore: TaOfflineStore,
     private val taPlaylistSessions: TaPlaylistSessions,
     private val taPlaylistCache: TaPlaylistCache,
+    private val jrwiApi: JrwiApi,
+    private val jrwiProgress: JrwiProgressSync,
 ) : ViewModel(), Player.Listener {
     val player: Player
 
@@ -229,6 +234,12 @@ constructor(
     private var isPlayingNow = false
     private var taSegments: List<FindroidSegment> = emptyList()
     private var taLastReport = 0L
+
+    // JRWI: the archiver's item of what's playing, whose video and audio share one position, and
+    // the media ID of its audio while the audio is what's playing
+    private var jrwiItem: JrwiItem? = null
+    private var jrwiAudioMediaId: String? = null
+    private var jrwiLastReport = 0L
     private val sponsorBlockMode = appPreferences.getValue(appPreferences.tubeArchivistSponsorBlock)
 
     /** Whether the player needs to check for skippable segments while playing. */
@@ -302,9 +313,17 @@ constructor(
         startFromBeginning: Boolean,
         startPositionMs: Long? = null,
         taPlaylistId: String? = null,
+        jrwiAudioPostId: Long? = null,
     ) {
         player.addListener(this)
         _uiState.update { it.copy(autoplay = autoplay) }
+        jrwiItem = null
+        jrwiAudioMediaId = null
+        // The audio of a JRWI episode, from the archiver rather than Jellyfin
+        if (jrwiAudioPostId != null) {
+            startJrwiAudio(jrwiAudioPostId, startFromBeginning)
+            return
+        }
         // A position from TubeArchivist, which may be newer than the one in Jellyfin
         if (!startFromBeginning && startPositionMs != null && startPositionMs > 0) {
             playbackPosition = startPositionMs
@@ -386,6 +405,108 @@ constructor(
         }
     }
 
+    /**
+     * Plays the audio of a JRWI episode from the archiver, where it left off. Its progress goes to
+     * the archiver, and to the episode's video when it's paused or left.
+     */
+    private fun startJrwiAudio(postId: Long, startFromBeginning: Boolean) {
+        viewModelScope.launch {
+            // Nothing of a playlist played before it
+            taPlaylistId = null
+            playlistManager.setTubeArchivistQueue(null)
+            val item =
+                try {
+                    jrwiApi.getItem(postId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.e(e)
+                    Toast.makeText(application, e.localizedMessage, Toast.LENGTH_LONG).show()
+                    eventsChannel.trySend(PlayerEvents.NavigateBack)
+                    return@launch
+                }
+            val audio = item.audio
+            val url = jrwiApi.fileUrlWithToken(audio?.url)
+            if (audio == null || url == null) {
+                eventsChannel.trySend(PlayerEvents.NavigateBack)
+                return@launch
+            }
+            val progress = if (startFromBeginning) null else jrwiProgress.progress(item)
+            val seconds = progress?.takeIf { !it.finished }?.position ?: 0.0
+            val mediaId = jrwiAudioMediaId(audio.postId)
+            jrwiItem = item
+            jrwiAudioMediaId = mediaId.toString()
+            jrwiLastReport = 0L
+            val playerItem =
+                PlayerItem(
+                    name = item.title,
+                    itemId = mediaId,
+                    mediaSourceId = "jrwi-${audio.postId}",
+                    playbackPosition = (seconds * 1000).toLong(),
+                    mediaSourceUri = url,
+                    // Played as it is, so there's no other quality to pick
+                    isLocal = true,
+                    isAudioOnly = true,
+                    subtitle = jrwiProgress.showNameOrNull(item.show),
+                )
+            items = mutableListOf(playerItem)
+            currentMediaItemIndex = 0
+            player.setMediaItems(listOf(playerItem.toMediaItem()), 0, playerItem.playbackPosition)
+            player.prepare()
+            player.play()
+        }
+    }
+
+    /** Whether [mediaId] is the audio of a JRWI episode, played from the archiver. */
+    private fun isJrwiAudio(mediaId: String?): Boolean =
+        mediaId != null && mediaId == jrwiAudioMediaId
+
+    /** Looks up whether a Jellyfin video is a JRWI episode, whose audio shares its progress. */
+    private suspend fun loadJrwiInfo(itemId: UUID) {
+        jrwiItem = null
+        jrwiLastReport = 0L
+        if (!jrwiApi.isConfigured) return
+        val item = jrwiProgress.itemForEpisode(itemId) ?: return
+        if (player.currentMediaItem?.mediaId == itemId.toString() && item.audio != null) {
+            jrwiItem = item
+        }
+    }
+
+    /**
+     * Hands the position to the other version of a JRWI episode: from the video to the audio on the
+     * archiver, or from the audio to the archiver and, when [force]d, to the video.
+     */
+    private fun reportJrwiProgress(force: Boolean, finished: Boolean = false) {
+        val item = jrwiItem ?: return
+        val now = System.currentTimeMillis()
+        if (!finished) {
+            if (!force && now - jrwiLastReport < TA_PROGRESS_INTERVAL_MS) return
+            // Paused and already saved
+            if (force && jrwiLastReport < 0) return
+        }
+        jrwiLastReport = if (force || finished) -1L else now
+        val seconds = player.currentPosition / 1000.0
+        val audio = isJrwiAudio(player.currentMediaItem?.mediaId)
+        viewModelScope.launch { saveJrwiProgress(item, audio, seconds, finished, handOff = force) }
+    }
+
+    private suspend fun saveJrwiProgress(
+        item: JrwiItem,
+        audio: Boolean,
+        seconds: Double,
+        finished: Boolean,
+        handOff: Boolean,
+    ) {
+        try {
+            if (audio) jrwiProgress.audioPlayed(item, seconds, finished, handOff)
+            else jrwiProgress.videoPlayed(item, seconds, finished)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Could not save the JRWI progress of ${item.id}")
+        }
+    }
+
     private fun PlayerItem.toMediaItem(): MediaItem {
         val streamUrl = mediaSourceUri
         val mediaSubtitles = externalSubtitles.map { externalSubtitle ->
@@ -419,8 +540,24 @@ constructor(
         val duration = player.duration
         val finalTaVideoId = taVideoId
         taVideoId = null
+        val finalJrwiItem = jrwiItem
+        val jrwiAudio = isJrwiAudio(mediaId)
+        jrwiItem = null
         GlobalScope.launch {
             delay(200L)
+            if (finalJrwiItem != null) {
+                // Most of the way through counts as watched, as in Jellyfin
+                val finished = duration > 0 && position >= duration * WATCHED_PART
+                saveJrwiProgress(
+                    finalJrwiItem,
+                    jrwiAudio,
+                    position / 1000.0,
+                    finished,
+                    handOff = true,
+                )
+            }
+            // The archiver's audio isn't in Jellyfin
+            if (jrwiAudio) return@launch
             if (finalTaVideoId != null) {
                 try {
                     taApi.postProgress(finalTaVideoId, position / 1000.0)
@@ -457,8 +594,13 @@ constructor(
         Timber.d("Updating playback progress")
         viewModelScope.launch(Dispatchers.Main) {
             savedStateHandle["position"] = player.currentPosition
-            if (player.currentMediaItem != null && player.currentMediaItem!!.mediaId.isNotEmpty()) {
+            if (isJrwiAudio(player.currentMediaItem?.mediaId)) {
+                reportJrwiProgress(force = !player.isPlaying)
+            } else if (
+                player.currentMediaItem != null && player.currentMediaItem!!.mediaId.isNotEmpty()
+            ) {
                 val itemId = UUID.fromString(player.currentMediaItem!!.mediaId)
+                reportJrwiProgress(force = !player.isPlaying)
                 try {
                     repository.postPlaybackProgress(
                         itemId,
@@ -648,6 +790,11 @@ constructor(
                             )
                         }
 
+                        // The archiver's audio has nothing more to look up in Jellyfin
+                        if (isJrwiAudio(item.itemId.toString())) return@let
+
+                        launch { loadJrwiInfo(item.itemId) }
+
                         repository.postPlaybackStart(item.itemId)
 
                         if (segmentsSkipButton || segmentsAutoSkip) {
@@ -698,16 +845,19 @@ constructor(
                 player.playbackState == ExoPlayer.STATE_READY
         ) {
             val endedVideoId = taVideoId
+            reportJrwiProgress(force = true, finished = true)
             viewModelScope.launch {
                 val mediaId = player.currentMediaItem?.mediaId
                 val position = player.currentPosition
                 val duration = player.duration
                 try {
-                    repository.postPlaybackStop(
-                        UUID.fromString(mediaId),
-                        position.times(10000),
-                        position.div(duration.toFloat()).times(100).toInt(),
-                    )
+                    if (!isJrwiAudio(mediaId)) {
+                        repository.postPlaybackStop(
+                            UUID.fromString(mediaId),
+                            position.times(10000),
+                            position.div(duration.toFloat()).times(100).toInt(),
+                        )
+                    }
                 } catch (e: Exception) {
                     Timber.e(e)
                 }
@@ -930,7 +1080,11 @@ constructor(
         val position = player.currentPosition
         val duration = player.duration
         reportTaProgress(force = true)
-        if (mediaId != null && duration > 0) {
+        reportJrwiProgress(
+            force = true,
+            finished = duration > 0 && position >= duration * WATCHED_PART,
+        )
+        if (mediaId != null && duration > 0 && !isJrwiAudio(mediaId)) {
             viewModelScope.launch {
                 try {
                     repository.postPlaybackStop(
@@ -1579,3 +1733,10 @@ private const val SPONSORBLOCK_AUTO = "auto"
 
 // How often the position is saved in TubeArchivist while playing
 private const val TA_PROGRESS_INTERVAL_MS = 15_000L
+
+// How much of a video or audio counts as watched, as Jellyfin counts it
+private const val WATCHED_PART = 0.9
+
+/** The media ID the audio of a JRWI post plays under, as it isn't a Jellyfin item. */
+fun jrwiAudioMediaId(postId: Long): UUID =
+    UUID.nameUUIDFromBytes("jrwi-audio-$postId".toByteArray())

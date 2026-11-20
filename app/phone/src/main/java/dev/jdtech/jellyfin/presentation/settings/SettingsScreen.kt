@@ -59,6 +59,7 @@ fun SettingsScreen(
     navigateToPlayerButtons: () -> Unit,
     navigateToStorage: () -> Unit,
     navigateToTubeArchivist: () -> Unit,
+    navigateToJrwi: () -> Unit,
     navigateToServers: () -> Unit,
     navigateToUsers: () -> Unit,
     navigateToAbout: () -> Unit,
@@ -79,6 +80,7 @@ fun SettingsScreen(
             is SettingsEvent.NavigateToPlayerButtons -> navigateToPlayerButtons()
             is SettingsEvent.NavigateToStorage -> navigateToStorage()
             is SettingsEvent.NavigateToTubeArchivist -> navigateToTubeArchivist()
+            is SettingsEvent.NavigateToJrwi -> navigateToJrwi()
             is SettingsEvent.NavigateToUsers -> navigateToUsers()
             is SettingsEvent.NavigateToServers -> navigateToServers()
             is SettingsEvent.NavigateToAbout -> navigateToAbout()

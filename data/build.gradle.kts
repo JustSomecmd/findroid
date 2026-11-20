@@ -33,8 +33,9 @@ room3 { schemaDirectory("$projectDir/schemas") }
 
 dependencies {
     implementation(projects.settings)
-    // The TubeArchivist API, shared with the desktop app
+    // The TubeArchivist and JRWI archiver APIs, the same as in Winchivist
     api(projects.tubearchivist)
+    api(projects.jrwi)
     implementation(libs.androidx.paging)
     implementation(libs.androidx.room3.runtime)
     ksp(libs.androidx.room3.compiler)

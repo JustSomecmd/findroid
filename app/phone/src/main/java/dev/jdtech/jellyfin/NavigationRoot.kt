@@ -60,6 +60,7 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.window.core.layout.WindowSizeClass
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiNavViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelsTab
 import dev.jdtech.jellyfin.film.presentation.tube.TaNavViewModel
 import dev.jdtech.jellyfin.models.CollectionType
@@ -88,6 +89,12 @@ import dev.jdtech.jellyfin.presentation.film.PlaylistScreen
 import dev.jdtech.jellyfin.presentation.film.PlaylistsScreen
 import dev.jdtech.jellyfin.presentation.film.SeasonScreen
 import dev.jdtech.jellyfin.presentation.film.ShowScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiItemScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiServerScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiSettingsScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowsScreen
+import dev.jdtech.jellyfin.presentation.jrwi.LocalJrwiBaseUrl
 import dev.jdtech.jellyfin.presentation.settings.AboutScreen
 import dev.jdtech.jellyfin.presentation.settings.PlayerButtonsScreen
 import dev.jdtech.jellyfin.presentation.settings.SettingsFileEditScreen
@@ -121,6 +128,7 @@ private val TOP_LEVEL_ROUTES =
     setOf(
         TaHomeRoute,
         TaChannelsRoute,
+        JrwiRoute,
         TaQueueRoute,
         HomeRoute,
         MediaRoute,
@@ -171,6 +179,10 @@ val taChannelsTab =
         route = TaChannelsRoute,
     )
 
+// With the JRWI archiver set up, its shows get a tab of their own
+val jrwiTab =
+    TabBarItem(title = CoreR.string.jrwi_tab, icon = CoreR.drawable.ic_dice, route = JrwiRoute)
+
 @Composable
 fun NavigationRoot(
     hasServers: Boolean,
@@ -185,6 +197,11 @@ fun NavigationRoot(
     val taBaseUrl by taNavViewModel.baseUrl.collectAsStateWithLifecycle()
     val taInterface = taConfigured && taInterfaceEnabled
     val tubeArchivistMode = taInterface && !LocalOfflineMode.current
+
+    val jrwiNavViewModel: JrwiNavViewModel = hiltViewModel()
+    val jrwiBaseUrl by jrwiNavViewModel.baseUrl.collectAsStateWithLifecycle()
+    // The archiver is only reached online
+    val jrwiShown = jrwiBaseUrl != null && !LocalOfflineMode.current
 
     val setupStartRoute: NavKey =
         when {
@@ -254,6 +271,7 @@ fun NavigationRoot(
             CompositionLocalProvider(
                 LocalTaBaseUrl provides taBaseUrl,
                 LocalTubeArchivistMode provides tubeArchivistMode,
+                LocalJrwiBaseUrl provides jrwiBaseUrl,
             ) {
                 MainNavigation(
                     navigationState = navigationState,
@@ -261,6 +279,7 @@ fun NavigationRoot(
                     entryDecorators = entryDecorators,
                     isOfflineMode = LocalOfflineMode.current,
                     tubeArchivistMode = tubeArchivistMode,
+                    jrwiShown = jrwiShown,
                     searchExpanded = searchExpanded,
                     permissionViewModel = permissionViewModel,
                     permissionApplicable = permissionState.currentRequest != null,
@@ -290,6 +309,7 @@ private fun MainNavigation(
     entryDecorators: List<NavEntryDecorator<NavKey>>,
     isOfflineMode: Boolean,
     tubeArchivistMode: Boolean,
+    jrwiShown: Boolean,
     searchExpanded: MutableState<Boolean>,
     permissionViewModel: PermissionViewModel,
     permissionApplicable: Boolean,
@@ -297,8 +317,16 @@ private fun MainNavigation(
     val navigationItems =
         when {
             isOfflineMode -> listOf(homeTab, downloadsTab)
-            tubeArchivistMode -> listOf(taHomeTab, taChannelsTab, downloadsTab)
-            else -> listOf(homeTab, mediaTab, downloadsTab, playlistsTab)
+            tubeArchivistMode ->
+                listOfNotNull(taHomeTab, taChannelsTab, jrwiTab.takeIf { jrwiShown }, downloadsTab)
+            else ->
+                listOfNotNull(
+                    homeTab,
+                    mediaTab,
+                    jrwiTab.takeIf { jrwiShown },
+                    downloadsTab,
+                    playlistsTab,
+                )
         }
     val tabRoutes = navigationItems.map { it.route }
 
@@ -396,11 +424,13 @@ private fun MainNavigation(
         if (tubeArchivistMode) {
             // Home, Channels and Downloads sit side by side in one pager under the other pages, and
             // their own entries in the navigation are left empty so the pager shows through
+            val mainPages = taMainPages(jrwiShown)
             Box(modifier = Modifier.fillMaxSize()) {
                 TaMainPager(
                     navigationState = navigationState,
                     navigator = navigator,
-                    active = atTabRoot && topLevelRoute in TA_MAIN_PAGES,
+                    mainPages = mainPages,
+                    active = atTabRoot && topLevelRoute in mainPages,
                 )
                 CompositionLocalProvider(LocalTaMainPagerShown provides true) { navDisplay() }
             }
@@ -411,7 +441,8 @@ private fun MainNavigation(
 }
 
 /** The main pages, left to right, in the TubeArchivist interface. */
-private val TA_MAIN_PAGES = listOf(TaHomeRoute, TaChannelsRoute, DownloadsRoute)
+private fun taMainPages(jrwiShown: Boolean): List<NavKey> =
+    listOfNotNull(TaHomeRoute, TaChannelsRoute, JrwiRoute.takeIf { jrwiShown }, DownloadsRoute)
 
 /** True where the main pager shows the main pages, so their navigation entries stay empty. */
 private val LocalTaMainPagerShown = staticCompositionLocalOf { false }
@@ -447,11 +478,18 @@ private val OpaquePageDecorator =
  * and Channels.
  */
 @Composable
-private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, active: Boolean) {
+private fun TaMainPager(
+    navigationState: NavigationState,
+    navigator: Navigator,
+    mainPages: List<NavKey>,
+    active: Boolean,
+) {
     val topLevelRoute = navigationState.topLevelRoute
+    // Read in the effects below, which keep running as the JRWI tab comes and goes
+    val currentPages by rememberUpdatedState(mainPages)
     val pages =
-        rememberPagerState(initialPage = TA_MAIN_PAGES.indexOf(topLevelRoute).coerceAtLeast(0)) {
-            TA_MAIN_PAGES.size
+        rememberPagerState(initialPage = mainPages.indexOf(topLevelRoute).coerceAtLeast(0)) {
+            mainPages.size
         }
     val homeSides = rememberSidePagerState(serverFirst = true)
     val channelTabs = rememberPagerState { TaChannelsTab.entries.size }
@@ -460,8 +498,8 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
     val turning = remember { BooleanHolder() }
 
     // The bottom bar and back turn the pager
-    LaunchedEffect(topLevelRoute) {
-        val page = TA_MAIN_PAGES.indexOf(topLevelRoute)
+    LaunchedEffect(topLevelRoute, mainPages) {
+        val page = mainPages.indexOf(topLevelRoute)
         if (page >= 0 && page != pages.currentPage) {
             turning.value = true
             try {
@@ -476,9 +514,9 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
     LaunchedEffect(pages) {
         snapshotFlow { pages.settledPage }
             .collect { page ->
-                val route = TA_MAIN_PAGES[page]
+                val route = currentPages.getOrNull(page) ?: return@collect
                 val current = navigationState.topLevelRoute
-                if (current in TA_MAIN_PAGES && current != route) navigator.navigate(route)
+                if (current in currentPages && current != route) navigator.navigate(route)
             }
     }
 
@@ -488,12 +526,16 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
         snapshotFlow { pages.isScrollInProgress }
             .collect { scrolling ->
                 if (!scrolling || turning.value) return@collect
-                when (TA_MAIN_PAGES[pages.settledPage]) {
+                when (currentPages.getOrNull(pages.settledPage)) {
                     TaHomeRoute -> channelTabs.requestScrollToPage(0)
                     DownloadsRoute -> channelTabs.requestScrollToPage(channelTabs.pageCount - 1)
                     TaChannelsRoute -> {
                         // Home itself, rather than the stats to its left
                         homeSides.requestScrollToPage(1)
+                        downloadSides.requestScrollToPage(0)
+                    }
+                    JrwiRoute -> {
+                        channelTabs.requestScrollToPage(channelTabs.pageCount - 1)
                         downloadSides.requestScrollToPage(0)
                     }
                     else -> {}
@@ -544,7 +586,7 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
             userScrollEnabled = active,
             pageNestedScrollConnection = connection,
         ) { page ->
-            when (TA_MAIN_PAGES[page]) {
+            when (mainPages.getOrNull(page)) {
                 TaHomeRoute ->
                     TaHomeScreen(
                         onVideoClick =
@@ -572,6 +614,14 @@ private fun TaMainPager(navigationState: NavigationState, navigator: Navigator, 
                         onPlaylistClick =
                             resumedAction<String> { navigator.navigate(TaPlaylistRoute(it)) },
                         tabsPagerState = channelTabs,
+                    )
+                JrwiRoute ->
+                    JrwiShowsScreen(
+                        onShowClick =
+                            resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
+                        onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
+                        onServerClick = dropUnlessResumed { navigator.navigate(JrwiServerRoute) },
+                        onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
                     )
                 else ->
                     TaDownloadsScreen(
@@ -945,6 +995,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
                 dropUnlessResumed { navigator.navigate(SettingsPlayerButtonsRoute) },
             navigateToStorage = dropUnlessResumed { navigator.navigate(DownloadStorageRoute) },
             navigateToTubeArchivist = dropUnlessResumed { navigator.navigate(TaSettingsRoute) },
+            navigateToJrwi = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
             navigateToServers = dropUnlessResumed { navigator.navigate(ServersRoute) },
             navigateToUsers = dropUnlessResumed { navigator.navigate(UsersRoute) },
             navigateToAbout = dropUnlessResumed { navigator.navigate(AboutRoute) },
@@ -1044,6 +1095,35 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
     }
     entry<TaSettingsRoute> {
         TaSettingsScreen(navigateBack = dropUnlessResumed { navigator.goBack() })
+    }
+    entry<JrwiRoute>(metadata = MAIN_PAGE_ENTRY) {
+        if (LocalTaMainPagerShown.current) return@entry
+        JrwiShowsScreen(
+            onShowClick = resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
+            onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
+            onServerClick = dropUnlessResumed { navigator.navigate(JrwiServerRoute) },
+            onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
+        )
+    }
+    entry<JrwiShowRoute> { key ->
+        JrwiShowScreen(
+            showId = key.showId,
+            onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+        )
+    }
+    entry<JrwiItemRoute> { key ->
+        JrwiItemScreen(
+            postId = key.postId,
+            onOpenYoutube = resumedAction<String> { openVideo(it) },
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+        )
+    }
+    entry<JrwiServerRoute> {
+        JrwiServerScreen(navigateBack = dropUnlessResumed { navigator.goBack() })
+    }
+    entry<JrwiSettingsRoute> {
+        JrwiSettingsScreen(navigateBack = dropUnlessResumed { navigator.goBack() })
     }
     entry<TaVideoRoute> { key ->
         TaVideoScreen(

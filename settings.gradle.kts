@@ -2,22 +2,29 @@ enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 rootProject.name = "findroid"
 
-// -PdesktopOnly leaves out the Android modules, for building the desktop app on its own
-if (!providers.gradleProperty("desktopOnly").isPresent) {
-    include(":app:phone")
-    include(":app:tv")
-    include(":core")
-    include(":data")
-    include(":player:core")
-    include(":player:local")
-    include(":setup")
-    include(":modes:film")
-    include(":settings")
-}
+include(":app:phone")
 
+include(":app:tv")
+
+include(":core")
+
+include(":data")
+
+include(":player:core")
+
+include(":player:local")
+
+include(":setup")
+
+include(":modes:film")
+
+include(":settings")
+
+// TubeArchivist's API and models, the same as in Winchivist
 include(":tubearchivist")
 
-include(":desktop")
+// The JRWI archiver's API and models, the same as in Winchivist
+include(":jrwi")
 
 pluginManagement {
     repositories {

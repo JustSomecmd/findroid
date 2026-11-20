@@ -19,6 +19,8 @@ sealed interface SettingsEvent {
 
     data object NavigateToTubeArchivist : SettingsEvent
 
+    data object NavigateToJrwi : SettingsEvent
+
     data class UpdateTheme(val theme: String) : SettingsEvent
 
     data class LaunchIntent(val intent: Intent) : SettingsEvent

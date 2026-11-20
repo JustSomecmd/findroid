@@ -76,3 +76,14 @@ data class CollectionRoute(val collectionId: String, val collectionName: String)
 @Serializable data class TaChannelRoute(val channelId: String) : NavKey
 
 @Serializable data class TaPlaylistRoute(val playlistId: String) : NavKey
+
+// The JRWI archiver
+@Serializable data object JrwiRoute : NavKey
+
+@Serializable data class JrwiShowRoute(val showId: String) : NavKey
+
+@Serializable data class JrwiItemRoute(val postId: Long) : NavKey
+
+@Serializable data object JrwiServerRoute : NavKey
+
+@Serializable data object JrwiSettingsRoute : NavKey
