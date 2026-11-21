@@ -471,6 +471,10 @@
     <string name="jrwi_download_cancel">Cancel</string>
     <string name="jrwi_download_remove">Remove</string>
     <string name="jrwi_download_retry">Try again</string>
+    <string name="jrwi_download_files_title">Download the post\'s files too?</string>
+    <string name="jrwi_download_files_text">Its attachments, documents and pictures, so they open without a connection. They can take up a lot of space.</string>
+    <string name="jrwi_download_with_files">With files</string>
+    <string name="jrwi_download_without_files">Without files</string>
     <string name="jrwi_offline_copy">The archiver can\'t be reached, so this is the copy kept with the audio.</string>
     <string name="jrwi_not_saved">Not kept on this phone</string>
     <string name="jrwi_downloads">JRWI audio</string>

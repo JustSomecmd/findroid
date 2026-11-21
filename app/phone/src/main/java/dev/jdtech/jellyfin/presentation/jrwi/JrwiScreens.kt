@@ -951,6 +951,14 @@ fun JrwiItemScreen(
                             onRemoveAudio = viewModel::removeDownload,
                             episode = state.jellyfinEpisode,
                             videoDownload = videoDownload,
+                            onDownloadVideo = { storageIndex, withFiles ->
+                                state.jellyfinEpisode?.let { episode ->
+                                    viewModel.keepVideo(withFiles)
+                                    downloaderViewModel.onAction(
+                                        DownloaderAction.Download(episode, storageIndex)
+                                    )
+                                }
+                            },
                             onVideoAction = { action ->
                                 when (action) {
                                     is DownloaderAction.Download -> viewModel.keepVideo()

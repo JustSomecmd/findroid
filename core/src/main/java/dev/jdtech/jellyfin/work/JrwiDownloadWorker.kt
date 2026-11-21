@@ -44,10 +44,11 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 /**
- * Downloads a JRWI episode's audio, with its picture, the episode's details, and the audio post's
- * own text and comments, so it can be listened to and its page shown without a connection. A
- * stopped download goes on where it stopped with a Range request, and the finished audio is checked
- * against the size the archiver gives.
+ * Downloads a JRWI episode's audio, with its picture, the episode's details, the audio post's own
+ * text and comments, and the post's files unless they were left out, so it can be listened to and
+ * its page shown without a connection. A stopped download goes on where it stopped with a Range
+ * request, and the finished audio is checked against the size the archiver gives. Run for a video's
+ * download through Jellyfin, it keeps only the post's files.
  */
 @HiltWorker
 class JrwiDownloadWorker
@@ -64,6 +65,7 @@ constructor(
 
     override suspend fun doWork(): Result {
         val itemId = inputData.getLong(KEY_ITEM_ID, -1L)
+        if (inputData.getBoolean(KEY_FILES_ONLY, false)) return keepFilesForVideo(itemId)
         // Taken off the phone before it could start
         if (itemId < 0 || downloads.get(itemId) == null) return Result.success()
         return try {
@@ -89,6 +91,26 @@ constructor(
         }
     }
 
+    /** The post's files for a video's download, when it still wants them. */
+    private suspend fun keepFilesForVideo(itemId: Long): Result {
+        if (itemId < 0 || !downloads.videoKeepsFiles(itemId)) return Result.success()
+        return try {
+            withContext(Dispatchers.IO) { saveFiles(itemId) }
+            Result.success()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: JrwiApiException) {
+            Timber.e(e, "Could not keep the files of JRWI episode $itemId")
+            if (e.code in 400..499) Result.failure() else Result.retry()
+        } catch (e: IOException) {
+            Timber.w(e, "Keeping the files of JRWI episode $itemId stopped, to go on later")
+            Result.retry()
+        } finally {
+            // The video's download was removed while this ran
+            downloads.dropUnwantedFiles(itemId)
+        }
+    }
+
     private suspend fun download(itemId: Long) {
         val item = jrwiApi.getItem(itemId)
         val audio = item.audio ?: throw JrwiApiException(404, "This episode has no audio")
@@ -108,7 +130,7 @@ constructor(
         // Its page's text and comments, for showing it without a connection
         downloads.saveDetails(itemId, item, post(audio.postId), comments(audio.postId))
         item.thumbnail?.let { saveFile(it, downloads.thumbnailFile(itemId)) }
-        saveFiles(itemId)
+        if (downloads.get(itemId)?.withFiles != false) saveFiles(itemId)
         if (whole) return
         val etag = downloadAudio(itemId, audio, item)
         downloads.update(itemId) {
@@ -324,6 +346,7 @@ constructor(
 
     companion object {
         private const val KEY_ITEM_ID = "jrwiItemId"
+        private const val KEY_FILES_ONLY = "filesOnly"
         const val PROGRESS_DONE = "done"
         const val PROGRESS_TOTAL = "total"
         private const val NOTIFICATION_CHANNEL_ID = "downloads"
@@ -352,13 +375,33 @@ constructor(
         fun cancel(context: Context, itemId: Long) {
             WorkManager.getInstance(context).cancelUniqueWork(workName(itemId))
         }
+
+        private fun filesWorkName(itemId: Long) = "jrwi_files_$itemId"
+
+        /** Keeps the post's files for the video's download, apart from the audio's download. */
+        fun enqueueFiles(context: Context, itemId: Long) {
+            val request =
+                OneTimeWorkRequestBuilder<JrwiDownloadWorker>()
+                    .setInputData(workDataOf(KEY_ITEM_ID to itemId, KEY_FILES_ONLY to true))
+                    .setConstraints(
+                        Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+                    )
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                    .build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(filesWorkName(itemId), ExistingWorkPolicy.KEEP, request)
+        }
+
+        fun cancelFiles(context: Context, itemId: Long) {
+            WorkManager.getInstance(context).cancelUniqueWork(filesWorkName(itemId))
+        }
     }
 }
 
 /** Starts and removes JRWI downloads with [JrwiDownloadWorker]. */
 class JrwiDownloaderImpl(private val context: Context, private val downloads: JrwiDownloads) :
     JrwiDownloader {
-    override fun download(item: JrwiItem) {
+    override fun download(item: JrwiItem, withFiles: Boolean) {
         val audio = item.audio ?: return
         val download =
             downloads.get(item.id)
@@ -367,7 +410,16 @@ class JrwiDownloaderImpl(private val context: Context, private val downloads: Jr
                     audioPostId = audio.postId,
                     addedAt = System.currentTimeMillis(),
                 )
-        downloads.put(download.copy(title = item.title, mime = audio.mime, failed = false))
+        downloads.put(
+            download.copy(
+                title = item.title,
+                mime = audio.mime,
+                failed = false,
+                withFiles = withFiles,
+            )
+        )
+        // Files kept by an earlier download go, unless the video's download keeps them
+        if (!withFiles) downloads.dropUnwantedFiles(item.id)
         JrwiDownloadWorker.enqueue(context, item.id)
     }
 
@@ -377,6 +429,16 @@ class JrwiDownloaderImpl(private val context: Context, private val downloads: Jr
     }
 
     override fun refresh(itemId: Long) {
-        if (downloads.get(itemId)?.done == true) JrwiDownloadWorker.enqueue(context, itemId)
+        val download = downloads.get(itemId) ?: return
+        if (download.done && download.withFiles) JrwiDownloadWorker.enqueue(context, itemId)
+    }
+
+    override fun keepFilesForVideo(itemId: Long) {
+        JrwiDownloadWorker.enqueueFiles(context, itemId)
+    }
+
+    override fun forgetVideo(itemId: Long) {
+        JrwiDownloadWorker.cancelFiles(context, itemId)
+        downloads.deleteVideo(itemId)
     }
 }

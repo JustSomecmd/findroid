@@ -499,6 +499,10 @@ constructor(
                 // A download from before the post's files were kept with it gets them now
                 if (!_state.value.offline && jrwiDownloads.savedFiles(item.id) == null) {
                     jrwiDownloader.refresh(item.id)
+                    // Also a video's download whose files couldn't be kept when it started
+                    if (jrwiDownloads.videoKeepsFiles(item.id)) {
+                        jrwiDownloader.keepFilesForVideo(item.id)
+                    }
                 }
                 refreshProgress(item)
                 if (videoOnLoad) {
@@ -600,23 +604,25 @@ constructor(
 
     /**
      * The video's download starts: the episode is kept with it, so the video's progress goes to the
-     * archive and its page opens without a connection.
+     * archive and its page opens without a connection, and with [withFiles] the post's files too.
+     * Null, as when a download is tried again, keeps what was asked for when it started.
      */
-    fun keepVideo() {
+    fun keepVideo(withFiles: Boolean? = null) {
         val state = _state.value
         val item = state.item ?: return
         val episodeId = state.episodeId ?: return
-        jrwiDownloads.saveVideo(item, episodeId.toString())
+        jrwiDownloads.saveVideo(item, episodeId.toString(), withFiles)
+        if (jrwiDownloads.videoKeepsFiles(item.id)) jrwiDownloader.keepFilesForVideo(item.id)
     }
 
     /** The video's download is removed, and what was kept with it goes too. */
     fun forgetVideo() {
-        _state.value.item?.let { jrwiDownloads.deleteVideo(it.id) }
+        _state.value.item?.let { jrwiDownloader.forgetVideo(it.id) }
     }
 
-    /** Downloads the audio, to listen to without a connection. */
-    fun downloadAudio() {
-        _state.value.item?.let { jrwiDownloader.download(it) }
+    /** Downloads the audio, to listen to without a connection, and the post's files if asked. */
+    fun downloadAudio(withFiles: Boolean) {
+        _state.value.item?.let { jrwiDownloader.download(it, withFiles) }
     }
 
     /** Stops the audio's download, or takes it off the phone. */

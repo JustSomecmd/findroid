@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,6 +26,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,7 +58,8 @@ import kotlin.math.ceil
  * An episode's buttons, as on a TubeArchivist video's page but square and in the archiver's yellow:
  * Play, with the minutes left once it's started, and Play from the start next to it; then watched
  * or not, and the download of the version picked: the audio from the archiver, or the archived
- * video through Jellyfin like the app's other downloads.
+ * video through Jellyfin like the app's other downloads. Either asks first whether to keep the
+ * post's files with it.
  */
 @Composable
 fun JrwiItemButtons(
@@ -68,10 +71,12 @@ fun JrwiItemButtons(
     onPlay: (fromStart: Boolean) -> Unit,
     onToggleWatched: () -> Unit,
     audioDownload: JrwiDownloadEntry?,
-    onDownloadAudio: () -> Unit,
+    onDownloadAudio: (withFiles: Boolean) -> Unit,
     onRemoveAudio: () -> Unit,
     episode: FindroidEpisode?,
     videoDownload: DownloaderState,
+    /** Starts the video's download in the storage picked, with the post's files or not. */
+    onDownloadVideo: (storageIndex: Int, withFiles: Boolean) -> Unit,
     onVideoAction: (DownloaderAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -140,7 +145,7 @@ fun JrwiItemButtons(
                     JrwiAudioDownloadButton(audioDownload, onDownloadAudio, onRemoveAudio)
                 }
             } else if (episode != null && (episode.canDownload || episode.isDownloaded())) {
-                JrwiVideoDownloadButton(episode, videoDownload, onVideoAction)
+                JrwiVideoDownloadButton(episode, videoDownload, onDownloadVideo, onVideoAction)
             }
         }
         if (playsAudio) {
@@ -185,16 +190,37 @@ val JrwiTonal: Color = JrwiColors.Accent.copy(alpha = 0.16f).compositeOver(JrwiC
 
 private val BUTTON_SIZE = 48.dp
 
+/** Asks whether to keep the post's files with a download; tapping outside starts none. */
+@Composable
+private fun JrwiFilesDialog(onChoose: (withFiles: Boolean) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        title = { Text(text = stringResource(CoreR.string.jrwi_download_files_title)) },
+        text = { Text(text = stringResource(CoreR.string.jrwi_download_files_text)) },
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { onChoose(true) }) {
+                Text(text = stringResource(CoreR.string.jrwi_download_with_files))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onChoose(false) }) {
+                Text(text = stringResource(CoreR.string.jrwi_download_without_files))
+            }
+        },
+    )
+}
+
 /**
- * The audio's download: download, how far it's got (tapping cancels it), or delete once it's on the
- * phone, each asked first as the app's other downloads do.
+ * The audio's download: download, with the post's files or not, how far it's got (tapping cancels
+ * it), or delete once it's on the phone, each asked first as the app's other downloads do.
  */
 @Composable
 private fun JrwiAudioDownloadButton(
     entry: JrwiDownloadEntry?,
-    onDownload: () -> Unit,
+    onDownload: (withFiles: Boolean) -> Unit,
     onRemove: () -> Unit,
 ) {
+    var filesOpen by remember { mutableStateOf(false) }
     var cancelOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     val download = entry?.download
@@ -203,7 +229,7 @@ private fun JrwiAudioDownloadButton(
             JrwiSquareButton(
                 icon = CoreR.drawable.ic_download,
                 contentDescription = stringResource(CoreR.string.jrwi_download_audio),
-                onClick = onDownload,
+                onClick = { filesOpen = true },
             )
         download.done ->
             JrwiSquareButton(
@@ -234,6 +260,15 @@ private fun JrwiAudioDownloadButton(
                     )
                 }
             }
+    }
+    if (filesOpen) {
+        JrwiFilesDialog(
+            onChoose = { withFiles ->
+                filesOpen = false
+                onDownload(withFiles)
+            },
+            onDismiss = { filesOpen = false },
+        )
     }
     if (cancelOpen) {
         CancelDownloadDialog(
@@ -296,17 +331,20 @@ private fun JrwiAudioDownloadProgress(entry: JrwiDownloadEntry?) {
 }
 
 /**
- * The archived video's download through Jellyfin: download, asking where when the phone has more
- * than one place for it, or delete once it's on the phone. While it downloads, the app's download
- * card shows under the buttons.
+ * The archived video's download through Jellyfin: download, asking whether to keep the post's files
+ * with it, then where when the phone has more than one place for it, or delete once it's on the
+ * phone. While it downloads, the app's download card shows under the buttons.
  */
 @Composable
 private fun JrwiVideoDownloadButton(
     episode: FindroidEpisode,
     state: DownloaderState,
+    onDownload: (storageIndex: Int, withFiles: Boolean) -> Unit,
     onAction: (DownloaderAction) -> Unit,
 ) {
     val context = LocalContext.current
+    var filesOpen by remember { mutableStateOf(false) }
+    var withFiles by remember { mutableStateOf(false) }
     var storageOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     // Progress shows in a notification, which needs this permission on Android 13 and newer. The
@@ -332,12 +370,22 @@ private fun JrwiVideoDownloadButton(
                 ) {
                     notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
+                filesOpen = true
+            },
+        )
+    }
+    if (filesOpen) {
+        JrwiFilesDialog(
+            onChoose = { files ->
+                filesOpen = false
+                withFiles = files
                 if (context.getExternalFilesDirs(null).size > 1) {
                     storageOpen = true
                 } else {
-                    onAction(DownloaderAction.Download(episode, 0))
+                    onDownload(0, files)
                 }
             },
+            onDismiss = { filesOpen = false },
         )
     }
     if (storageOpen) {
@@ -359,7 +407,7 @@ private fun JrwiVideoDownloadButton(
             storageLocations = locations,
             onSelect = { index ->
                 storageOpen = false
-                onAction(DownloaderAction.Download(episode, index))
+                onDownload(index, withFiles)
             },
             onDismiss = { storageOpen = false },
         )

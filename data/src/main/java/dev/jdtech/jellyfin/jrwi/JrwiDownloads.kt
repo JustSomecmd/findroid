@@ -31,25 +31,44 @@ data class JrwiDownload(
     val failed: Boolean = false,
     /** When it was asked for, so the newest come first. */
     val addedAt: Long = 0,
+    /** The post's files are kept too (decision 17), unless they were left out when it started. */
+    val withFiles: Boolean = true,
 )
 
 /**
  * A JRWI episode whose archived video was downloaded through Jellyfin, as its other downloads are.
  * The episode is kept with the Jellyfin episode's ID, so the video's progress still goes to the
- * archive, and its page still opens, without a connection.
+ * archive, and its page still opens, without a connection. With [withFiles] the post's files are
+ * kept too, in the episode's folder, as with the audio's download.
  */
-@Serializable data class JrwiSavedVideo(val episodeId: String, val item: JrwiItem)
+@Serializable
+data class JrwiSavedVideo(
+    val episodeId: String,
+    val item: JrwiItem,
+    val withFiles: Boolean = false,
+)
 
 /** Starts and removes downloads of episodes' audio, which run in the background. */
 interface JrwiDownloader {
-    /** Downloads the audio of [item], with what's needed to show its page without a connection. */
-    fun download(item: JrwiItem)
+    /**
+     * Downloads the audio of [item], with what's needed to show its page without a connection, and
+     * the post's files unless [withFiles] is false.
+     */
+    fun download(item: JrwiItem, withFiles: Boolean = true)
 
     /** Stops a download, if it's still going, and takes the episode off the phone. */
     fun remove(itemId: Long)
 
     /** Keeps what's new for a whole download, such as the post's files, without the audio again. */
     fun refresh(itemId: Long)
+
+    /** Keeps the post's files on the phone with the video's download, in the background. */
+    fun keepFilesForVideo(itemId: Long)
+
+    /**
+     * The video's download is gone, and its files go too unless the audio's download keeps them.
+     */
+    fun forgetVideo(itemId: Long)
 }
 
 /**
@@ -202,20 +221,57 @@ class JrwiDownloads(context: Context) {
         _progress.update { if (fraction == null) it - itemId else it + (itemId to fraction) }
     }
 
-    /** Takes an episode off the phone. */
+    /**
+     * Takes an episode's audio off the phone, and the rest kept with it. The post's files stay when
+     * the video's download keeps them.
+     */
     @Synchronized
     fun delete(itemId: Long) {
-        folder(itemId).deleteRecursively()
+        if (videoKeepsFiles(itemId)) {
+            folder(itemId)
+                .listFiles()
+                ?.filter { it.name !in FILE_PARTS }
+                ?.forEach { it.deleteRecursively() }
+        } else {
+            folder(itemId).deleteRecursively()
+        }
         _downloads.update { list -> list.filter { it.itemId != itemId } }
         setProgress(itemId, null)
     }
 
-    /** Keeps the episode with its Jellyfin episode, for a video downloaded through Jellyfin. */
+    /** The post's files are wanted on the phone, with the audio's download or the video's. */
+    fun keepsFiles(itemId: Long): Boolean =
+        get(itemId)?.withFiles == true || videoKeepsFiles(itemId)
+
+    fun videoKeepsFiles(itemId: Long): Boolean =
+        readVideo(File(videoDir, "$itemId.json"))?.withFiles == true
+
+    /**
+     * Takes the post's files off the phone, unless the audio's or the video's download keeps them.
+     */
     @Synchronized
-    fun saveVideo(item: JrwiItem, episodeId: String) {
+    fun dropUnwantedFiles(itemId: Long) {
+        if (keepsFiles(itemId)) return
+        // Without the audio's download, the folder only held the video's files
+        if (get(itemId) == null) folder(itemId).deleteRecursively()
+        else FILE_PARTS.forEach { File(folder(itemId), it).deleteRecursively() }
+    }
+
+    /**
+     * Keeps the episode with its Jellyfin episode, for a video downloaded through Jellyfin, with
+     * the post's files when [withFiles] is true; null keeps what was asked for before.
+     */
+    @Synchronized
+    fun saveVideo(item: JrwiItem, episodeId: String, withFiles: Boolean? = null) {
         videoDir.mkdirs()
-        val text = json.encodeToString(JrwiSavedVideo.serializer(), JrwiSavedVideo(episodeId, item))
-        File(videoDir, "${item.id}.json").writeText(text)
+        val file = File(videoDir, "${item.id}.json")
+        val files = withFiles ?: readVideo(file)?.withFiles ?: false
+        val text =
+            json.encodeToString(
+                JrwiSavedVideo.serializer(),
+                JrwiSavedVideo(episodeId, item, files),
+            )
+        file.writeText(text)
     }
 
     /** The kept episode of a downloaded video, by any of its post IDs. */
@@ -227,8 +283,11 @@ class JrwiDownloads(context: Context) {
     fun savedVideoForEpisode(episodeId: String): JrwiSavedVideo? =
         savedVideos().firstOrNull { it.episodeId == episodeId }
 
+    /** The video's download is gone; its files go too, unless the audio's download keeps them. */
+    @Synchronized
     fun deleteVideo(itemId: Long) {
         File(videoDir, "$itemId.json").delete()
+        dropUnwantedFiles(itemId)
     }
 
     private fun savedVideos(): List<JrwiSavedVideo> =
@@ -305,5 +364,7 @@ class JrwiDownloads(context: Context) {
         const val AUDIO = "audio"
         const val THUMBNAIL = "thumbnail"
         const val VIDEOS = "videos"
+        // What's kept of the post's files, which a video's download can keep without the audio
+        val FILE_PARTS = listOf(FILES, FILE_DIR, PREVIEW_DIR)
     }
 }
