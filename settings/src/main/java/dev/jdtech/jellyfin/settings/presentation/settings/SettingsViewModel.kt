@@ -706,14 +706,6 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                             },
                         ),
                         PreferenceSwitch(
-                            nameStringResource = R.string.settings_tubearchivist_interface,
-                            descriptionStringRes =
-                                R.string.settings_tubearchivist_interface_summary,
-                            iconDrawableId = R.drawable.ic_layout_dashboard,
-                            supportedDeviceTypes = listOf(DeviceType.PHONE),
-                            backendPreference = appPreferences.tubeArchivistInterface,
-                        ),
-                        PreferenceSwitch(
                             nameStringResource = R.string.settings_tubearchivist_bot_notifications,
                             descriptionStringRes =
                                 R.string.settings_tubearchivist_bot_notifications_summary,

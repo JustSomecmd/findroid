@@ -38,6 +38,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -70,6 +71,7 @@ import androidx.navigation3.ui.NavDisplay
 import androidx.window.core.layout.WindowSizeClass
 import dev.jdtech.jellyfin.audio.AudioEpisode
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsScope
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiNavViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelsTab
 import dev.jdtech.jellyfin.film.presentation.tube.TaNavViewModel
@@ -104,15 +106,15 @@ import dev.jdtech.jellyfin.presentation.film.PlaylistScreen
 import dev.jdtech.jellyfin.presentation.film.PlaylistsScreen
 import dev.jdtech.jellyfin.presentation.film.SeasonScreen
 import dev.jdtech.jellyfin.presentation.film.ShowScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiColors
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiHomeScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiItemScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiPurple
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiSettingsScreen
-import dev.jdtech.jellyfin.presentation.jrwi.JrwiSheetState
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowsScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiTheme
 import dev.jdtech.jellyfin.presentation.jrwi.LocalJrwiBaseUrl
-import dev.jdtech.jellyfin.presentation.jrwi.jrwiSheetSwipe
-import dev.jdtech.jellyfin.presentation.jrwi.rememberJrwiSheetState
 import dev.jdtech.jellyfin.presentation.settings.AboutScreen
 import dev.jdtech.jellyfin.presentation.settings.PlayerButtonsScreen
 import dev.jdtech.jellyfin.presentation.settings.SettingsFileEditScreen
@@ -157,6 +159,8 @@ private val TOP_LEVEL_ROUTES =
         TaHomeRoute,
         TaChannelsRoute,
         JrwiRoute,
+        JrwiShowsRoute,
+        JrwiDownloadsRoute,
         TaQueueRoute,
         HomeRoute,
         MediaRoute,
@@ -196,7 +200,7 @@ val playlistsTab =
         route = PlaylistsRoute,
     )
 
-// With TubeArchivist set up it becomes the main part of the app, unless turned off in Settings
+// With TubeArchivist set up it becomes the main part of the app
 val taHomeTab =
     TabBarItem(title = CoreR.string.title_home, icon = CoreR.drawable.ic_home, route = TaHomeRoute)
 
@@ -207,9 +211,27 @@ val taChannelsTab =
         route = TaChannelsRoute,
     )
 
-// With the JRWI archiver set up, its shows get a tab of their own
-val jrwiTab =
-    TabBarItem(title = CoreR.string.jrwi_tab, icon = CoreR.drawable.ic_dice, route = JrwiRoute)
+// With the JRWI archiver set up, it has a mode of its own with these tabs, switched to at the start
+// of the bottom bar
+val jrwiHomeTab =
+    TabBarItem(title = CoreR.string.title_home, icon = CoreR.drawable.ic_home, route = JrwiRoute)
+
+val jrwiShowsTab =
+    TabBarItem(
+        title = CoreR.string.jrwi_shows,
+        icon = CoreR.drawable.ic_dice,
+        route = JrwiShowsRoute,
+    )
+
+val jrwiDownloadsTab =
+    TabBarItem(
+        title = CoreR.string.title_download,
+        icon = CoreR.drawable.ic_download,
+        route = JrwiDownloadsRoute,
+    )
+
+/** JRWI mode's tabs, left to right, which are also its main pages. */
+private val JRWI_TABS = listOf(JrwiRoute, JrwiShowsRoute, JrwiDownloadsRoute)
 
 @Composable
 fun NavigationRoot(
@@ -221,9 +243,9 @@ fun NavigationRoot(
 
     val taNavViewModel: TaNavViewModel = hiltViewModel()
     val taConfigured by taNavViewModel.configured.collectAsStateWithLifecycle()
-    val taInterfaceEnabled by taNavViewModel.interfaceEnabled.collectAsStateWithLifecycle()
     val taBaseUrl by taNavViewModel.baseUrl.collectAsStateWithLifecycle()
-    val taInterface = taConfigured && taInterfaceEnabled
+    // The TubeArchivist interface whenever TubeArchivist is set up; Jellyfin's own without it
+    val taInterface = taConfigured
     val tubeArchivistMode = taInterface && !LocalOfflineMode.current
 
     val jrwiNavViewModel: JrwiNavViewModel = hiltViewModel()
@@ -246,6 +268,10 @@ fun NavigationRoot(
             topLevelRoutes = TOP_LEVEL_ROUTES,
         )
     val navigator = remember(navigationState) { Navigator(navigationState) }
+    // Back from JRWI mode's Shows or Downloads goes to its Home, and from there to TubeArchivist's
+    navigator.backTo = { route ->
+        if (route == JrwiShowsRoute || route == JrwiDownloadsRoute) JrwiRoute else null
+    }
     // A JRWI episode's video opens on the episode's page, as on the downloads page while it's still
     // downloading; downloaded TubeArchivist videos open on their TubeArchivist page, also offline
     navigator.episodeRedirect = { itemId ->
@@ -344,38 +370,39 @@ private fun MainNavigation(
     permissionViewModel: PermissionViewModel,
     permissionApplicable: Boolean,
 ) {
+    val topLevelRoute = navigationState.topLevelRoute
+    // JRWI mode while one of its tabs is open; TubeArchivist's (or Jellyfin's) otherwise, which the
+    // app starts in
+    val jrwiMode = jrwiShown && topLevelRoute in JRWI_TABS
     val navigationItems =
         when {
             isOfflineMode -> listOf(homeTab, downloadsTab)
-            tubeArchivistMode ->
-                listOfNotNull(taHomeTab, taChannelsTab, jrwiTab.takeIf { jrwiShown }, downloadsTab)
-            else ->
-                listOfNotNull(
-                    homeTab,
-                    mediaTab,
-                    jrwiTab.takeIf { jrwiShown },
-                    downloadsTab,
-                    playlistsTab,
-                )
+            jrwiMode -> listOf(jrwiHomeTab, jrwiShowsTab, jrwiDownloadsTab)
+            tubeArchivistMode -> listOf(taHomeTab, taChannelsTab, downloadsTab)
+            else -> listOf(homeTab, mediaTab, downloadsTab, playlistsTab)
         }
     val tabRoutes = navigationItems.map { it.route }
+    // The tab each mode was left on, to come back to when it's switched to again
+    val lastTabs = remember { LastModeTabs() }
+    LaunchedEffect(topLevelRoute) {
+        if (topLevelRoute in JRWI_TABS) lastTabs.jrwi = topLevelRoute
+        else if (topLevelRoute in tabRoutes) lastTabs.other = topLevelRoute
+    }
+    // Out of JRWI mode once the archiver is gone, as when it's removed in Settings
+    LaunchedEffect(jrwiShown) {
+        if (!jrwiShown && navigationState.topLevelRoute in JRWI_TABS) {
+            navigator.navigate(tabRoutesFor(tubeArchivistMode).first())
+        }
+    }
 
-    val topLevelRoute = navigationState.topLevelRoute
     val atTabRoot = navigationState.currentBackStack().last() == topLevelRoute
     val showBottomBar = atTabRoot && topLevelRoute in tabRoutes && !searchExpanded.value
     // The main page a swipe is heading to, which the bottom bar shows before it's reached
     val swipeTarget = remember { mutableStateOf<NavKey?>(null) }
     val barRoute = swipeTarget.value ?: topLevelRoute
     val mainPagerTurns = remember { MainPagerTurns() }
-    val jrwiSheet = rememberJrwiSheetState()
-    val tabSides = remember(jrwiSheet) { TabSides(jrwiSheet) }
+    val tabSides = remember { TabSides() }
     val lastTap = remember { LastTap() }
-    // A swipe up from the bottom bar brings out the archiver sheet, on the JRWI tab at rest
-    val sheetSwipe = topLevelRoute == JrwiRoute && atTabRoot && swipeTarget.value == null
-    // Away once the tab is left or a page opens over it, so it's never open out of sight
-    LaunchedEffect(topLevelRoute, atTabRoot) {
-        if (topLevelRoute != JrwiRoute || !atTabRoot) jrwiSheet.closeNow()
-    }
 
     val audioViewModel: AudioViewModel = hiltViewModel()
     val audioPlayer = audioViewModel.player
@@ -441,13 +468,40 @@ private fun MainNavigation(
             searchExpanded = searchExpanded,
             permissionViewModel = permissionViewModel,
             permissionApplicable = permissionApplicable,
+            jrwiShown = jrwiShown,
         )
     }
 
-    // The JRWI tab lights up in the archiver sheet's purple
+    // Flips between the modes, to the tab each was left on
+    val switchMode: (Boolean) -> Unit = { toJrwi ->
+        val route =
+            if (toJrwi) lastTabs.jrwi ?: JrwiRoute
+            else
+                lastTabs.other?.takeIf { it !in JRWI_TABS }
+                    ?: tabRoutesFor(tubeArchivistMode).first()
+        navigator.navigate(route)
+    }
+    // In JRWI mode the bar is in the archiver's colours, and lights up in its purple
     val jrwiColors = jrwiItemColors()
     NavigationSuiteScaffold(
         navigationSuiteItems = {
+            // The switch between the modes comes first, at the far left (or the top of the rail)
+            if (jrwiShown && !isOfflineMode) {
+                item(
+                    selected = false,
+                    onClick = { switchMode(!jrwiMode) },
+                    icon = { ModeSwitch(jrwi = jrwiMode, onSwitch = switchMode) },
+                    label = {
+                        Text(
+                            text =
+                                stringResource(
+                                    if (jrwiMode) CoreR.string.jrwi_tab else CoreR.string.mode_ta
+                                )
+                        )
+                    },
+                    colors = if (jrwiMode) jrwiColors else null,
+                )
+            }
             navigationItems.forEach { item ->
                 item(
                     selected = barRoute == item.route,
@@ -476,12 +530,24 @@ private fun MainNavigation(
                     },
                     enabled = item.enabled,
                     label = { Text(text = stringResource(item.title)) },
-                    modifier = Modifier.jrwiSheetSwipe(jrwiSheet, enabled = sheetSwipe),
-                    colors = if (item.route == JrwiRoute) jrwiColors else null,
+                    colors = if (jrwiMode) jrwiColors else null,
                 )
             }
         },
         layoutType = customNavSuiteType,
+        navigationSuiteColors =
+            if (jrwiMode) {
+                NavigationSuiteDefaults.colors(
+                    navigationBarContainerColor = JrwiColors.Header,
+                    navigationBarContentColor = JrwiColors.Text,
+                    navigationRailContainerColor = JrwiColors.Header,
+                    navigationRailContentColor = JrwiColors.Text,
+                    navigationDrawerContainerColor = JrwiColors.Header,
+                    navigationDrawerContentColor = JrwiColors.Text,
+                )
+            } else {
+                NavigationSuiteDefaults.colors()
+            },
         state = navigationSuiteScaffoldState,
     ) {
         CompositionLocalProvider(LocalTabSides provides tabSides) {
@@ -505,35 +571,29 @@ private fun MainNavigation(
                         NavDisplay(
                             entries =
                                 navigationState.toDecoratedEntries(entryDecorators, entryProvider),
-                            onBack = {
-                                if (
-                                    jrwiSheet.isOpen &&
-                                        navigationState.currentBackStack().last() == JrwiRoute
-                                ) {
-                                    jrwiSheet.close()
-                                } else {
-                                    navigator.goBack()
-                                }
-                            },
+                            onBack = { navigator.goBack() },
                             transitionSpec = { GLOBAL_TRANSITION_SPEC },
                             popTransitionSpec = { GLOBAL_TRANSITION_SPEC },
                             predictivePopTransitionSpec = { _ -> GLOBAL_TRANSITION_SPEC },
                         )
                     }
-                    if (tubeArchivistMode) {
-                        // Home, Channels and Downloads sit side by side in one pager under the
-                        // other pages, and their own entries in the navigation are left empty so
-                        // the pager shows through
-                        val mainPages = taMainPages(jrwiShown)
+                    if (tubeArchivistMode || jrwiMode) {
+                        // The mode's tabs sit side by side in one pager under the other pages, and
+                        // their own entries in the navigation are left empty so the pager shows
+                        // through. A new pager for each mode, on the tab it's switched to.
+                        val mainPages = if (jrwiMode) JRWI_TABS else taMainPages()
                         Box(modifier = Modifier.fillMaxSize()) {
-                            TaMainPager(
-                                navigationState = navigationState,
-                                navigator = navigator,
-                                mainPages = mainPages,
-                                active = atTabRoot && topLevelRoute in mainPages,
-                                swipeTarget = swipeTarget,
-                                turns = mainPagerTurns,
-                            )
+                            key(jrwiMode) {
+                                TaMainPager(
+                                    navigationState = navigationState,
+                                    navigator = navigator,
+                                    mainPages = mainPages,
+                                    active = atTabRoot && topLevelRoute in mainPages,
+                                    swipeTarget = swipeTarget,
+                                    turns = mainPagerTurns,
+                                    hideJrwiDownloads = jrwiShown,
+                                )
+                            }
                             CompositionLocalProvider(LocalTaMainPagerShown provides true) {
                                 navDisplay()
                             }
@@ -552,7 +612,20 @@ private fun MainNavigation(
     }
 }
 
-/** The JRWI tab's colours in the bottom bar, rail or drawer: purple when it's the one open. */
+/** The tab each mode was last on: JRWI's, and TubeArchivist's or Jellyfin's. */
+private class LastModeTabs {
+    var jrwi: NavKey? = null
+    var other: NavKey? = null
+}
+
+/** The tabs of TubeArchivist's interface, or else Jellyfin's, for switching back from JRWI. */
+private fun tabRoutesFor(tubeArchivistMode: Boolean): List<NavKey> =
+    if (tubeArchivistMode) taMainPages() else listOf(HomeRoute, MediaRoute, DownloadsRoute)
+
+/**
+ * JRWI mode's tabs in the bottom bar, rail or drawer: on the archiver's dark purple, lighting up in
+ * the purple of its server side when open.
+ */
 @Composable
 private fun jrwiItemColors() =
     NavigationSuiteDefaults.itemColors(
@@ -561,24 +634,29 @@ private fun jrwiItemColors() =
                 selectedIconColor = JrwiPurple.Ink,
                 selectedTextColor = JrwiPurple.Accent,
                 indicatorColor = JrwiPurple.Accent,
+                unselectedIconColor = JrwiPurple.Muted,
+                unselectedTextColor = JrwiPurple.Muted,
             ),
         navigationRailItemColors =
             NavigationRailItemDefaults.colors(
                 selectedIconColor = JrwiPurple.Ink,
                 selectedTextColor = JrwiPurple.Accent,
                 indicatorColor = JrwiPurple.Accent,
+                unselectedIconColor = JrwiPurple.Muted,
+                unselectedTextColor = JrwiPurple.Muted,
             ),
         navigationDrawerItemColors =
             NavigationDrawerItemDefaults.colors(
                 selectedContainerColor = JrwiPurple.Accent,
                 selectedIconColor = JrwiPurple.Ink,
                 selectedTextColor = JrwiPurple.Ink,
+                unselectedIconColor = JrwiPurple.Muted,
+                unselectedTextColor = JrwiPurple.Muted,
             ),
     )
 
 /** The main pages, left to right, in the TubeArchivist interface. */
-private fun taMainPages(jrwiShown: Boolean): List<NavKey> =
-    listOfNotNull(TaHomeRoute, TaChannelsRoute, JrwiRoute.takeIf { jrwiShown }, DownloadsRoute)
+private fun taMainPages(): List<NavKey> = listOf(TaHomeRoute, TaChannelsRoute, DownloadsRoute)
 
 /** True where the main pager shows the main pages, so their navigation entries stay empty. */
 private val LocalTaMainPagerShown = staticCompositionLocalOf { false }
@@ -612,21 +690,16 @@ private class MainPagerTurns {
 }
 
 /**
- * Which side the tabs with a server side show: Home and Downloads, whose sides are pages of the
- * main pager, and the JRWI tab, whose archiver page slides over it. A tab opens on its own side, a
- * tap on it while it's open turns it to its other side, and a double tap opens it on its server
- * side.
+ * Which side the tabs with a server side show: TubeArchivist's Home and Downloads, and JRWI's Home,
+ * whose sides are pages of the main pager. A tab opens on its own side, a tap on it while it's open
+ * turns it to its other side, and a double tap opens it on its server side.
  */
-private class TabSides(val jrwiSheet: JrwiSheetState) {
+private class TabSides {
     private val requests = MutableSharedFlow<SideRequest>(extraBufferCapacity = 4)
 
     /** Turns [route] to its server side, to its own side, or with null to the side it isn't on. */
     fun show(route: NavKey, server: Boolean?) {
-        if (route == JrwiRoute) {
-            jrwiSheet.show(server)
-        } else {
-            requests.tryEmit(SideRequest(route, server))
-        }
+        requests.tryEmit(SideRequest(route, server))
     }
 
     /** The sides asked of [route], for the tabs whose sides are in the main pager. */
@@ -654,11 +727,14 @@ private class LastTap {
 }
 
 /**
- * Home, Channels and Downloads side by side, to swipe between. The two sides of Home, the Channels
- * tabs and the two sides of Downloads turn first, and the pager moves on once they're at their end,
- * so swiping goes the server's stats, Home, Subscribed, All channels, Playlists, the phone's
- * downloads, then the server's queue. The stats are left of Home, so they don't come between Home
- * and Channels. One [PageSwiper] moves all of them, so every swipe feels the same.
+ * A mode's tabs side by side, to swipe between: TubeArchivist's Home, Channels and Downloads, or
+ * JRWI's Home, Shows and Downloads. The two sides of Home, the Channels tabs and the two sides of
+ * Downloads turn first, and the pager moves on once they're at their end, so swiping goes the
+ * server's stats, Home, Subscribed, All channels, Playlists, the phone's downloads, then the
+ * server's queue. The stats are left of Home, so they don't come between Home and Channels; JRWI's
+ * archiver is left of its Home the same way. One [PageSwiper] moves all of them, so every swipe
+ * feels the same. With [hideJrwiDownloads], TubeArchivist's Downloads leaves out JRWI's, which are
+ * in JRWI mode's.
  */
 @Composable
 private fun TaMainPager(
@@ -668,6 +744,7 @@ private fun TaMainPager(
     active: Boolean,
     swipeTarget: MutableState<NavKey?>,
     turns: MainPagerTurns,
+    hideJrwiDownloads: Boolean,
 ) {
     val topLevelRoute = navigationState.topLevelRoute
     // Read in the effects below, which keep running as the JRWI tab comes and goes
@@ -679,12 +756,14 @@ private fun TaMainPager(
     val homeSides = rememberSidePagerState(serverFirst = true)
     val channelTabs = rememberPagerState { TaChannelsTab.entries.size }
     val downloadSides = rememberSidePagerState()
+    val jrwiHomeSides = rememberSidePagerState(serverFirst = true)
     val swiper = rememberPageSwiper(pages)
     swiper.innerPages = { page ->
         when (currentPages.getOrNull(page)) {
             TaHomeRoute -> homeSides
             TaChannelsRoute -> channelTabs
             DownloadsRoute -> downloadSides
+            JrwiRoute -> jrwiHomeSides
             else -> null
         }
     }
@@ -709,6 +788,11 @@ private fun TaMainPager(
                 downloadSides.showSide(sideScope, server = it)
             }
         }
+        launch {
+            tabSides.requestsFor(JrwiRoute).collect {
+                jrwiHomeSides.showSide(sideScope, server = it, serverFirst = true)
+            }
+        }
     }
     // A tab that's been left is on its own side when it's next opened, out of sight meanwhile.
     // Swipes already bring a tab in on its near side, which is its own side.
@@ -717,17 +801,19 @@ private fun TaMainPager(
             .collect { route ->
                 if (route != TaHomeRoute) homeSides.requestOwnSide(serverFirst = true)
                 if (route != DownloadsRoute) downloadSides.requestOwnSide()
-                if (route != JrwiRoute) tabSides.jrwiSheet.closeNow()
+                if (route != JrwiRoute) jrwiHomeSides.requestOwnSide(serverFirst = true)
             }
     }
 
     // The bottom bar turns the pager as it's tapped, and back once it's gone back
     DisposableEffect(turns, swiper) {
-        turns.turnTo = { route ->
+        val turnTo: (NavKey) -> Unit = { route ->
             val page = currentPages.indexOf(route)
             if (page >= 0) swiper.turnTo(page)
         }
-        onDispose { turns.turnTo = null }
+        turns.turnTo = turnTo
+        // Left to the next mode's pager when that one's already in
+        onDispose { if (turns.turnTo === turnTo) turns.turnTo = null }
     }
     LaunchedEffect(topLevelRoute, mainPages) {
         val page = mainPages.indexOf(topLevelRoute)
@@ -786,12 +872,23 @@ private fun TaMainPager(
                         tabsPagerState = channelTabs,
                     )
                 JrwiRoute ->
+                    JrwiHomeScreen(
+                        onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
+                        onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
+                        sides = jrwiHomeSides,
+                    )
+                JrwiShowsRoute ->
                     JrwiShowsScreen(
                         onShowClick =
                             resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
-                        onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
                         onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
-                        sheet = tabSides.jrwiSheet,
+                    )
+                JrwiDownloadsRoute ->
+                    JrwiDownloads(
+                        onItemClick =
+                            resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) },
+                        onJrwiItemClick =
+                            resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
                     )
                 else ->
                     TaDownloadsScreen(
@@ -802,6 +899,8 @@ private fun TaMainPager(
                         onJrwiItemClick =
                             resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
                         sides = downloadSides,
+                        scope =
+                            if (hideJrwiDownloads) DownloadsScope.NOT_JRWI else DownloadsScope.ALL,
                     )
             }
         }
@@ -974,6 +1073,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
     searchExpanded: MutableState<Boolean>,
     permissionViewModel: PermissionViewModel,
     permissionApplicable: Boolean,
+    jrwiShown: Boolean,
 ) {
     setupEntries(
         navigate = navigator::navigate,
@@ -1017,6 +1117,8 @@ private fun EntryProviderScope<NavKey>.mainEntries(
     entry<DownloadsRoute>(metadata = MAIN_PAGE_ENTRY) {
         val onItemClick = resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) }
         val onJrwiItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) }
+        // JRWI's are in its own mode's Downloads, while it has one
+        val scope = if (jrwiShown) DownloadsScope.NOT_JRWI else DownloadsScope.ALL
         // With TubeArchivist, the downloads on this phone and the download queue on the server are
         // two sides to swipe between, or to switch with the title
         if (LocalTubeArchivistMode.current) {
@@ -1026,10 +1128,15 @@ private fun EntryProviderScope<NavKey>.mainEntries(
                     onChannelClick =
                         resumedAction<String> { navigator.navigateOrReuse(TaChannelRoute(it)) },
                     onJrwiItemClick = onJrwiItemClick,
+                    scope = scope,
                 )
             }
         } else {
-            DownloadsScreen(onItemClick = onItemClick, onJrwiItemClick = onJrwiItemClick)
+            DownloadsScreen(
+                onItemClick = onItemClick,
+                onJrwiItemClick = onJrwiItemClick,
+                scope = scope,
+            )
         }
     }
     entry<DownloadStorageRoute> {
@@ -1184,6 +1291,22 @@ private fun EntryProviderScope<NavKey>.mainEntries(
     entry<AboutRoute> { AboutScreen(navigateBack = dropUnlessResumed { navigator.goBack() }) }
 }
 
+/** JRWI mode's Downloads: the JRWI episodes' audio and videos on the phone, in its colours. */
+@Composable
+private fun JrwiDownloads(onItemClick: (FindroidItem) -> Unit, onJrwiItemClick: (Long) -> Unit) {
+    JrwiTheme {
+        DownloadsScreen(
+            onItemClick = onItemClick,
+            onJrwiItemClick = onJrwiItemClick,
+            // Apart from TubeArchivist's Downloads, which lists the others
+            viewModel = hiltViewModel(key = JRWI_DOWNLOADS_KEY),
+            scope = DownloadsScope.JRWI,
+        )
+    }
+}
+
+private const val JRWI_DOWNLOADS_KEY = "jrwiDownloads"
+
 private fun navigateToItem(navigator: Navigator, item: FindroidItem) {
     when (item) {
         is FindroidBoxSet ->
@@ -1266,14 +1389,27 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
     entry<TaSettingsRoute> {
         TaSettingsScreen(navigateBack = dropUnlessResumed { navigator.goBack() })
     }
+    // JRWI mode's tabs are in the main pager, which shows through their empty entries
     entry<JrwiRoute>(metadata = MAIN_PAGE_ENTRY) {
         if (LocalTaMainPagerShown.current) return@entry
-        val tabSides = LocalTabSides.current
-        JrwiShowsScreen(
-            onShowClick = resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
+        JrwiHomeScreen(
             onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
             onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
-            sheet = tabSides.jrwiSheet,
+            sides = rememberSidePagerState(serverFirst = true),
+        )
+    }
+    entry<JrwiShowsRoute>(metadata = MAIN_PAGE_ENTRY) {
+        if (LocalTaMainPagerShown.current) return@entry
+        JrwiShowsScreen(
+            onShowClick = resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
+            onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
+        )
+    }
+    entry<JrwiDownloadsRoute>(metadata = MAIN_PAGE_ENTRY) {
+        if (LocalTaMainPagerShown.current) return@entry
+        JrwiDownloads(
+            onItemClick = resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) },
+            onJrwiItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
         )
     }
     entry<JrwiShowRoute> { key ->

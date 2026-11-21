@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,7 +61,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -110,6 +110,7 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiServerViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiSettingsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowPage
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowViewModel
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowsState
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.pages
 import dev.jdtech.jellyfin.jrwi.JrwiBadge
@@ -123,12 +124,16 @@ import dev.jdtech.jellyfin.presentation.components.pageSwipes
 import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.TaSectionTitle
+import dev.jdtech.jellyfin.presentation.tube.TaSidePager
+import dev.jdtech.jellyfin.presentation.tube.TaSideSwitch
 import dev.jdtech.jellyfin.presentation.tube.formatBytes
 import dev.jdtech.jellyfin.presentation.tube.formatDuration
 import dev.jdtech.jellyfin.presentation.tube.fullDate
 import dev.jdtech.jellyfin.presentation.tube.recalculateWindowInsetsUnlessPaged
 import dev.jdtech.jellyfin.presentation.tube.rememberSeparateRowScroll
+import dev.jdtech.jellyfin.presentation.tube.serverSideShown
 import dev.jdtech.jellyfin.presentation.tube.startTaPlayback
+import dev.jdtech.jellyfin.presentation.tube.switchSide
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 import kotlin.math.ceil
 import kotlinx.coroutines.delay
@@ -190,17 +195,157 @@ internal fun openUrl(context: Context, url: String?) {
 // The JRWI tab
 
 /**
- * The JRWI tab: what was started and not finished, what's new, then the shows, as the Channels tab
- * lists channels. The archiver's own page is a purple [sheet] over it, which a swipe up from the
- * bottom bar or a double tap on the tab brings out, and which goes away once the tab is left.
+ * JRWI mode's Home: what was started and not finished, and what's new. Its server side, to the left
+ * as with TubeArchivist's Home, is the archiver's page in purple: what it's doing, Check now and
+ * the posts it couldn't fully save. A swipe, a tap on the switch, or a double tap on the tab turns
+ * it.
  */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun JrwiHomeScreen(
+    onItemClick: (Long) -> Unit,
+    onSetUp: () -> Unit,
+    sides: PagerState,
+    viewModel: JrwiShowsViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(Unit) {
+        viewModel.load()
+        onPauseOrDispose {}
+    }
+    val scope = rememberCoroutineScope()
+    val onServer = sides.serverSideShown(serverFirst = true)
+    Column(modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged()) {
+        // In the side's colours: the archiver's yellow, or the purple of its server side
+        val topBar =
+            @Composable {
+                TopAppBar(
+                    title = {
+                        Text(
+                            stringResource(
+                                if (onServer) CoreR.string.jrwi_archiver else CoreR.string.jrwi_tab
+                            )
+                        )
+                    },
+                    actions = {
+                        if (state.configured) {
+                            TaSideSwitch(
+                                onServer = onServer,
+                                onToggle = { sides.switchSide(scope) },
+                                localIcon = CoreR.drawable.ic_home,
+                                localLabel = stringResource(CoreR.string.ta_side_home),
+                                showLabel = false,
+                                serverFirst = true,
+                            )
+                        }
+                    },
+                    windowInsets = TOP_BAR_INSETS,
+                    colors = jrwiTopBarColors(),
+                )
+            }
+        if (onServer) JrwiSheetTheme(topBar) else JrwiTheme(topBar)
+        TaSidePager(
+            state = sides,
+            serverFirst = true,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            phone = {
+                JrwiTheme {
+                    JrwiScaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
+                        if (!state.configured) {
+                            JrwiSetUpPrompt(onSetUp, Modifier.padding(innerPadding))
+                            return@JrwiScaffold
+                        }
+                        PullToRefreshBox(
+                            isRefreshing = state.loading,
+                            onRefresh = { viewModel.load(force = true) },
+                            modifier = Modifier.padding(innerPadding).fillMaxSize(),
+                        ) {
+                            JrwiHomeList(state = state, onItemClick = onItemClick)
+                        }
+                    }
+                }
+            },
+            server = {
+                // Only while it's shown, so the archiver is asked only then
+                JrwiSheetTheme {
+                    Box(
+                        modifier =
+                            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+                    ) {
+                        if (state.configured) JrwiServerContent(modifier = Modifier.fillMaxSize())
+                    }
+                }
+            },
+        )
+    }
+}
+
+/** Continue watching and Latest, each a row of cards. */
+@Composable
+private fun JrwiHomeList(state: JrwiShowsState, onItemClick: (Long) -> Unit) {
+    LazyColumn(
+        contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        state.error?.let { error ->
+            item { Text(text = error, color = MaterialTheme.colorScheme.error) }
+        }
+        if (state.continueWatching.isNotEmpty()) {
+            item(key = "continue") {
+                JrwiItemRow(title = stringResource(CoreR.string.jrwi_continue_watching)) {
+                    items(state.continueWatching, key = { "continue:" + it.item.id }) { entry ->
+                        JrwiContinueCard(
+                            entry = entry,
+                            // On the version it was played in
+                            onClick = { onItemClick(entry.progress.postId ?: entry.item.id) },
+                            modifier = Modifier.width(240.dp),
+                        )
+                    }
+                }
+            }
+        }
+        if (state.latest.isNotEmpty()) {
+            item(key = "latest") {
+                JrwiItemRow(title = stringResource(CoreR.string.jrwi_latest)) {
+                    items(state.latest, key = { it.id }) { item ->
+                        JrwiItemCard(
+                            item = item,
+                            onClick = { onItemClick(item.id) },
+                            modifier = Modifier.width(240.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** For the JRWI pages before the archiver is set up in Settings. */
+@Composable
+private fun JrwiSetUpPrompt(onSetUp: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = stringResource(CoreR.string.jrwi_not_set_up),
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Spacer(Modifier.height(MaterialTheme.spacings.medium))
+        Button(shape = JrwiShape, onClick = onSetUp) {
+            Text(stringResource(CoreR.string.jrwi_set_up))
+        }
+    }
+}
+
+/** JRWI mode's Shows: every show of the archive, as the Channels tab lists channels. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JrwiShowsScreen(
     onShowClick: (String) -> Unit,
-    onItemClick: (Long) -> Unit,
     onSetUp: () -> Unit,
-    sheet: JrwiSheetState,
     viewModel: JrwiShowsViewModel = hiltViewModel(),
 ) {
     // In the archiver's own colours
@@ -210,106 +355,52 @@ fun JrwiShowsScreen(
             viewModel.load()
             onPauseOrDispose {}
         }
-        DisposableEffect(sheet) { onDispose { sheet.closeNow() } }
         val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-        Box(modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged()) {
-            JrwiScaffold(
-                modifier =
-                    Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
-                topBar = {
-                    TopAppBar(
-                        title = { Text(stringResource(CoreR.string.jrwi_tab)) },
-                        windowInsets = TOP_BAR_INSETS,
-                        scrollBehavior = scrollBehavior,
-                        colors = jrwiTopBarColors(),
-                    )
-                },
-                contentWindowInsets = TOP_BAR_INSETS,
-            ) { innerPadding ->
-                if (!state.configured) {
-                    Column(
-                        modifier = Modifier.padding(innerPadding).fillMaxSize().padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        Text(
-                            text = stringResource(CoreR.string.jrwi_not_set_up),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        Spacer(Modifier.height(MaterialTheme.spacings.medium))
-                        Button(shape = JrwiShape, onClick = onSetUp) {
-                            Text(stringResource(CoreR.string.jrwi_set_up))
+        JrwiScaffold(
+            modifier =
+                Modifier.fillMaxSize()
+                    .recalculateWindowInsetsUnlessPaged()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+            topBar = {
+                TopAppBar(
+                    title = { Text(stringResource(CoreR.string.jrwi_shows)) },
+                    windowInsets = TOP_BAR_INSETS,
+                    scrollBehavior = scrollBehavior,
+                    colors = jrwiTopBarColors(),
+                )
+            },
+            contentWindowInsets = TOP_BAR_INSETS,
+        ) { innerPadding ->
+            if (!state.configured) {
+                JrwiSetUpPrompt(onSetUp, Modifier.padding(innerPadding))
+                return@JrwiScaffold
+            }
+            PullToRefreshBox(
+                isRefreshing = state.loading,
+                onRefresh = { viewModel.load(force = true) },
+                modifier = Modifier.padding(innerPadding).fillMaxSize(),
+            ) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(160.dp),
+                    contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                    verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    state.error?.let { error ->
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Text(text = error, color = MaterialTheme.colorScheme.error)
                         }
                     }
-                    return@JrwiScaffold
-                }
-                PullToRefreshBox(
-                    isRefreshing = state.loading,
-                    onRefresh = { viewModel.load(force = true) },
-                    modifier = Modifier.padding(innerPadding).fillMaxSize(),
-                ) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(160.dp),
-                        contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        state.error?.let { error ->
-                            item(span = { GridItemSpan(maxLineSpan) }) {
-                                Text(text = error, color = MaterialTheme.colorScheme.error)
-                            }
-                        }
-                        if (state.continueWatching.isNotEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
-                                JrwiItemRow(
-                                    title = stringResource(CoreR.string.jrwi_continue_watching)
-                                ) {
-                                    items(
-                                        state.continueWatching,
-                                        key = { "continue:" + it.item.id },
-                                    ) { entry ->
-                                        JrwiContinueCard(
-                                            entry = entry,
-                                            // On the version it was played in
-                                            onClick = {
-                                                onItemClick(entry.progress.postId ?: entry.item.id)
-                                            },
-                                            modifier = Modifier.width(240.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        if (state.latest.isNotEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "latest") {
-                                JrwiItemRow(title = stringResource(CoreR.string.jrwi_latest)) {
-                                    items(state.latest, key = { it.id }) { item ->
-                                        JrwiItemCard(
-                                            item = item,
-                                            onClick = { onItemClick(item.id) },
-                                            modifier = Modifier.width(240.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        if (state.shows.isNotEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "shows") {
-                                TaSectionTitle(stringResource(CoreR.string.jrwi_shows))
-                            }
-                        }
-                        items(state.shows, key = { it.id }) { show ->
-                            JrwiShowCard(
-                                show = show,
-                                picture = state.showPictures[show.id],
-                                onClick = { onShowClick(show.id) },
-                            )
-                        }
+                    items(state.shows, key = { it.id }) { show ->
+                        JrwiShowCard(
+                            show = show,
+                            picture = state.showPictures[show.id],
+                            onClick = { onShowClick(show.id) },
+                        )
                     }
                 }
             }
-            if (state.configured) JrwiServerSheet(sheet = sheet)
         }
     }
 }

@@ -279,6 +279,9 @@ class JrwiDownloads(context: Context) {
         readVideo(File(videoDir, "$postId.json"))
             ?: savedVideos().firstOrNull { it.item.video?.postId == postId }
 
+    /** The Jellyfin episodes whose video was downloaded with its JRWI episode kept. */
+    fun savedVideoEpisodeIds(): Set<String> = savedVideos().map { it.episodeId }.toSet()
+
     /** The kept episode of the Jellyfin episode [episodeId], when its video was downloaded. */
     fun savedVideoForEpisode(episodeId: String): JrwiSavedVideo? =
         savedVideos().firstOrNull { it.episodeId == episodeId }

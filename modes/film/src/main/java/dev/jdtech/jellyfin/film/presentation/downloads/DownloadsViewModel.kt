@@ -6,10 +6,12 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.core.Constants
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.collection.CollectionState
+import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.models.CollectionSection
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
+import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.UiText
 import dev.jdtech.jellyfin.models.isDownloading
@@ -42,6 +44,16 @@ data class ActiveDownload(
     val inQueue: Boolean = false,
 )
 
+/**
+ * Which downloads a page lists: all of them, or for the app's two modes, only JRWI episodes' videos
+ * or only the rest. A JRWI episode's video is one kept with its episode when it started.
+ */
+enum class DownloadsScope {
+    ALL,
+    JRWI,
+    NOT_JRWI,
+}
+
 @HiltViewModel
 class DownloadsViewModel
 @Inject
@@ -49,6 +61,7 @@ constructor(
     private val repository: JellyfinRepository,
     private val appPreferences: AppPreferences,
     private val downloader: Downloader,
+    private val jrwiDownloads: JrwiDownloads,
 ) : ViewModel() {
     private val _state = MutableStateFlow(CollectionState())
     val state = _state.asStateFlow()
@@ -61,6 +74,32 @@ constructor(
     private var startNowJob: Job? = null
     private var loadJob: Job? = null
     private var loaded = false
+    private var scope = DownloadsScope.ALL
+
+    /** Lists only the downloads of [scope], from the next load. */
+    fun setScope(scope: DownloadsScope) {
+        this.scope = scope
+    }
+
+    /** Whether [item] belongs on this page, with [jrwiEpisodes] and the shows they're in. */
+    private fun inScope(
+        item: FindroidItem,
+        jrwiEpisodes: Set<UUID>,
+        jrwiShows: Set<UUID>,
+    ): Boolean {
+        val jrwi =
+            when (item) {
+                is FindroidEpisode -> item.id in jrwiEpisodes
+                is FindroidShow -> item.id in jrwiShows
+                is FindroidSeason -> item.seriesId in jrwiShows
+                else -> false
+            }
+        return when (scope) {
+            DownloadsScope.ALL -> true
+            DownloadsScope.JRWI -> jrwi
+            DownloadsScope.NOT_JRWI -> !jrwi
+        }
+    }
 
     init {
         // A download deleted on an item's page, finished, or watched in the player shows here
@@ -82,8 +121,15 @@ constructor(
             if (!quietly) _state.emit(_state.value.copy(isLoading = true, error = null))
 
             try {
-                val allItems = repository.getDownloads()
-                val allEpisodes = repository.getDownloadedEpisodes()
+                val downloadedEpisodes = repository.getDownloadedEpisodes()
+                val jrwiIds = jrwiDownloads.savedVideoEpisodeIds()
+                val jrwiEpisodes =
+                    downloadedEpisodes.filter { it.id.toString() in jrwiIds }.map { it.id }.toSet()
+                val jrwiShows =
+                    downloadedEpisodes.filter { it.id in jrwiEpisodes }.map { it.seriesId }.toSet()
+                val allItems =
+                    repository.getDownloads().filter { inScope(it, jrwiEpisodes, jrwiShows) }
+                val allEpisodes = downloadedEpisodes.filter { inScope(it, jrwiEpisodes, jrwiShows) }
                 val showEpisodes = appPreferences.getValue(appPreferences.downloadsShowEpisodes)
 
                 observeActiveDownloads(allItems.filterIsInstance<FindroidMovie>() + allEpisodes)

@@ -23,6 +23,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsScope
 import dev.jdtech.jellyfin.film.presentation.tube.TaQueueViewModel
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.presentation.film.DownloadsScreen
@@ -42,6 +43,8 @@ fun TaDownloadsScreen(
     onJrwiItemClick: (itemId: Long) -> Unit = {},
     /** The phone and server sides, when the main pager needs to turn them. */
     sides: PagerState = rememberSidePagerState(),
+    /** Which downloads on the phone it lists: without JRWI's when JRWI has its own mode. */
+    scope: DownloadsScope = DownloadsScope.ALL,
 ) {
     val scope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -89,6 +92,7 @@ fun TaDownloadsScreen(
                         onItemClick = onItemClick,
                         onJrwiItemClick = onJrwiItemClick,
                         embedded = true,
+                        scope = scope,
                     )
                 },
                 server = { TaQueueScreen(embedded = true, onChannelClick = onChannelClick) },

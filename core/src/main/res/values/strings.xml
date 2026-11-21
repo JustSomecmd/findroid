@@ -471,6 +471,9 @@
     <string name="jrwi_download_cancel">Cancel</string>
     <string name="jrwi_download_remove">Remove</string>
     <string name="jrwi_download_retry">Try again</string>
+    <string name="mode_ta">TA</string>
+    <string name="mode_switch_to_jrwi">Switch to JRWI</string>
+    <string name="mode_switch_to_ta">Switch to TubeArchivist</string>
     <string name="jrwi_download_files_title">Download the post\'s files too?</string>
     <string name="jrwi_download_files_text">Its attachments, documents and pictures, so they open without a connection. They can take up a lot of space.</string>
     <string name="jrwi_download_with_files">With files</string>

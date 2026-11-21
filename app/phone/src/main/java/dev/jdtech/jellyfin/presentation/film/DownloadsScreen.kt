@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
@@ -41,6 +40,7 @@ import dev.jdtech.jellyfin.core.presentation.dummy.dummyMovies
 import dev.jdtech.jellyfin.film.presentation.collection.CollectionAction
 import dev.jdtech.jellyfin.film.presentation.collection.CollectionState
 import dev.jdtech.jellyfin.film.presentation.downloads.ActiveDownload
+import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsScope
 import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadsViewModel
@@ -54,6 +54,7 @@ import dev.jdtech.jellyfin.presentation.jrwi.JrwiDownloadsSection
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.alwaysShownTopAppBarColors
+import dev.jdtech.jellyfin.presentation.tube.recalculateWindowInsetsUnlessPaged
 import dev.jdtech.jellyfin.utils.DownloadStatus
 import java.util.UUID
 
@@ -69,17 +70,24 @@ fun DownloadsScreen(
      * so this leaves out its own bar and the space for the status bar.
      */
     embedded: Boolean = false,
+    /**
+     * Which downloads it lists, for the TubeArchivist and JRWI modes; JRWI's audio only in JRWI.
+     */
+    scope: DownloadsScope = DownloadsScope.ALL,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activeDownloads by viewModel.activeDownloads.collectAsStateWithLifecycle()
     val jrwiDownloads by jrwiViewModel.entries.collectAsStateWithLifecycle()
 
-    LaunchedEffect(true) { viewModel.loadItems() }
+    LaunchedEffect(scope) {
+        viewModel.setScope(scope)
+        viewModel.loadItems()
+    }
 
     DownloadsScreenLayout(
         state = state,
         activeDownloads = activeDownloads,
-        jrwiDownloads = jrwiDownloads,
+        jrwiDownloads = if (scope == DownloadsScope.NOT_JRWI) emptyList() else jrwiDownloads,
         onJrwiItemClick = onJrwiItemClick,
         onJrwiRemove = jrwiViewModel::remove,
         onActiveDownloadClick = { item -> onItemClick(item) },
@@ -116,7 +124,8 @@ private fun DownloadsScreenLayout(
             if (embedded) Modifier.fillMaxSize()
             else
                 Modifier.fillMaxSize()
-                    .recalculateWindowInsets()
+                    // Not in JRWI mode's pager, which works them out for its pages
+                    .recalculateWindowInsetsUnlessPaged()
                     .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             if (!embedded) {

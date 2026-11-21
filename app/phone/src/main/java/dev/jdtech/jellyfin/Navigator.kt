@@ -14,6 +14,12 @@ class Navigator(private val state: NavigationState) {
     var episodeRedirect: (UUID) -> NavKey? = { null }
 
     /**
+     * Where Back goes from the top level route given, at its base, such as a mode's Home from its
+     * other tabs. Null for the start route.
+     */
+    var backTo: (NavKey) -> NavKey? = { null }
+
+    /**
      * Navigates to [route]. If [route] is a top level route, the active back stack is switched to
      * its stack (state is retained). Otherwise, [route] is pushed onto the active back stack.
      */
@@ -27,7 +33,7 @@ class Navigator(private val state: NavigationState) {
 
     /**
      * Navigates back. If the active back stack is at its base (a top level route), switches to the
-     * start route's stack instead.
+     * stack [backTo] gives, or the start route's.
      */
     fun goBack() {
         val currentStack =
@@ -36,7 +42,7 @@ class Navigator(private val state: NavigationState) {
         val currentRoute = currentStack.last()
 
         if (currentRoute == state.topLevelRoute) {
-            state.topLevelRoute = state.startRoute
+            state.topLevelRoute = backTo(currentRoute) ?: state.startRoute
         } else {
             currentStack.removeLastOrNull()
         }

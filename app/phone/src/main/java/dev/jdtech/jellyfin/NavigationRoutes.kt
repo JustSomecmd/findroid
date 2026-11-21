@@ -77,8 +77,12 @@ data class CollectionRoute(val collectionId: String, val collectionName: String)
 
 @Serializable data class TaPlaylistRoute(val playlistId: String) : NavKey
 
-// The JRWI archiver
+// The JRWI archiver: its mode's Home, Shows and Downloads tabs, and its pages
 @Serializable data object JrwiRoute : NavKey
+
+@Serializable data object JrwiShowsRoute : NavKey
+
+@Serializable data object JrwiDownloadsRoute : NavKey
 
 @Serializable data class JrwiShowRoute(val showId: String) : NavKey
 
