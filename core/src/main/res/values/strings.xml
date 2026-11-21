@@ -555,4 +555,21 @@
     <string name="jrwi_disk">%1$s archived, %2$s free</string>
     <string name="jrwi_problems">Posts that couldn\'t be fully saved</string>
     <string name="jrwi_no_problems">Every post was saved</string>
+    <string name="jrwi_continue_watching">Continue watching</string>
+    <string name="jrwi_player_back">Back %1$d seconds</string>
+    <string name="jrwi_player_forward">Forward %1$d seconds</string>
+    <string name="jrwi_player_pause">Pause</string>
+    <string name="jrwi_player_close">Close the player</string>
+    <string name="jrwi_player_episode">Episode page</string>
+    <string name="jrwi_player_error">The audio couldn\'t be played</string>
+    <string name="jrwi_player_loading">Loading…</string>
+    <string name="jrwi_player_nothing">Nothing is playing</string>
+    <string name="jrwi_player_from_phone">On this phone</string>
+    <string name="jrwi_player_speed">Playback speed</string>
+    <string name="jrwi_player_sleep">Sleep timer</string>
+    <string name="jrwi_player_minutes">%1$d min</string>
+    <string name="jrwi_player_sleep_end">End of episode</string>
+    <string name="jrwi_player_sleep_at_end">Pauses at the end of the episode</string>
+    <string name="jrwi_player_sleep_off">Turn off</string>
+    <string name="jrwi_player_watch_video">Watch the video from here</string>
 </resources>

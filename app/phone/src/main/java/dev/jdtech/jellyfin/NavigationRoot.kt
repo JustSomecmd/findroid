@@ -9,14 +9,25 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
@@ -88,11 +99,18 @@ import dev.jdtech.jellyfin.presentation.film.PlaylistScreen
 import dev.jdtech.jellyfin.presentation.film.PlaylistsScreen
 import dev.jdtech.jellyfin.presentation.film.SeasonScreen
 import dev.jdtech.jellyfin.presentation.film.ShowScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiAudioPlayerScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiAudioViewModel
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiItemScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiMiniPlayer
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiPurple
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiSettingsScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiSheetState
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowsScreen
 import dev.jdtech.jellyfin.presentation.jrwi.LocalJrwiBaseUrl
+import dev.jdtech.jellyfin.presentation.jrwi.jrwiSheetSwipe
+import dev.jdtech.jellyfin.presentation.jrwi.rememberJrwiSheetState
 import dev.jdtech.jellyfin.presentation.settings.AboutScreen
 import dev.jdtech.jellyfin.presentation.settings.PlayerButtonsScreen
 import dev.jdtech.jellyfin.presentation.settings.SettingsFileEditScreen
@@ -125,6 +143,7 @@ import dev.jdtech.jellyfin.setup.presentation.permission.PermissionViewModel
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -342,8 +361,29 @@ private fun MainNavigation(
     val swipeTarget = remember { mutableStateOf<NavKey?>(null) }
     val barRoute = swipeTarget.value ?: topLevelRoute
     val mainPagerTurns = remember { MainPagerTurns() }
-    val tabSides = remember { TabSides() }
+    val jrwiSheet = rememberJrwiSheetState()
+    val tabSides = remember(jrwiSheet) { TabSides(jrwiSheet) }
     val lastTap = remember { LastTap() }
+    // A swipe up from the bottom bar brings out the archiver sheet, on the JRWI tab at rest
+    val sheetSwipe = topLevelRoute == JrwiRoute && atTabRoot && swipeTarget.value == null
+    // Away once the tab is left or a page opens over it, so it's never open out of sight
+    LaunchedEffect(topLevelRoute, atTabRoot) {
+        if (topLevelRoute != JrwiRoute || !atTabRoot) jrwiSheet.closeNow()
+    }
+
+    val jrwiAudioViewModel: JrwiAudioViewModel = hiltViewModel()
+    val audioPlayer = jrwiAudioViewModel.player
+    // The audio's notification opens the player
+    val openPlayer by audioPlayer.openRequested.collectAsStateWithLifecycle()
+    LaunchedEffect(openPlayer) {
+        if (openPlayer) {
+            audioPlayer.openHandled()
+            if (navigationState.currentBackStack().last() != JrwiPlayerRoute) {
+                navigator.navigate(JrwiPlayerRoute)
+            }
+        }
+    }
+    val miniPlayerShown = navigationState.currentBackStack().last() != JrwiPlayerRoute
     val doubleTapMillis = LocalViewConfiguration.current.doubleTapTimeoutMillis
 
     // The search bar belongs to the Media tab: collapse it when the active top level route
@@ -428,6 +468,9 @@ private fun MainNavigation(
                     },
                     enabled = item.enabled,
                     label = { Text(text = stringResource(item.title)) },
+                    modifier = Modifier.jrwiSheetSwipe(jrwiSheet, enabled = sheetSwipe),
+                    // The JRWI tab lights up in the archiver sheet's purple
+                    colors = if (item.route == JrwiRoute) jrwiItemColors() else null,
                 )
             }
         },
@@ -435,37 +478,96 @@ private fun MainNavigation(
         state = navigationSuiteScaffoldState,
     ) {
         CompositionLocalProvider(LocalTabSides provides tabSides) {
-            val navDisplay: @Composable () -> Unit = {
-                NavDisplay(
-                    entries = navigationState.toDecoratedEntries(entryDecorators, entryProvider),
-                    onBack = { navigator.goBack() },
-                    transitionSpec = { GLOBAL_TRANSITION_SPEC },
-                    popTransitionSpec = { GLOBAL_TRANSITION_SPEC },
-                    predictivePopTransitionSpec = { _ -> GLOBAL_TRANSITION_SPEC },
-                )
-            }
-            if (tubeArchivistMode) {
-                // Home, Channels and Downloads sit side by side in one pager under the other
-                // pages, and their own entries in the navigation are left empty so the pager shows
-                // through
-                val mainPages = taMainPages(jrwiShown)
-                Box(modifier = Modifier.fillMaxSize()) {
-                    TaMainPager(
-                        navigationState = navigationState,
-                        navigator = navigator,
-                        mainPages = mainPages,
-                        active = atTabRoot && topLevelRoute in mainPages,
-                        swipeTarget = swipeTarget,
-                        turns = mainPagerTurns,
-                    )
-                    CompositionLocalProvider(LocalTaMainPagerShown provides true) { navDisplay() }
+            Column(modifier = Modifier.fillMaxSize()) {
+                // The mini player takes the bottom, so the pages leave no room for the phone's bar
+                val audioShown by
+                    remember(audioPlayer) {
+                            audioPlayer.state.map { it.active }.distinctUntilChanged()
+                        }
+                        .collectAsStateWithLifecycle(initialValue = audioPlayer.state.value.active)
+                val pagesModifier =
+                    if (miniPlayerShown && audioShown) {
+                        Modifier.consumeWindowInsets(
+                            WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)
+                        )
+                    } else {
+                        Modifier
+                    }
+                Box(modifier = Modifier.weight(1f).fillMaxWidth().then(pagesModifier)) {
+                    val navDisplay: @Composable () -> Unit = {
+                        NavDisplay(
+                            entries =
+                                navigationState.toDecoratedEntries(entryDecorators, entryProvider),
+                            onBack = {
+                                if (
+                                    jrwiSheet.isOpen &&
+                                        navigationState.currentBackStack().last() == JrwiRoute
+                                ) {
+                                    jrwiSheet.close()
+                                } else {
+                                    navigator.goBack()
+                                }
+                            },
+                            transitionSpec = { GLOBAL_TRANSITION_SPEC },
+                            popTransitionSpec = { GLOBAL_TRANSITION_SPEC },
+                            predictivePopTransitionSpec = { _ -> GLOBAL_TRANSITION_SPEC },
+                        )
+                    }
+                    if (tubeArchivistMode) {
+                        // Home, Channels and Downloads sit side by side in one pager under the
+                        // other pages, and their own entries in the navigation are left empty so
+                        // the pager shows through
+                        val mainPages = taMainPages(jrwiShown)
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            TaMainPager(
+                                navigationState = navigationState,
+                                navigator = navigator,
+                                mainPages = mainPages,
+                                active = atTabRoot && topLevelRoute in mainPages,
+                                swipeTarget = swipeTarget,
+                                turns = mainPagerTurns,
+                            )
+                            CompositionLocalProvider(LocalTaMainPagerShown provides true) {
+                                navDisplay()
+                            }
+                        }
+                    } else {
+                        navDisplay()
+                    }
                 }
-            } else {
-                navDisplay()
+                JrwiMiniPlayer(
+                    visible = miniPlayerShown,
+                    onOpen = { navigator.navigate(JrwiPlayerRoute) },
+                    viewModel = jrwiAudioViewModel,
+                )
             }
         }
     }
 }
+
+/** The JRWI tab's colours in the bottom bar, rail or drawer: purple when it's the one open. */
+@Composable
+private fun jrwiItemColors() =
+    NavigationSuiteDefaults.itemColors(
+        navigationBarItemColors =
+            NavigationBarItemDefaults.colors(
+                selectedIconColor = JrwiPurple.Ink,
+                selectedTextColor = JrwiPurple.Accent,
+                indicatorColor = JrwiPurple.Accent,
+            ),
+        navigationRailItemColors =
+            NavigationRailItemDefaults.colors(
+                selectedIconColor = JrwiPurple.Ink,
+                selectedTextColor = JrwiPurple.Accent,
+                indicatorColor = JrwiPurple.Accent,
+            ),
+        navigationDrawerItemColors =
+            NavigationDrawerItemDefaults.colors(
+                selectedContainerColor = JrwiPurple.Accent,
+                selectedIconColor = JrwiPurple.Ink,
+                selectedTextColor = JrwiPurple.Ink,
+            ),
+    )
 
 /** The main pages, left to right, in the TubeArchivist interface. */
 private fun taMainPages(jrwiShown: Boolean): List<NavKey> =
@@ -508,16 +610,13 @@ private class MainPagerTurns {
  * tap on it while it's open turns it to its other side, and a double tap opens it on its server
  * side.
  */
-private class TabSides {
-    /** Whether the JRWI tab shows the archiver's page. */
-    var jrwiOnServer by mutableStateOf(false)
-
+private class TabSides(val jrwiSheet: JrwiSheetState) {
     private val requests = MutableSharedFlow<SideRequest>(extraBufferCapacity = 4)
 
     /** Turns [route] to its server side, to its own side, or with null to the side it isn't on. */
     fun show(route: NavKey, server: Boolean?) {
         if (route == JrwiRoute) {
-            jrwiOnServer = server ?: !jrwiOnServer
+            jrwiSheet.show(server)
         } else {
             requests.tryEmit(SideRequest(route, server))
         }
@@ -530,7 +629,7 @@ private class TabSides {
 
 private data class SideRequest(val route: NavKey, val server: Boolean?)
 
-private val LocalTabSides = staticCompositionLocalOf { TabSides() }
+private val LocalTabSides = staticCompositionLocalOf<TabSides> { error("No tab sides") }
 
 /** The bottom bar's last tap, to tell a double tap on one tab from two single taps. */
 private class LastTap {
@@ -611,7 +710,7 @@ private fun TaMainPager(
             .collect { route ->
                 if (route != TaHomeRoute) homeSides.requestOwnSide(serverFirst = true)
                 if (route != DownloadsRoute) downloadSides.requestOwnSide()
-                if (route != JrwiRoute) tabSides.jrwiOnServer = false
+                if (route != JrwiRoute) tabSides.jrwiSheet.closeNow()
             }
     }
 
@@ -685,8 +784,7 @@ private fun TaMainPager(
                             resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
                         onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
                         onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
-                        onServer = tabSides.jrwiOnServer,
-                        onServerChange = { tabSides.jrwiOnServer = it },
+                        sheet = tabSides.jrwiSheet,
                     )
                 else ->
                     TaDownloadsScreen(
@@ -1168,8 +1266,7 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
             onShowClick = resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
             onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
             onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
-            onServer = tabSides.jrwiOnServer,
-            onServerChange = { tabSides.jrwiOnServer = it },
+            sheet = tabSides.jrwiSheet,
         )
     }
     entry<JrwiShowRoute> { key ->
@@ -1183,6 +1280,19 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
         JrwiItemScreen(
             postId = key.postId,
             onOpenYoutube = resumedAction<String> { openVideo(it) },
+            onOpenAudioPlayer = { navigator.navigate(JrwiPlayerRoute) },
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+            playVideoOnOpen = key.playVideo,
+        )
+    }
+    entry<JrwiPlayerRoute> {
+        JrwiAudioPlayerScreen(
+            // The episode's page takes the player's place, and plays the video
+            onWatchVideo = { item ->
+                navigator.goBack()
+                navigator.navigate(JrwiItemRoute(item.id, playVideo = true))
+            },
+            onOpenEpisode = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
             navigateBack = dropUnlessResumed { navigator.goBack() },
         )
     }

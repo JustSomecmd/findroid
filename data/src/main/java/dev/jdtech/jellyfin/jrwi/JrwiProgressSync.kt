@@ -6,6 +6,9 @@ import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import timber.log.Timber
@@ -276,6 +279,50 @@ class JrwiProgressSync(
         _changes.tryEmit(JrwiProgressChange(item.id, saved))
     }
 
+    /**
+     * Episodes to continue, as the archiver's web app has them: from the archiver when it lists
+     * them, or else those started and not finished on this phone, the one played most recently
+     * first, without those the archive has as finished since.
+     */
+    suspend fun continueWatching(limit: Int = CONTINUE_LIMIT): List<JrwiContinue> {
+        try {
+            return jrwiApi.getContinue(limit)
+        } catch (e: JrwiApiException) {
+            if (e.code != NOT_FOUND) throw e
+        }
+        val started =
+            store
+                .allLast()
+                .filter { (_, progress) ->
+                    val length = progress.duration
+                    !progress.finished &&
+                        progress.position >= CONTINUE_MIN_SECONDS &&
+                        (length == null || progress.position < length)
+                }
+                .entries
+                .sortedByDescending { it.value.updatedAt.orEmpty() }
+                .take(limit)
+        return coroutineScope {
+            started
+                .map { (itemId, progress) ->
+                    async {
+                        try {
+                            jrwiApi
+                                .getItem(itemId)
+                                .takeIf { it.progress?.finished != true }
+                                ?.let { JrwiContinue(it, progress) }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                }
+                .awaitAll()
+                .filterNotNull()
+        }
+    }
+
     /** The name of a show, or null when the archiver can't be reached. */
     suspend fun showNameOrNull(showId: String): String? =
         try {
@@ -293,5 +340,9 @@ class JrwiProgressSync(
     private companion object {
         // Jellyfin counts time in ticks of 100 nanoseconds
         const val TICKS = 10_000_000.0
+        const val NOT_FOUND = 404
+        const val CONTINUE_LIMIT = 12
+        // As the web app: started means 10 seconds or more in
+        const val CONTINUE_MIN_SECONDS = 10.0
     }
 }

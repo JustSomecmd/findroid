@@ -10,6 +10,7 @@ import dev.jdtech.jellyfin.film.presentation.tube.loadNextPage
 import dev.jdtech.jellyfin.jrwi.JrwiApi
 import dev.jdtech.jellyfin.jrwi.JrwiApiException
 import dev.jdtech.jellyfin.jrwi.JrwiComment
+import dev.jdtech.jellyfin.jrwi.JrwiContinue
 import dev.jdtech.jellyfin.jrwi.JrwiDownload
 import dev.jdtech.jellyfin.jrwi.JrwiDownloader
 import dev.jdtech.jellyfin.jrwi.JrwiDownloads
@@ -115,6 +116,8 @@ data class JrwiShowsState(
      * item, by show ID.
      */
     val showPictures: Map<String, String> = emptyMap(),
+    /** Episodes started and not finished, the one played most recently first. */
+    val continueWatching: List<JrwiContinue> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
 )
@@ -129,23 +132,33 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
     val state = _state.asStateFlow()
 
     private var job: Job? = null
+    private var continueJob: Job? = null
 
     init {
-        // Marks what's been played since the row was loaded
+        // Marks what's been played since the rows were loaded
         viewModelScope.launch {
             jrwiProgress.changes.collect { change ->
-                _state.update { it.copy(latest = it.latest.withProgress(change)) }
+                _state.update {
+                    it.copy(
+                        latest = it.latest.withProgress(change),
+                        continueWatching = continueWith(it.continueWatching, change),
+                    )
+                }
             }
         }
         // Progress made without a connection, now that the archiver may be back
         viewModelScope.launch { jrwiProgress.sendPending() }
     }
 
-    /** Loads the shows, unless they're in already. [force] loads them again anyway. */
+    /**
+     * Loads the shows, unless they're in already. [force] loads them again anyway. Continue
+     * watching is loaded again each time, as playing elsewhere changes it.
+     */
     fun load(force: Boolean = false) {
         val configured = jrwiApi.isConfigured
         _state.update { it.copy(configured = configured) }
         if (!configured) return
+        loadContinue()
         if (!force && (_state.value.shows.isNotEmpty() || job?.isActive == true)) return
         job?.cancel()
         job = viewModelScope.launch {
@@ -170,6 +183,38 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
                 _state.update { it.copy(loading = false, error = e.errorText()) }
             }
         }
+    }
+
+    private fun loadContinue() {
+        if (continueJob?.isActive == true) return
+        continueJob = viewModelScope.launch {
+            try {
+                val entries = jrwiProgress.continueWatching()
+                _state.update { it.copy(continueWatching = entries) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The row is left as it was
+                Timber.d(e, "Continue watching could not be loaded")
+            }
+        }
+    }
+
+    /**
+     * Continue watching after progress was saved from the app: the episode goes first with its new
+     * progress, or leaves the row once it's finished. One not in the row yet comes with the next
+     * load, when the tab is shown again.
+     */
+    private fun continueWith(
+        entries: List<JrwiContinue>,
+        change: JrwiProgressChange,
+    ): List<JrwiContinue> {
+        val index = entries.indexOfFirst { it.item.id == change.itemId }
+        val progress = change.progress
+        if (index < 0) return entries
+        val rest = entries.filterIndexed { i, _ -> i != index }
+        if (progress.finished) return rest
+        return listOf(entries[index].copy(progress = progress)) + rest
     }
 
     /**
@@ -407,8 +452,15 @@ constructor(
 
     private var postId: Long? = null
 
-    /** Loads the item, or loads its position again when it's in already. */
-    fun load(postId: Long) {
+    // Set when the page was opened to watch the video, which plays once the position is in
+    private var videoOnLoad = false
+
+    /**
+     * Loads the item, or loads its position again when it's in already. With [startVideo], as from
+     * the audio player, the video is picked and plays from where the episode was left.
+     */
+    fun load(postId: Long, startVideo: Boolean = false) {
+        if (startVideo) videoOnLoad = true
         if (this.postId != postId) {
             this.postId = postId
             _state.value = JrwiItemState()
@@ -424,9 +476,16 @@ constructor(
                 if (shown.item == null || shown.offline != offline) {
                     contents.clear()
                     commentLists.clear()
-                    // The video, unless there's only the audio or the audio is all that's here
+                    // The version the page was opened with, such as the audio from Continue
+                    // watching or the audio player, else the video, unless there's only the audio
+                    // or the audio is all that's here
                     val audio =
-                        if (shown.item == null) item.video == null || offline else shown.playsAudio
+                        if (shown.item == null) {
+                            if (videoOnLoad && item.video != null && !offline) false
+                            else item.video == null || offline || postId == item.audio?.postId
+                        } else {
+                            shown.playsAudio
+                        }
                     _state.update { it.copy(item = item, error = null, playsAudio = audio) }
                 }
                 // Also tries again what didn't load before
@@ -436,6 +495,10 @@ constructor(
                     jrwiDownloader.refresh(item.id)
                 }
                 refreshProgress(item)
+                if (videoOnLoad) {
+                    videoOnLoad = false
+                    if (!_state.value.offline) playVideo()
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -714,8 +777,11 @@ constructor(
         }
     }
 
-    /** Plays the video: from Jellyfin, or from TubeArchivist when it's only on YouTube. */
-    fun playVideo(fromStart: Boolean = false) {
+    /**
+     * Plays the video: from Jellyfin, or from TubeArchivist when it's only on YouTube. With
+     * [freshPosition] the position is read again first, as after the audio was just played.
+     */
+    fun playVideo(fromStart: Boolean = false, freshPosition: Boolean = false) {
         val item = _state.value.item ?: return
         val video = item.video ?: return
         viewModelScope.launch {
@@ -726,6 +792,7 @@ constructor(
                     return@launch
                 }
             _state.update { it.copy(lookingUp = true) }
+            if (freshPosition) refreshProgress(item)
             val episodeId = episodeIdOf(item)
             _state.update { it.copy(lookingUp = false, episodeId = episodeId) }
             if (episodeId == null) {

@@ -96,6 +96,56 @@ private val JrwiColorScheme =
         surfaceContainerHighest = JrwiColors.Input,
     )
 
+/**
+ * The archiver sheet's purples, which take the place of the yellow there, lighter than the site's
+ * header and glow. The JRWI tab lights up in [Accent] in the bottom bar.
+ */
+object JrwiPurple {
+    val Accent = Color(0xFFB794F6)
+    val Ink = Color(0xFF1B0833)
+    val Sheet = Color(0xFF1E1433)
+    val Card = Color(0xFF2A1D45)
+    val Input = Color(0xFF3A2A5C)
+    val Line = Color(0xFF4A3A6B)
+    val Muted = Color(0xFFA99BC4)
+}
+
+private val JrwiSheetColorScheme =
+    JrwiColorScheme.copy(
+        primary = JrwiPurple.Accent,
+        onPrimary = JrwiPurple.Ink,
+        primaryContainer = JrwiPurple.Accent,
+        onPrimaryContainer = JrwiPurple.Ink,
+        inversePrimary = JrwiPurple.Accent,
+        secondary = JrwiPurple.Accent,
+        onSecondary = JrwiPurple.Ink,
+        secondaryContainer = JrwiPurple.Card,
+        background = JrwiPurple.Sheet,
+        surface = JrwiPurple.Sheet,
+        surfaceVariant = JrwiPurple.Card,
+        onSurfaceVariant = JrwiPurple.Muted,
+        outline = JrwiPurple.Line,
+        outlineVariant = JrwiPurple.Card,
+        surfaceBright = JrwiPurple.Card,
+        surfaceDim = JrwiPurple.Sheet,
+        surfaceContainerLowest = JrwiPurple.Sheet,
+        surfaceContainerLow = JrwiPurple.Sheet,
+        surfaceContainer = JrwiPurple.Sheet,
+        surfaceContainerHigh = JrwiPurple.Card,
+        surfaceContainerHighest = JrwiPurple.Input,
+    )
+
+/** The archiver sheet: the JRWI pages' look, in purple where they're yellow. */
+@Composable
+fun JrwiSheetTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = JrwiSheetColorScheme,
+        typography = MaterialTheme.typography,
+        shapes = JrwiShapes,
+        content = content,
+    )
+}
+
 /** The site's corners: 4 dp on cards, buttons and fields. */
 val JrwiShape = RoundedCornerShape(4.dp)
 

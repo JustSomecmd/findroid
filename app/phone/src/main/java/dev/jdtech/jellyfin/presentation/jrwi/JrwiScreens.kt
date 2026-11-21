@@ -1,20 +1,8 @@
 package dev.jdtech.jellyfin.presentation.jrwi
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
-import android.os.Environment
-import android.os.StatFs
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -76,18 +64,17 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
@@ -117,9 +104,7 @@ import coil3.compose.AsyncImage
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderAction
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderEvent
-import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderState
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderViewModel
-import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemEvent
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiMessages
@@ -131,30 +116,24 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.pages
 import dev.jdtech.jellyfin.jrwi.JrwiBadge
 import dev.jdtech.jellyfin.jrwi.JrwiComment
+import dev.jdtech.jellyfin.jrwi.JrwiContinue
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiPostFile
 import dev.jdtech.jellyfin.jrwi.JrwiShow
-import dev.jdtech.jellyfin.models.FindroidEpisode
-import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.presentation.components.pageSwipes
 import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
-import dev.jdtech.jellyfin.presentation.film.components.CancelDownloadDialog
-import dev.jdtech.jellyfin.presentation.film.components.DeleteDownloadDialog
-import dev.jdtech.jellyfin.presentation.film.components.DownloaderCard
-import dev.jdtech.jellyfin.presentation.film.components.StorageSelectionDialog
-import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.TaSectionTitle
-import dev.jdtech.jellyfin.presentation.tube.TaSideTitle
 import dev.jdtech.jellyfin.presentation.tube.formatBytes
 import dev.jdtech.jellyfin.presentation.tube.formatDuration
 import dev.jdtech.jellyfin.presentation.tube.fullDate
 import dev.jdtech.jellyfin.presentation.tube.recalculateWindowInsetsUnlessPaged
 import dev.jdtech.jellyfin.presentation.tube.rememberSeparateRowScroll
-import dev.jdtech.jellyfin.presentation.tube.startJrwiAudio
 import dev.jdtech.jellyfin.presentation.tube.startTaPlayback
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
+import kotlin.math.ceil
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Address of the JRWI archiver, for the images it serves. */
 val LocalJrwiBaseUrl = staticCompositionLocalOf<String?> { null }
@@ -172,7 +151,7 @@ internal fun jrwiUrl(path: String?): String? {
 }
 
 @Composable
-private fun JrwiImage(
+internal fun JrwiImage(
     path: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
@@ -212,10 +191,9 @@ internal fun openUrl(context: Context, url: String?) {
 // The JRWI tab
 
 /**
- * The JRWI tab: what's new, then the shows, as the Channels tab lists channels. Tapping the title
- * slides the archiver's own page down over the shows in the server colours, as Home and Downloads
- * turn to their server side; [onServer] says whether it's shown, so the bottom bar can show it too.
- * Swipes still only go to the tabs next to it. The tab is on its own side again once it's left.
+ * The JRWI tab: what was started and not finished, what's new, then the shows, as the Channels tab
+ * lists channels. The archiver's own page is a purple [sheet] over it, which a swipe up from the
+ * bottom bar or a double tap on the tab brings out, and which goes away once the tab is left.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -223,8 +201,7 @@ fun JrwiShowsScreen(
     onShowClick: (String) -> Unit,
     onItemClick: (Long) -> Unit,
     onSetUp: () -> Unit,
-    onServer: Boolean = false,
-    onServerChange: (Boolean) -> Unit = {},
+    sheet: JrwiSheetState,
     viewModel: JrwiShowsViewModel = hiltViewModel(),
 ) {
     // In the archiver's own colours
@@ -234,46 +211,21 @@ fun JrwiShowsScreen(
             viewModel.load()
             onPauseOrDispose {}
         }
+        DisposableEffect(sheet) { onDispose { sheet.closeNow() } }
         val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-        val serverShown = onServer && state.configured
-        val leave by rememberUpdatedState(onServerChange)
-        DisposableEffect(Unit) { onDispose { leave(false) } }
-        // The purple glow belongs to the archive side
-        val glow by
-            animateFloatAsState(
-                targetValue = if (serverShown) 0f else 1f,
-                animationSpec = tween(SERVER_SLIDE_MILLIS),
-                label = "glow",
-            )
-
-        ServerSideTheme(onServer = serverShown) {
+        Box(modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged()) {
             JrwiScaffold(
                 modifier =
-                    Modifier.fillMaxSize()
-                        .recalculateWindowInsetsUnlessPaged()
-                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
                 topBar = {
                     TopAppBar(
-                        title = {
-                            if (state.configured) {
-                                TaSideTitle(
-                                    title = stringResource(CoreR.string.jrwi_tab),
-                                    onServer = serverShown,
-                                    onToggle = { onServerChange(!onServer) },
-                                    localIcon = CoreR.drawable.ic_dice,
-                                    localLabel = stringResource(CoreR.string.jrwi_side_archive),
-                                )
-                            } else {
-                                Text(stringResource(CoreR.string.jrwi_tab))
-                            }
-                        },
+                        title = { Text(stringResource(CoreR.string.jrwi_tab)) },
                         windowInsets = TOP_BAR_INSETS,
                         scrollBehavior = scrollBehavior,
                         colors = jrwiTopBarColors(),
                     )
                 },
                 contentWindowInsets = TOP_BAR_INSETS,
-                glow = { glow },
             ) { innerPadding ->
                 if (!state.configured) {
                     Column(
@@ -292,85 +244,160 @@ fun JrwiShowsScreen(
                     }
                     return@JrwiScaffold
                 }
-                // The archiver's page slides down from under the title, over the shows
-                Box(modifier = Modifier.padding(innerPadding).fillMaxSize().clipToBounds()) {
-                    PullToRefreshBox(
-                        isRefreshing = state.loading,
-                        onRefresh = { viewModel.load(force = true) },
+                PullToRefreshBox(
+                    isRefreshing = state.loading,
+                    onRefresh = { viewModel.load(force = true) },
+                    modifier = Modifier.padding(innerPadding).fillMaxSize(),
+                ) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(160.dp),
+                        contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(160.dp),
-                            contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-                            horizontalArrangement =
-                                Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                            verticalArrangement =
-                                Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            state.error?.let { error ->
-                                item(span = { GridItemSpan(maxLineSpan) }) {
-                                    Text(text = error, color = MaterialTheme.colorScheme.error)
-                                }
+                        state.error?.let { error ->
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Text(text = error, color = MaterialTheme.colorScheme.error)
                             }
-                            if (state.latest.isNotEmpty()) {
-                                item(span = { GridItemSpan(maxLineSpan) }, key = "latest") {
-                                    Column {
-                                        TaSectionTitle(stringResource(CoreR.string.jrwi_latest))
-                                        val rowState = rememberLazyListState()
-                                        // Scrolls apart from the main pages, as Continue watching
-                                        // does
-                                        LazyRow(
-                                            state = rowState,
-                                            userScrollEnabled = false,
-                                            horizontalArrangement =
-                                                Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                                            modifier = rememberSeparateRowScroll(rowState),
-                                        ) {
-                                            items(state.latest, key = { it.id }) { item ->
-                                                JrwiItemCard(
-                                                    item = item,
-                                                    onClick = { onItemClick(item.id) },
-                                                    modifier = Modifier.width(240.dp),
-                                                )
-                                            }
-                                        }
+                        }
+                        if (state.continueWatching.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
+                                JrwiItemRow(
+                                    title = stringResource(CoreR.string.jrwi_continue_watching)
+                                ) {
+                                    items(
+                                        state.continueWatching,
+                                        key = { "continue:" + it.item.id },
+                                    ) { entry ->
+                                        JrwiContinueCard(
+                                            entry = entry,
+                                            // On the version it was played in
+                                            onClick = {
+                                                onItemClick(entry.progress.postId ?: entry.item.id)
+                                            },
+                                            modifier = Modifier.width(240.dp),
+                                        )
                                     }
                                 }
                             }
-                            if (state.shows.isNotEmpty()) {
-                                item(span = { GridItemSpan(maxLineSpan) }, key = "shows") {
-                                    TaSectionTitle(stringResource(CoreR.string.jrwi_shows))
+                        }
+                        if (state.latest.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "latest") {
+                                JrwiItemRow(title = stringResource(CoreR.string.jrwi_latest)) {
+                                    items(state.latest, key = { it.id }) { item ->
+                                        JrwiItemCard(
+                                            item = item,
+                                            onClick = { onItemClick(item.id) },
+                                            modifier = Modifier.width(240.dp),
+                                        )
+                                    }
                                 }
                             }
-                            items(state.shows, key = { it.id }) { show ->
-                                JrwiShowCard(
-                                    show = show,
-                                    picture = state.showPictures[show.id],
-                                    onClick = { onShowClick(show.id) },
-                                )
+                        }
+                        if (state.shows.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "shows") {
+                                TaSectionTitle(stringResource(CoreR.string.jrwi_shows))
                             }
                         }
-                    }
-                    AnimatedVisibility(
-                        visible = serverShown,
-                        enter = slideInVertically(tween(SERVER_SLIDE_MILLIS)) { -it },
-                        exit = slideOutVertically(tween(SERVER_SLIDE_MILLIS)) { -it },
-                    ) {
-                        JrwiServerContent(
-                            modifier =
-                                Modifier.fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.background)
-                        )
+                        items(state.shows, key = { it.id }) { show ->
+                            JrwiShowCard(
+                                show = show,
+                                picture = state.showPictures[show.id],
+                                onClick = { onShowClick(show.id) },
+                            )
+                        }
                     }
                 }
             }
+            if (state.configured) JrwiServerSheet(sheet = sheet)
         }
     }
 }
 
-// As long as the server colours take to change over
-private const val SERVER_SLIDE_MILLIS = 450
+/** A titled row of cards, which scrolls apart from the main pages, as Continue watching does. */
+@Composable
+private fun JrwiItemRow(title: String, content: LazyListScope.() -> Unit) {
+    Column {
+        TaSectionTitle(title)
+        val rowState = rememberLazyListState()
+        LazyRow(
+            state = rowState,
+            userScrollEnabled = false,
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+            modifier = rememberSeparateRowScroll(rowState),
+            content = content,
+        )
+    }
+}
+
+/**
+ * An episode in Continue watching: its picture with how far it got and the version it was played
+ * in, as the web app shows it, then its title and the minutes left.
+ */
+@Composable
+private fun JrwiContinueCard(entry: JrwiContinue, onClick: () -> Unit, modifier: Modifier) {
+    val item = entry.item
+    val progress = entry.progress
+    val audio = progress.postId != null && progress.postId == item.audio?.postId
+    val length =
+        progress.duration
+            ?: (if (audio) item.audio?.duration else item.video?.duration)
+            ?: item.duration
+    Column(modifier = modifier.clip(JrwiShape).clickable(onClick = onClick)) {
+        Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(JrwiShape)) {
+            JrwiImage(path = item.thumbnail, modifier = Modifier.fillMaxSize())
+            Icon(
+                painter =
+                    painterResource(
+                        if (audio) CoreR.drawable.ic_headphones else CoreR.drawable.ic_film
+                    ),
+                contentDescription =
+                    stringResource(if (audio) CoreR.string.jrwi_audio else CoreR.string.jrwi_video),
+                tint = JrwiColors.AccentInk,
+                modifier =
+                    Modifier.align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(JrwiShape)
+                        .background(JrwiColors.Accent)
+                        .padding(4.dp)
+                        .size(14.dp),
+            )
+            if (length != null && length > 0) {
+                val played = (progress.position / length).toFloat().coerceIn(0f, 1f)
+                val bar = Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp)
+                Box(modifier = bar.background(Color.Black.copy(alpha = 0.4f))) {
+                    Box(Modifier.fillMaxWidth(played).height(4.dp).background(JrwiColors.Accent))
+                }
+            }
+        }
+        Text(
+            text = item.title,
+            style = MaterialTheme.typography.titleSmall,
+            minLines = 2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+        )
+        val left =
+            length
+                ?.takeIf { it > progress.position }
+                ?.let { ceil((it - progress.position) / 60).toInt() }
+        Text(
+            text =
+                listOfNotNull(
+                        left?.let { stringResource(CoreR.string.runtime_minutes_left, it) },
+                        itemDetails(item),
+                    )
+                    .joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            minLines = 1,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
 
 /**
  * A show's tile, with the show's picture, or the JRWI logo for a show without one of its own.
@@ -721,8 +748,12 @@ private fun JrwiItemRow(item: JrwiItem, onClick: () -> Unit, otherShow: String? 
 fun JrwiItemScreen(
     postId: Long,
     onOpenYoutube: (String) -> Unit,
+    onOpenAudioPlayer: () -> Unit,
     navigateBack: () -> Unit,
+    // Opened from the audio player to watch the video from where the audio was
+    playVideoOnOpen: Boolean = false,
     viewModel: JrwiItemViewModel = hiltViewModel(),
+    audioViewModel: JrwiAudioViewModel = hiltViewModel(),
     // The video downloads through Jellyfin, as the app's other downloads
     downloaderViewModel: DownloaderViewModel = hiltViewModel(),
 ) {
@@ -741,11 +772,17 @@ fun JrwiItemScreen(
                 is DownloaderEvent.Deleted -> viewModel.reloadEpisode()
             }
         }
+        // Opened from the audio player to watch the video, it plays once, not again on coming back
+        var autoPlayed by rememberSaveable { mutableStateOf(false) }
         // Loaded again on coming back from the player, for the new position
         LifecycleResumeEffect(postId) {
-            viewModel.load(postId)
+            viewModel.load(postId, startVideo = playVideoOnOpen && !autoPlayed)
+            autoPlayed = true
             onPauseOrDispose {}
         }
+        val scope = rememberCoroutineScope()
+        val audioPlayer = audioViewModel.player
+        val audioState = audioPlayer.state.collectAsStateWithLifecycle()
         ObserveAsEvents(viewModel.events) { event ->
             when (event) {
                 is JrwiItemEvent.PlayVideo ->
@@ -756,7 +793,11 @@ fun JrwiItemScreen(
                         positionSeconds = event.positionSeconds,
                     )
                 is JrwiItemEvent.PlayYoutube -> onOpenYoutube(event.videoId)
-                is JrwiItemEvent.PlayAudio -> startJrwiAudio(context, event.postId, event.fromStart)
+                // In the app's own audio player, which opens with it
+                is JrwiItemEvent.PlayAudio -> {
+                    audioViewModel.player.play(event.postId, event.fromStart)
+                    onOpenAudioPlayer()
+                }
                 is JrwiItemEvent.Message ->
                     Toast.makeText(context, jrwiMessageText(context, event.text), Toast.LENGTH_LONG)
                         .show()
@@ -764,6 +805,26 @@ fun JrwiItemScreen(
         }
         val item = state.item
         var menuOpen by remember { mutableStateOf(false) }
+        // Where the audio player is in this episode, to the second, while it has it
+        val livePosition by
+            remember(item?.id) {
+                derivedStateOf {
+                    audioState.value
+                        .takeIf { item != null && it.item?.id == item.id }
+                        ?.let { (it.positionMs / 1000).toDouble() }
+                }
+            }
+        // The video, after the audio player hands this episode over to it, when it has it
+        fun playVideo(fromStart: Boolean = false) {
+            if (item != null && audioState.value.item?.id == item.id) {
+                scope.launch {
+                    audioPlayer.closeForVideo()
+                    viewModel.playVideo(fromStart, freshPosition = true)
+                }
+            } else {
+                viewModel.playVideo(fromStart)
+            }
+        }
         // A post's pictures, full screen, after one is tapped
         var pictures by remember { mutableStateOf<JrwiPictures?>(null) }
         // A file shown in the file inspector, after it's tapped
@@ -813,33 +874,6 @@ fun JrwiItemScreen(
                                 expanded = menuOpen,
                                 onDismissRequest = { menuOpen = false },
                             ) {
-                                if (item.video != null || item.audio != null) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(stringResource(CoreR.string.jrwi_play_from_start))
-                                        },
-                                        onClick = {
-                                            menuOpen = false
-                                            if (playsAudio) viewModel.playAudio(fromStart = true)
-                                            else viewModel.playVideo(fromStart = true)
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                stringResource(
-                                                    if (state.finished)
-                                                        CoreR.string.jrwi_mark_unwatched
-                                                    else CoreR.string.jrwi_mark_watched
-                                                )
-                                            )
-                                        },
-                                        onClick = {
-                                            menuOpen = false
-                                            viewModel.setWatched(!state.finished)
-                                        },
-                                    )
-                                }
                                 (post?.originalUrl ?: item.originalUrl)?.let { url ->
                                     DropdownMenuItem(
                                         text = {
@@ -880,37 +914,35 @@ fun JrwiItemScreen(
                 item(key = "header") {
                     JrwiItemHeader(
                         item = item,
-                        position = if (playsAudio) state.audioPosition else state.videoPosition,
+                        position =
+                            if (playsAudio) livePosition ?: state.audioPosition
+                            else state.videoPosition,
                         finished = state.finished,
                         playsAudio = playsAudio,
-                        lookingUp = state.lookingUp,
                         onChoose = viewModel::choose,
-                        onPlay = {
-                            if (playsAudio) viewModel.playAudio() else viewModel.playVideo()
-                        },
                     )
                 }
-                // Only with the audio picked, as that's what it downloads
-                if (item.audio != null && playsAudio) {
-                    item(key = "download") {
-                        JrwiDownloadRow(
-                            entry = download,
-                            onDownload = viewModel::downloadAudio,
-                            onRemove = viewModel::removeDownload,
-                        )
-                    }
-                }
-                val episode = state.jellyfinEpisode
-                if (
-                    !playsAudio &&
-                        episode != null &&
-                        (episode.canDownload || episode.isDownloaded())
-                ) {
-                    item(key = "video_download") {
-                        JrwiVideoDownloadRow(
-                            episode = episode,
-                            state = videoDownload,
-                            onAction = { action ->
+                if (item.video != null || item.audio != null) {
+                    item(key = "buttons") {
+                        JrwiItemButtons(
+                            item = item,
+                            playsAudio = playsAudio,
+                            position =
+                                if (playsAudio) livePosition ?: state.audioPosition
+                                else state.videoPosition,
+                            finished = state.finished,
+                            lookingUp = state.lookingUp,
+                            onPlay = { fromStart ->
+                                if (playsAudio) viewModel.playAudio(fromStart)
+                                else playVideo(fromStart)
+                            },
+                            onToggleWatched = { viewModel.setWatched(!state.finished) },
+                            audioDownload = download,
+                            onDownloadAudio = viewModel::downloadAudio,
+                            onRemoveAudio = viewModel::removeDownload,
+                            episode = state.jellyfinEpisode,
+                            videoDownload = videoDownload,
+                            onVideoAction = { action ->
                                 when (action) {
                                     is DownloaderAction.Download -> viewModel.keepVideo()
                                     is DownloaderAction.DeleteDownload,
@@ -919,6 +951,12 @@ fun JrwiItemScreen(
                                 }
                                 downloaderViewModel.onAction(action)
                             },
+                            modifier =
+                                Modifier.padding(
+                                    start = MaterialTheme.spacings.medium,
+                                    end = MaterialTheme.spacings.medium,
+                                    bottom = MaterialTheme.spacings.medium,
+                                ),
                         )
                     }
                 }
@@ -964,7 +1002,7 @@ fun JrwiItemScreen(
                                     file.type == "youtube" -> file.youtubeId?.let(onOpenYoutube)
                                     file.type == "link" -> openUrl(context, file.source)
                                     // The episode's own video and audio play as Play does
-                                    file.role == "video" -> viewModel.playVideo()
+                                    file.role == "video" -> playVideo()
                                     file.role == "audio" -> viewModel.playAudio()
                                     file.type == "image" ->
                                         viewModel.showFrom(file)?.let {
@@ -1024,216 +1062,6 @@ fun JrwiItemScreen(
                 }
             }
         }
-    }
-}
-
-/** The audio's download: a button to start it, how far it's got, or that it's on the phone. */
-@Composable
-private fun JrwiDownloadRow(
-    entry: JrwiDownloadEntry?,
-    onDownload: () -> Unit,
-    onRemove: () -> Unit,
-) {
-    val download = entry?.download
-    val progress = entry?.progress
-    val running = download != null && !download.done && !download.failed
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier =
-            Modifier.fillMaxWidth()
-                .padding(horizontal = MaterialTheme.spacings.medium, vertical = 4.dp),
-    ) {
-        Icon(
-            painter = painterResource(CoreR.drawable.ic_download),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(MaterialTheme.spacings.small))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text =
-                    when {
-                        download == null -> stringResource(CoreR.string.jrwi_download_audio)
-                        download.done ->
-                            stringResource(
-                                CoreR.string.jrwi_download_done,
-                                formatBytes(download.size ?: 0L),
-                            )
-                        download.failed -> stringResource(CoreR.string.jrwi_download_failed)
-                        progress != null ->
-                            stringResource(
-                                CoreR.string.jrwi_download_running,
-                                (progress * 100).toInt(),
-                            )
-                        else -> stringResource(CoreR.string.jrwi_download_waiting)
-                    },
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            if (running) {
-                val bar = Modifier.fillMaxWidth().padding(top = 4.dp)
-                if (progress != null) {
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        color = JrwiColors.Accent,
-                        trackColor = JrwiBarTrack,
-                        modifier = bar,
-                    )
-                } else {
-                    LinearProgressIndicator(
-                        color = JrwiColors.Accent,
-                        trackColor = JrwiBarTrack,
-                        modifier = bar,
-                    )
-                }
-            }
-        }
-        when {
-            download == null ->
-                TextButton(onClick = onDownload) {
-                    Text(stringResource(CoreR.string.jrwi_download))
-                }
-            download.failed ->
-                TextButton(onClick = onDownload) {
-                    Text(stringResource(CoreR.string.jrwi_download_retry))
-                }
-            else ->
-                TextButton(onClick = onRemove) {
-                    Text(
-                        stringResource(
-                            if (download.done) CoreR.string.jrwi_download_remove
-                            else CoreR.string.jrwi_download_cancel
-                        )
-                    )
-                }
-        }
-    }
-}
-
-/**
- * The archived video's download, through Jellyfin like the app's other downloads: a button to start
- * it, how far it's got with pause and cancel, or that it's on the phone.
- */
-@Composable
-private fun JrwiVideoDownloadRow(
-    episode: FindroidEpisode,
-    state: DownloaderState,
-    onAction: (DownloaderAction) -> Unit,
-) {
-    val context = LocalContext.current
-    var storageDialogOpen by remember { mutableStateOf(false) }
-    var cancelDialogOpen by remember { mutableStateOf(false) }
-    var deleteDialogOpen by remember { mutableStateOf(false) }
-    var storageIndex by remember { mutableIntStateOf(0) }
-    // Progress shows in a notification, which needs this permission on Android 13 and newer. The
-    // download starts whether or not it's given.
-    val notificationPermission =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-    val startDownload: () -> Unit = {
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-                    PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        if (context.getExternalFilesDirs(null).size > 1) {
-            storageDialogOpen = true
-        } else {
-            storageIndex = 0
-            onAction(DownloaderAction.Download(episode, 0))
-        }
-    }
-    if (state.isDownloading) {
-        Box(Modifier.padding(horizontal = MaterialTheme.spacings.medium, vertical = 4.dp)) {
-            DownloaderCard(
-                state = state,
-                onCancelClick = { cancelDialogOpen = true },
-                onRetryClick = {
-                    if (state.canResume) onAction(DownloaderAction.ResumeDownload(episode))
-                    else onAction(DownloaderAction.Download(episode, storageIndex))
-                },
-                onPauseClick = { onAction(DownloaderAction.PauseDownload(episode)) },
-                onResumeClick = { onAction(DownloaderAction.ResumeDownload(episode)) },
-            )
-        }
-    } else {
-        val downloaded = episode.isDownloaded()
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier =
-                Modifier.fillMaxWidth()
-                    .padding(horizontal = MaterialTheme.spacings.medium, vertical = 4.dp),
-        ) {
-            Icon(
-                painter = painterResource(CoreR.drawable.ic_download),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(MaterialTheme.spacings.small))
-            Text(
-                text =
-                    stringResource(
-                        if (downloaded) CoreR.string.jrwi_video_downloaded
-                        else CoreR.string.jrwi_download_video
-                    ),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            if (downloaded) {
-                TextButton(onClick = { deleteDialogOpen = true }) {
-                    Text(stringResource(CoreR.string.jrwi_download_remove))
-                }
-            } else {
-                TextButton(onClick = startDownload) {
-                    Text(stringResource(CoreR.string.jrwi_download))
-                }
-            }
-        }
-    }
-    if (storageDialogOpen) {
-        val locations = remember {
-            context.getExternalFilesDirs(null).map { dir ->
-                val where =
-                    context.getString(
-                        if (Environment.isExternalStorageRemovable(dir)) CoreR.string.external
-                        else CoreR.string.internal
-                    )
-                context.getString(
-                    CoreR.string.storage_name,
-                    where,
-                    StatFs(dir.path).availableBytes / 1_000_000,
-                )
-            }
-        }
-        StorageSelectionDialog(
-            storageLocations = locations,
-            onSelect = { index ->
-                storageIndex = index
-                storageDialogOpen = false
-                onAction(DownloaderAction.Download(episode, index))
-            },
-            onDismiss = { storageDialogOpen = false },
-        )
-    }
-    if (cancelDialogOpen) {
-        CancelDownloadDialog(
-            onCancel = {
-                cancelDialogOpen = false
-                onAction(DownloaderAction.CancelDownload(episode))
-            },
-            onDismiss = { cancelDialogOpen = false },
-        )
-    }
-    if (deleteDialogOpen) {
-        DeleteDownloadDialog(
-            onDelete = {
-                deleteDialogOpen = false
-                onAction(DownloaderAction.DeleteDownload(episode))
-            },
-            onDismiss = { deleteDialogOpen = false },
-        )
     }
 }
 
@@ -1360,9 +1188,7 @@ private fun JrwiItemHeader(
     position: Double,
     finished: Boolean,
     playsAudio: Boolean,
-    lookingUp: Boolean,
     onChoose: (audio: Boolean) -> Unit,
-    onPlay: () -> Unit,
 ) {
     Column(
         modifier = Modifier.padding(MaterialTheme.spacings.medium),
@@ -1440,48 +1266,6 @@ private fun JrwiItemHeader(
                 ) {
                     Text(stringResource(CoreR.string.jrwi_audio))
                 }
-            }
-        }
-        val resuming = !finished && position > 0
-        Button(
-            shape = JrwiShape,
-            onClick = onPlay,
-            enabled = !lookingUp,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            if (lookingUp) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-            } else {
-                Icon(
-                    painterResource(CoreR.drawable.ic_play),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(MaterialTheme.spacings.small))
-                Text(
-                    stringResource(
-                        if (resuming) CoreR.string.jrwi_resume else CoreR.string.jrwi_play
-                    )
-                )
-            }
-        }
-        when {
-            finished ->
-                Text(
-                    text = stringResource(CoreR.string.jrwi_watched),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            resuming -> {
-                Text(
-                    text = stringResource(CoreR.string.jrwi_resume_at, formatDuration(position)),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
         if (!playsAudio && item.video?.isYoutube == true) {
@@ -1787,7 +1571,7 @@ private val RGB_REGEX =
  * couldn't fully save. Read again every few seconds while it's shown, so a check can be followed.
  */
 @Composable
-private fun JrwiServerContent(
+internal fun JrwiServerContent(
     modifier: Modifier = Modifier,
     viewModel: JrwiServerViewModel = hiltViewModel(),
 ) {
@@ -1856,7 +1640,8 @@ private fun JrwiServerContent(
                     // With the file that's downloading now as part of the one being worked on
                     val fraction = (done + (progress.current ?: 0.0)).toFloat() / total
                     LinearProgressIndicator(
-                        trackColor = JrwiBarTrack,
+                        // In the sheet's own purple
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         progress = { fraction.coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     )

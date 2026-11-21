@@ -55,7 +55,8 @@ fun JrwiDownloadsSection(
         entries.forEach { entry ->
             JrwiDownloadListRow(
                 entry = entry,
-                onClick = { onClick(entry.download.itemId) },
+                // On the audio, which is what's downloaded
+                onClick = { onClick(entry.download.audioPostId) },
                 onRemove = { onRemove(entry.download.itemId) },
             )
         }

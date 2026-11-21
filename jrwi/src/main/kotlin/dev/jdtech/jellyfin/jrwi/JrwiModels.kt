@@ -402,3 +402,11 @@ data class JrwiArchiveEntry(
     val size: Long? = null,
     val folder: Boolean = false,
 )
+
+/**
+ * An episode to continue: the item, and its progress in the timeline of the version played last,
+ * whose post ID says which version that was.
+ */
+@Serializable data class JrwiContinue(val item: JrwiItem, val progress: JrwiProgress)
+
+@Serializable data class JrwiContinueList(val items: List<JrwiContinue> = emptyList())

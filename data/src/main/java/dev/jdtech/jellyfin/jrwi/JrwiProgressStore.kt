@@ -25,6 +25,16 @@ class JrwiProgressStore(context: Context) {
 
     fun remember(itemId: Long, progress: JrwiProgress) = write(LAST + itemId, progress)
 
+    /** The last progress of every episode played on this phone, by item ID. */
+    fun allLast(): Map<Long, JrwiProgress> =
+        prefs.all.keys
+            .filter { it.startsWith(LAST) }
+            .mapNotNull { key ->
+                val itemId = key.removePrefix(LAST).toLongOrNull() ?: return@mapNotNull null
+                read(key)?.let { itemId to it }
+            }
+            .toMap()
+
     /** Saves that haven't reached the archiver yet, by item ID: the newest of each episode. */
     fun pending(): Map<Long, JrwiProgress> =
         prefs.all.keys

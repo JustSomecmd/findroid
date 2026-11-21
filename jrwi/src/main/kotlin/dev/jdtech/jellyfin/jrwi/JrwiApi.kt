@@ -160,6 +160,17 @@ class JrwiApi(private val config: JrwiConfig) {
             get("api/latest") { addQueryParameter("limit", limit.toString()) },
         )
 
+    /**
+     * Episodes started and not finished, the one played most recently first, each with its progress
+     * in the timeline of the version played last: the web app's Continue watching row. Suggested to
+     * the archiver; archivers without it answer 404.
+     */
+    suspend fun getContinue(limit: Int = 12): List<JrwiContinue> =
+        decode<JrwiContinueList>(
+                get("api/continue") { addQueryParameter("limit", limit.toString()) }
+            )
+            .items
+
     /** A whole item, by either post ID of its versions. */
     suspend fun getItem(postId: Long): JrwiItem = decode(get("api/items/$postId"))
 
