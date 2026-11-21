@@ -118,8 +118,26 @@ data class JrwiShowsState(
     val showPictures: Map<String, String> = emptyMap(),
     /** Episodes started and not finished, the one played most recently first. */
     val continueWatching: List<JrwiContinue> = emptyList(),
+    /** The archive's feed, as the web app's Home: every post on its own, newest first. */
+    val feed: List<JrwiFeedPost> = emptyList(),
+    /** How many posts the feed has in all, to load more of as it's scrolled. */
+    val feedTotal: Int = 0,
+    val feedLoading: Boolean = false,
     val loading: Boolean = false,
     val error: String? = null,
+)
+
+/**
+ * A post in the feed, on its own as the web app's feed has it. Its text, pictures, files, tags and
+ * first comments come once its card shows.
+ */
+data class JrwiFeedPost(
+    val post: JrwiItem,
+    val full: JrwiItem? = null,
+    /** Its first comments, pinned ones first, as the site's feed shows them. */
+    val comments: List<JrwiComment> = emptyList(),
+    /** It has more comments than those. */
+    val moreComments: Boolean = false,
 )
 
 /** The JRWI tab: the shows, like the channels on the Channels tab, and what's new. */
@@ -133,6 +151,10 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
 
     private var job: Job? = null
     private var continueJob: Job? = null
+    private var feedJob: Job? = null
+    private var feedPage = 0
+    // The feed's posts whose text and comments are being loaded
+    private val detailsLoading = mutableSetOf<Long>()
 
     init {
         // Marks what's been played since the rows were loaded
@@ -159,6 +181,7 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
         _state.update { it.copy(configured = configured) }
         if (!configured) return
         loadContinue()
+        loadFeed(force)
         if (!force && (_state.value.shows.isNotEmpty() || job?.isActive == true)) return
         job?.cancel()
         job = viewModelScope.launch {
@@ -199,6 +222,99 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
             }
         }
     }
+
+    /** The feed's first page, unless it's in already; [force] loads it again from the top. */
+    private fun loadFeed(force: Boolean) {
+        if (!force && (_state.value.feed.isNotEmpty() || feedJob?.isActive == true)) return
+        feedJob?.cancel()
+        feedPage = 0
+        detailsLoading.clear()
+        feedJob = viewModelScope.launch { loadFeedPage(reset = true) }
+    }
+
+    /** The feed's next page, as it's scrolled near its end. */
+    fun loadMoreFeed() {
+        val state = _state.value
+        if (
+            feedJob?.isActive == true || state.feed.isEmpty() || state.feed.size >= state.feedTotal
+        ) {
+            return
+        }
+        feedJob = viewModelScope.launch { loadFeedPage(reset = false) }
+    }
+
+    private suspend fun loadFeedPage(reset: Boolean) {
+        val page = feedPage + 1
+        _state.update { it.copy(feedLoading = true) }
+        try {
+            val result = jrwiApi.getPosts(page = page, pageSize = FEED_PAGE_SIZE)
+            feedPage = page
+            _state.update { state ->
+                val shown = if (reset) emptyList() else state.feed
+                val ids = shown.map { it.post.id }.toSet()
+                state.copy(
+                    feed = shown + result.items.filter { it.id !in ids }.map { JrwiFeedPost(it) },
+                    feedTotal = result.total,
+                    feedLoading = false,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "The feed could not be loaded")
+            _state.update { it.copy(feedLoading = false) }
+        }
+    }
+
+    /**
+     * A feed post's text, pictures, files and tags, and its first comments, once its card shows.
+     * One that couldn't be loaded is tried again when it shows again.
+     */
+    fun loadFeedDetails(postId: Long) {
+        val entry = _state.value.feed.firstOrNull { it.post.id == postId } ?: return
+        if (entry.full != null || !detailsLoading.add(postId)) return
+        viewModelScope.launch {
+            try {
+                coroutineScope {
+                    val full = async { jrwiApi.getPost(postId) }
+                    val comments = async {
+                        try {
+                            jrwiApi.getPostComments(postId)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                    val post = full.await()
+                    val page = comments.await()
+                    _state.update { state ->
+                        state.copy(
+                            feed =
+                                state.feed.map {
+                                    if (it.post.id != postId) it
+                                    else
+                                        it.copy(
+                                            full = post,
+                                            comments = page?.items.orEmpty().take(FEED_COMMENTS),
+                                            moreComments = (page?.total ?: 0) > FEED_COMMENTS,
+                                        )
+                                }
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                detailsLoading.remove(postId)
+                throw e
+            } catch (e: Exception) {
+                Timber.d(e, "Post $postId could not be loaded for the feed")
+                detailsLoading.remove(postId)
+            }
+        }
+    }
+
+    /** A file's address with the token, for saving a picture through the download manager. */
+    fun fileUrl(path: String?): String? = jrwiApi.fileUrlWithToken(path)
 
     /**
      * Continue watching after progress was saved from the app: the episode goes first with its new
@@ -254,6 +370,10 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
 
     private companion object {
         const val LATEST_COUNT = 20
+        // As many as the web app's feed shows on a page
+        const val FEED_PAGE_SIZE = 20
+        // The site's feed shows each post's first two comments
+        const val FEED_COMMENTS = 2
 
         // Text posts have no picture, so a few items in case the newest are those
         const val PICTURE_SEARCH_SIZE = 10

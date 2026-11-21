@@ -150,6 +150,10 @@ data class JrwiItem(
     val embeds: List<JrwiEmbed> = emptyList(),
     val versions: List<JrwiVersion> = emptyList(),
     val problems: List<String> = emptyList(),
+    /** On a single post: which version it is, video, audio or youtube, or null (v0.7). */
+    val version: String? = null,
+    /** On a single post: its episode has other versions (v0.7). */
+    val paired: Boolean = false,
     /** On a single post: when the archiver noticed the site no longer has it (v0.15). */
     @SerialName("removed_from_site") val removedFromSite: String? = null,
     /** On a single post whose video was handed over to TubeArchivist (v0.15). */

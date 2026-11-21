@@ -153,6 +153,23 @@ class JrwiApi(private val config: JrwiConfig) {
             }
         )
 
+    /**
+     * Every post on its own, as the archiver's web feed lists them (v0.7): newest first, or oldest
+     * with [order] "asc", leaving out those above the user's tier.
+     */
+    suspend fun getPosts(
+        page: Int = 1,
+        pageSize: Int = PAGE_SIZE,
+        order: String = "desc",
+    ): JrwiPage<JrwiItem> =
+        decode(
+            get("api/posts") {
+                addQueryParameter("order", order)
+                addQueryParameter("page", page.toString())
+                addQueryParameter("page_size", pageSize.toString())
+            }
+        )
+
     /** The newest items across every show. */
     suspend fun getLatest(limit: Int = 20): List<JrwiItem> =
         json.decodeFromString(

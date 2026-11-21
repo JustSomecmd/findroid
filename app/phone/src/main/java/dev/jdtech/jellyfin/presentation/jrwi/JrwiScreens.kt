@@ -103,6 +103,7 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderAction
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderEvent
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderViewModel
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiFeedPost
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemEvent
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiMessages
@@ -195,10 +196,10 @@ internal fun openUrl(context: Context, url: String?) {
 // The JRWI tab
 
 /**
- * JRWI mode's Home: what was started and not finished, and what's new. Its server side, to the left
- * as with TubeArchivist's Home, is the archiver's page in purple: what it's doing, Check now and
- * the posts it couldn't fully save. A swipe, a tap on the switch, or a double tap on the tab turns
- * it.
+ * JRWI mode's Home: what was started and not finished, then the archive's feed, as the web app's
+ * Home has it. Its server side, to the left as with TubeArchivist's Home, is the archiver's page in
+ * purple: what it's doing, Check now and the posts it couldn't fully save. A swipe, a tap on the
+ * switch, or a double tap on the tab turns it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -207,8 +208,22 @@ fun JrwiHomeScreen(
     onSetUp: () -> Unit,
     sides: PagerState,
     viewModel: JrwiShowsViewModel = hiltViewModel(),
+    audioViewModel: AudioViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val audio by audioViewModel.player.state.collectAsStateWithLifecycle()
+    // The feed's audio playing now, which its card shows with a pause button
+    val playingAudio = audio.jrwiItem?.audio?.postId?.takeIf { audio.playing }
+    // A post's pictures full screen, after one is tapped in the feed
+    var pictures by remember { mutableStateOf<JrwiPictures?>(null) }
+    pictures?.let { shown ->
+        JrwiPictureViewer(
+            pictures = shown,
+            onClose = { pictures = null },
+            onSave = { path -> saveJrwiPicture(context, viewModel.fileUrl(path), path) },
+        )
+    }
     LifecycleResumeEffect(Unit) {
         viewModel.load()
         onPauseOrDispose {}
@@ -266,7 +281,23 @@ fun JrwiHomeScreen(
                         onRefresh = { viewModel.load(force = true) },
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        JrwiHomeList(state = state, onItemClick = onItemClick)
+                        JrwiHomeList(
+                            state = state,
+                            playingAudio = playingAudio,
+                            onItemClick = onItemClick,
+                            onPlayAudio = { postId ->
+                                // The same episode pauses or plays on; another starts
+                                if (audio.jrwiItem?.audio?.postId == postId) {
+                                    audioViewModel.player.toggle()
+                                } else {
+                                    audioViewModel.player.playJrwi(postId)
+                                }
+                            },
+                            onPicture = { pictures = it },
+                            onOpen = { openUrl(context, it) },
+                            onLoadDetails = viewModel::loadFeedDetails,
+                            onLoadMore = viewModel::loadMoreFeed,
+                        )
                     }
                 },
                 server = {
@@ -286,9 +317,22 @@ fun JrwiHomeScreen(
     }
 }
 
-/** Continue watching and Latest, each a row of cards. */
+/**
+ * Continue watching, then the archive's feed: every post on its own, newest first, loaded a page at
+ * a time as it's scrolled, as the web app's Home.
+ */
 @Composable
-private fun JrwiHomeList(state: JrwiShowsState, onItemClick: (Long) -> Unit) {
+private fun JrwiHomeList(
+    state: JrwiShowsState,
+    playingAudio: Long?,
+    onItemClick: (Long) -> Unit,
+    onPlayAudio: (Long) -> Unit,
+    onPicture: (JrwiPictures) -> Unit,
+    onOpen: (String?) -> Unit,
+    onLoadDetails: (Long) -> Unit,
+    onLoadMore: () -> Unit,
+) {
+    val showNames = remember(state.shows) { state.shows.associate { it.id to it.name } }
     LazyColumn(
         contentPadding = PaddingValues(MaterialTheme.spacings.medium),
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
@@ -311,14 +355,124 @@ private fun JrwiHomeList(state: JrwiShowsState, onItemClick: (Long) -> Unit) {
                 }
             }
         }
-        if (state.latest.isNotEmpty()) {
-            item(key = "latest") {
-                JrwiItemRow(title = stringResource(CoreR.string.jrwi_latest)) {
-                    items(state.latest, key = { it.id }) { item ->
-                        JrwiItemCard(
-                            item = item,
-                            onClick = { onItemClick(item.id) },
-                            modifier = Modifier.width(240.dp),
+        if (state.feed.isNotEmpty()) {
+            item(key = "feed_title") { TaSectionTitle(stringResource(CoreR.string.jrwi_latest)) }
+        }
+        itemsIndexed(state.feed, key = { _, entry -> "feed:" + entry.post.id }) { index, entry ->
+            val post = entry.post
+            LaunchedEffect(post.id) { onLoadDetails(post.id) }
+            // The next page, a few posts before the end
+            if (index >= state.feed.size - FEED_PREFETCH) {
+                LaunchedEffect(state.feed.size) { onLoadMore() }
+            }
+            val audioId = post.audio?.postId
+            JrwiFeedCard(
+                entry = entry,
+                showName = showNames[post.show],
+                playing = audioId != null && playingAudio == audioId,
+                onClick = { onItemClick(post.id) },
+                onPlayAudio = { audioId?.let(onPlayAudio) },
+                onPicture = onPicture,
+                onOpen = onOpen,
+            )
+        }
+        if (state.feedLoading) {
+            item(key = "feed_loading") {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                }
+            }
+        }
+    }
+}
+
+// How many posts before the end of the feed the next page is asked for
+private const val FEED_PREFETCH = 5
+
+/**
+ * A post in the feed, laid out as the web app's feed has it: its media, then the show and date, its
+ * title, a short preview of its text that opens in place, its files and tags, likes, comments, the
+ * original post, and its first comments. A tap opens the post's page; an audio post plays from its
+ * card in the app's audio player, and pictures open full screen.
+ */
+@Composable
+private fun JrwiFeedCard(
+    entry: JrwiFeedPost,
+    showName: String?,
+    playing: Boolean,
+    onClick: () -> Unit,
+    onPlayAudio: () -> Unit,
+    onPicture: (JrwiPictures) -> Unit,
+    onOpen: (String?) -> Unit,
+) {
+    val post = entry.post
+    val full = entry.full
+    Column(
+        modifier =
+            Modifier.fillMaxWidth()
+                .clip(JrwiShape)
+                .background(JrwiColors.Card)
+                .border(1.dp, JrwiColors.Line, JrwiShape)
+                .clickable(onClick = onClick)
+    ) {
+        JrwiFeedMedia(
+            post = post,
+            pictures = full?.images.orEmpty().map { it.url },
+            playing = playing,
+            onPlayAudio = onPlayAudio,
+            onPicture = onPicture,
+        )
+        Column(
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+            modifier = Modifier.padding(vertical = MaterialTheme.spacings.medium),
+        ) {
+            val inset = Modifier.padding(horizontal = MaterialTheme.spacings.medium)
+            JrwiFeedMeta(post = post, showName = showName, modifier = inset)
+            Text(
+                text = post.title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = JrwiColors.Text,
+                modifier = inset,
+            )
+            if (full != null) {
+                JrwiFeedText(post = full, modifier = inset)
+                JrwiFeedFiles(post = full, onClick = onClick)
+                if (full.tags.isNotEmpty()) JrwiTags(full.tags)
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+                verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+                modifier = inset.padding(top = MaterialTheme.spacings.small),
+            ) {
+                post.likeCount?.let { JrwiPill(CoreR.drawable.ic_heart, it.toString()) }
+                JrwiPill(
+                    icon = CoreR.drawable.ic_message_square,
+                    text = (post.commentCount ?: 0).toString(),
+                    onClick = onClick,
+                )
+                full?.originalUrl?.let { url ->
+                    JrwiPill(
+                        icon = CoreR.drawable.ic_external_link,
+                        text = stringResource(CoreR.string.jrwi_original_post),
+                        onClick = { onOpen(url) },
+                    )
+                }
+            }
+            if (entry.comments.isNotEmpty()) {
+                Column(modifier = Modifier.padding(top = MaterialTheme.spacings.small)) {
+                    entry.comments.forEach { comment -> JrwiFeedComment(comment) }
+                    if (entry.moreComments) {
+                        Text(
+                            text = stringResource(CoreR.string.jrwi_more_comments),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = JrwiColors.Accent,
+                            modifier =
+                                Modifier.clickable(onClick = onClick)
+                                    .padding(
+                                        horizontal = MaterialTheme.spacings.medium,
+                                        vertical = MaterialTheme.spacings.small,
+                                    ),
                         )
                     }
                 }
@@ -326,6 +480,347 @@ private fun JrwiHomeList(state: JrwiShowsState, onItemClick: (Long) -> Unit) {
         }
     }
 }
+
+/**
+ * A feed post's media, as the web app's feed shows it: an audio post's picture with a button to
+ * play it, a video's picture with its length, or the post's pictures, up to four with how many
+ * more.
+ */
+@Composable
+private fun JrwiFeedMedia(
+    post: JrwiItem,
+    pictures: List<String>,
+    playing: Boolean,
+    onPlayAudio: () -> Unit,
+    onPicture: (JrwiPictures) -> Unit,
+) {
+    val thumbnail = post.thumbnail
+    when {
+        post.audio != null ->
+            Box(contentAlignment = Alignment.Center) {
+                JrwiThumbnail(
+                    item = post,
+                    marks = false,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // Plays in the app's audio player, which the mini player then shows
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier =
+                        Modifier.size(56.dp)
+                            .clip(CircleShape)
+                            .background(JrwiColors.Accent)
+                            .clickable(onClick = onPlayAudio),
+                ) {
+                    Icon(
+                        painter =
+                            painterResource(
+                                if (playing) CoreR.drawable.ic_pause else CoreR.drawable.ic_play
+                            ),
+                        contentDescription =
+                            stringResource(
+                                if (playing) CoreR.string.jrwi_player_pause
+                                else CoreR.string.jrwi_play_audio
+                            ),
+                        tint = JrwiColors.AccentInk,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
+        post.video != null && thumbnail != null ->
+            JrwiThumbnail(
+                item = post,
+                marks = false,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        pictures.isNotEmpty() -> JrwiImageGrid(paths = pictures, onPicture = onPicture)
+        thumbnail != null ->
+            JrwiImage(
+                path = thumbnail,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+            )
+    }
+}
+
+/**
+ * Up to four of a post's pictures, as the web app's feed lays them out: one whole, two or four side
+ * by side, or three with the first across the top. The fourth says how many more there are. A tap
+ * opens them all full screen.
+ */
+@Composable
+private fun JrwiImageGrid(paths: List<String>, onPicture: (JrwiPictures) -> Unit) {
+    if (paths.size == 1) {
+        JrwiImage(
+            path = paths[0],
+            contentScale = ContentScale.Fit,
+            modifier =
+                Modifier.fillMaxWidth().aspectRatio(16f / 9f).clickable {
+                    onPicture(JrwiPictures(paths, 0))
+                },
+        )
+        return
+    }
+    val rows =
+        if (paths.size == 3) listOf(listOf(0), listOf(1, 2))
+        else listOf(listOf(0, 1), listOf(2, 3).filter { it < paths.size })
+    Column(verticalArrangement = Arrangement.spacedBy(GRID_GAP)) {
+        rows
+            .filter { it.isNotEmpty() }
+            .forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(GRID_GAP)) {
+                    row.forEach { index ->
+                        // One across the top is twice as wide as it's tall
+                        val ratio = if (row.size == 1) 2f else 1f
+                        JrwiGridPicture(
+                            paths = paths,
+                            index = index,
+                            onPicture = onPicture,
+                            modifier = Modifier.weight(1f).aspectRatio(ratio),
+                        )
+                    }
+                }
+            }
+    }
+}
+
+/** One picture of the grid; the last says how many more there are. */
+@Composable
+private fun JrwiGridPicture(
+    paths: List<String>,
+    index: Int,
+    onPicture: (JrwiPictures) -> Unit,
+    modifier: Modifier,
+) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier.clickable { onPicture(JrwiPictures(paths, index)) },
+    ) {
+        JrwiImage(
+            path = paths[index],
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        val more = paths.size - MAX_GRID
+        if (index == MAX_GRID - 1 && more > 0) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)),
+            ) {
+                Text(
+                    text = "+$more",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
+        }
+    }
+}
+
+private const val MAX_GRID = 4
+private val GRID_GAP = 2.dp
+
+/** The show and date of a feed post, and whether it's pinned and which version it is. */
+@Composable
+private fun JrwiFeedMeta(post: JrwiItem, showName: String?, modifier: Modifier = Modifier) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = modifier,
+    ) {
+        Text(
+            text = listOfNotNull(showName, fullDate(post.date)).joinToString(" · "),
+            style = MaterialTheme.typography.bodyMedium,
+            color = JrwiColors.Muted,
+            modifier = Modifier.align(Alignment.CenterVertically),
+        )
+        if (post.pinned) JrwiTag(stringResource(CoreR.string.jrwi_pinned))
+        val version =
+            when (post.version) {
+                "video" -> CoreR.string.jrwi_video
+                "audio" -> CoreR.string.jrwi_audio
+                "youtube" -> CoreR.string.jrwi_youtube
+                else -> null
+            }
+        if (post.paired && version != null) JrwiTag(stringResource(version))
+    }
+}
+
+/** A small label, as the web app's tags next to a post's date. */
+@Composable
+private fun JrwiTag(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = JrwiColors.PillText,
+        modifier =
+            Modifier.background(JrwiColors.Pill, CircleShape)
+                .padding(horizontal = 10.dp, vertical = 2.dp),
+    )
+}
+
+/**
+ * A short preview of a post's text, as the web app's feed has it, and "...Continue reading" to open
+ * the rest in place, with its links.
+ */
+@Composable
+private fun JrwiFeedText(post: JrwiItem, modifier: Modifier = Modifier) {
+    val text = post.bodyText?.trim().orEmpty()
+    if (text.isEmpty()) return
+    var open by rememberSaveable(post.id) { mutableStateOf(false) }
+    var cut by remember(post.id) { mutableStateOf(false) }
+    if (open) {
+        JrwiHtmlText(
+            html = post.bodyHtml?.takeIf { it.isNotBlank() },
+            text = text,
+            modifier = modifier,
+        )
+        return
+    }
+    Column(modifier = modifier) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = JrwiColors.BodyText,
+            maxLines = PREVIEW_LINES,
+            overflow = TextOverflow.Ellipsis,
+            onTextLayout = { cut = it.hasVisualOverflow },
+        )
+        if (cut) {
+            Text(
+                text = stringResource(CoreR.string.jrwi_continue_reading),
+                style = MaterialTheme.typography.labelLarge,
+                color = JrwiColors.Accent,
+                modifier =
+                    Modifier.clickable { open = true }
+                        .padding(vertical = MaterialTheme.spacings.small),
+            )
+        }
+    }
+}
+
+private const val PREVIEW_LINES = 4
+
+/** A feed post's attachments and documents, which open on its page, the first few listed. */
+@Composable
+private fun JrwiFeedFiles(post: JrwiItem, onClick: () -> Unit) {
+    val files =
+        (post.attachments.map { it to "other" } + post.documents.map { it to "document" })
+            .distinctBy { it.first.url }
+    if (files.isEmpty()) return
+    Column {
+        files.take(FEED_FILES).forEach { (file, type) ->
+            JrwiLinkRow(
+                icon = jrwiFileIcon(type),
+                text = file.name,
+                detail = file.size?.let { formatBytes(it) },
+                onClick = onClick,
+            )
+        }
+        if (files.size > FEED_FILES) {
+            Text(
+                text = stringResource(CoreR.string.jrwi_more_files, files.size - FEED_FILES),
+                style = MaterialTheme.typography.labelLarge,
+                color = JrwiColors.Accent,
+                modifier =
+                    Modifier.clickable(onClick = onClick)
+                        .padding(
+                            horizontal = MaterialTheme.spacings.medium,
+                            vertical = MaterialTheme.spacings.small,
+                        ),
+            )
+        }
+    }
+}
+
+private const val FEED_FILES = 3
+
+/** An outlined pill under a feed post, as the web app's: its likes, comments or a link. */
+@Composable
+private fun JrwiPill(icon: Int, text: String, onClick: (() -> Unit)? = null) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier =
+            Modifier.clip(CircleShape)
+                .border(1.dp, JrwiColors.Line, CircleShape)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = JrwiColors.PillText,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(text = text, style = MaterialTheme.typography.labelLarge, color = JrwiColors.PillText)
+    }
+}
+
+/** One of a feed post's first comments, short: who wrote it, when, and the start of it. */
+@Composable
+private fun JrwiFeedComment(comment: JrwiComment) {
+    val author = comment.author
+    val avatar = author.avatar
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+        modifier =
+            Modifier.fillMaxWidth()
+                .padding(
+                    horizontal = MaterialTheme.spacings.medium,
+                    vertical = MaterialTheme.spacings.small,
+                ),
+    ) {
+        if (avatar != null) {
+            JrwiImage(path = avatar, modifier = Modifier.size(28.dp).clip(CircleShape))
+        } else {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(28.dp).clip(CircleShape).background(JrwiColors.LineSoft),
+            ) {
+                Text(
+                    text = author.name.take(1).uppercase().ifEmpty { "?" },
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = JrwiColors.Text,
+                )
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = author.name,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = cssColor(author.color) ?: JrwiColors.Text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                (comment.dateText ?: fullDate(comment.date))?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = JrwiColors.Muted,
+                        modifier = Modifier.padding(start = MaterialTheme.spacings.small),
+                    )
+                }
+            }
+            Text(
+                text = comment.bodyText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = JrwiColors.BodyText,
+                maxLines = COMMENT_LINES,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private const val COMMENT_LINES = 3
 
 /** For the JRWI pages before the archiver is set up in Settings. */
 @Composable
@@ -534,38 +1029,6 @@ private fun JrwiShowCard(show: JrwiShow, picture: String?, onClick: () -> Unit) 
                 pluralStringResource(CoreR.plurals.jrwi_item_count, show.itemCount, show.itemCount),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-/**
- * An item with its picture on top, as in a row of what's new. Its text always takes the same lines,
- * so every card is as tall as the others and the shows under the row stay put.
- */
-@Composable
-private fun JrwiItemCard(item: JrwiItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier = modifier.clip(JrwiShape).clickable(onClick = onClick)) {
-        // The whole picture, with bars where it isn't 16:9, rather than cut to fill the card
-        JrwiThumbnail(
-            item = item,
-            modifier = Modifier.fillMaxWidth(),
-            contentScale = ContentScale.Fit,
-        )
-        Text(
-            text = item.title,
-            style = MaterialTheme.typography.titleSmall,
-            minLines = 2,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = MaterialTheme.spacings.small),
-        )
-        Text(
-            text = itemDetails(item).orEmpty(),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            minLines = 1,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }
