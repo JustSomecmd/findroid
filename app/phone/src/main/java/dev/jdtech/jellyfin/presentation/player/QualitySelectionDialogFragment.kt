@@ -7,22 +7,22 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.DialogFragment
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import dev.jdtech.jellyfin.PlayerActivity
 import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.local.R
 import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
 import java.lang.IllegalStateException
 
 /**
- * Lets the user pick the original file, a lower quality converted by the server, or only the sound.
+ * Lets the user pick the original file or a lower quality converted by the server. Only the sound
+ * has a button of its own, which goes on in the app's audio player; when the video plays only its
+ * sound already, as Settings can start it, none is ticked.
  */
 class QualitySelectionDialogFragment(private val viewModel: PlayerViewModel) : DialogFragment() {
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        val qualities = StreamQuality.entries
+        val qualities = StreamQuality.entries.filter { it != StreamQuality.AUDIO_ONLY }
         val labels = qualities.map { quality ->
             when (quality) {
                 StreamQuality.ORIGINAL -> getString(R.string.quality_original_summary)
-                StreamQuality.AUDIO_ONLY -> getString(R.string.quality_audio_only)
                 else -> quality.label
             }
         }
@@ -36,11 +36,7 @@ class QualitySelectionDialogFragment(private val viewModel: PlayerViewModel) : D
                 ) { dialog, which ->
                     val quality = qualities[which]
                     dialog.dismiss()
-                    // A TubeArchivist video's sound plays on in the app's audio player
-                    val handedOver =
-                        quality == StreamQuality.AUDIO_ONLY &&
-                            (activity as? PlayerActivity)?.listenInAudioPlayer() == true
-                    if (!handedOver) viewModel.selectQuality(quality)
+                    viewModel.selectQuality(quality)
                 }
                 .create()
         } ?: throw IllegalStateException("Activity cannot be null")

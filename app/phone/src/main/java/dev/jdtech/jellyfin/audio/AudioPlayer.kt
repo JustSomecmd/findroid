@@ -25,6 +25,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiApi
 import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
+import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.player.core.domain.models.PlayerItem
 import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.local.domain.PlaylistManager
@@ -32,6 +33,7 @@ import dev.jdtech.jellyfin.player.local.domain.TaQueueEntry
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.settings.domain.Constants
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
@@ -72,30 +74,39 @@ sealed interface AudioEpisode {
     }
 
     /**
-     * A TubeArchivist video, played as sound from its Jellyfin episode. [videoId] is null when the
-     * video wasn't found in TubeArchivist, so only Jellyfin keeps its place. [playlistId] is the
-     * playlist it was played from, whose other videos follow it.
+     * The sound of a video in Jellyfin, a movie or an episode ([kind]). [videoId] is its
+     * TubeArchivist video when it's one, which keeps its place too. [playlistId] is the
+     * TubeArchivist playlist it was played from, whose other videos follow it.
      */
-    data class Ta(
-        val episodeId: UUID,
+    data class Video(
+        val itemId: UUID,
+        val kind: BaseItemKind,
         val videoId: String?,
         override val title: String,
         val playlistId: String?,
     ) : AudioEpisode
 }
 
-/** A SponsorBlock segment of a TubeArchivist video, in the player's milliseconds. */
-data class AudioSegment(val startMs: Long, val endMs: Long, val category: String)
+/**
+ * A segment of a video to skip, in the player's milliseconds: a SponsorBlock one with its
+ * [category], such as sponsor, or one of Jellyfin's media segments with its [type], such as INTRO.
+ */
+data class AudioSegment(
+    val startMs: Long,
+    val endMs: Long,
+    val category: String? = null,
+    val type: String? = null,
+)
 
 /** What the audio player is playing, and how. */
 data class AudioState(
     val episode: AudioEpisode? = null,
-    /** Under the title: the JRWI show, or the video's channel. */
+    /** Under the title: the JRWI show, or the video's channel or show. */
     val subtitle: String? = null,
     /** The episode's picture: an archiver path, a Jellyfin image, or the phone's copy. */
     val picture: String? = null,
-    /** A TubeArchivist video, shown in the app's own colours rather than the archiver's. */
-    val tubeArchivist: Boolean = false,
+    /** A video's sound, shown in the app's own colours rather than the archiver's. */
+    val appLook: Boolean = false,
     val loading: Boolean = false,
     val playing: Boolean = false,
     val buffering: Boolean = false,
@@ -107,10 +118,12 @@ data class AudioState(
     /** Played from the copy on the phone. */
     val fromPhone: Boolean = false,
     val error: String? = null,
-    /** A SponsorBlock segment playing now, which a button skips. */
+    /** A segment playing now, which a button skips. */
     val segment: AudioSegment? = null,
     /** The playlist has a video after this one. */
     val hasNext: Boolean = false,
+    /** The archiver's item of a JRWI episode whose video's sound this is, whose page it has. */
+    val linkedJrwiId: Long? = null,
 ) {
     /** Something is loaded, playing or not, which the mini player shows. */
     val active: Boolean
@@ -119,8 +132,8 @@ data class AudioState(
     val jrwiItem: JrwiItem?
         get() = (episode as? AudioEpisode.Jrwi)?.item
 
-    val taVideo: AudioEpisode.Ta?
-        get() = episode as? AudioEpisode.Ta
+    val video: AudioEpisode.Video?
+        get() = episode as? AudioEpisode.Video
 }
 
 /** A sleep timer: pausing at a time, or at the end of the episode. */
@@ -137,18 +150,18 @@ interface AudioPlayerEntryPoint {
 
 /**
  * The app's audio player, apart from the video player, as a podcast app has it: a JRWI episode's
- * audio from the archiver or the phone, or the sound of a TubeArchivist video from Jellyfin, in the
- * background with its notification.
+ * audio from the archiver or the phone, or the sound of a video from Jellyfin, in the background
+ * with its notification.
  *
  * Its progress goes where the other players send it. A JRWI episode's goes to the archive every 15
  * seconds while it plays, and when it's paused or stopped also to the episode's video (decision 8).
- * A TubeArchivist video's goes to Jellyfin and TubeArchivist, and to the archive too for one of the
- * archiver's YouTube-only videos, as the video player does. Most of the way through counts as
- * watched.
+ * A video's goes to Jellyfin, to TubeArchivist for one of its videos, and to the archive for a JRWI
+ * episode's video, as the video player does. Most of the way through counts as watched.
  *
  * It has a sleep timer, a speed that's remembered, and goes back a few seconds when it's played
- * again after a long pause, as storii does. A TubeArchivist video skips or offers to skip its
- * SponsorBlock segments, as set in Settings, and the next video of its playlist follows it.
+ * again after a long pause, as storii does. It skips back and forward as far as the video player
+ * does. A video skips or offers to skip its SponsorBlock segments and Jellyfin's media segments as
+ * the video player's settings say, and the next video of its playlist or show follows it.
  */
 @Singleton
 class AudioPlayer
@@ -193,21 +206,57 @@ constructor(
         _openRequested.value = false
     }
 
+    /** How far the back button goes: as far as the video player's, in Settings. */
+    val backMs: Long
+        get() = appPreferences.getValue(appPreferences.playerSeekBackInc)
+
+    /** How far the forward button goes: as far as the video player's, in Settings. */
+    val forwardMs: Long
+        get() = appPreferences.getValue(appPreferences.playerSeekForwardInc)
+
     private var loadJob: Job? = null
     private var tickJob: Job? = null
     private var sleepJob: Job? = null
     private var lastSaveMs = 0L
     private var pausedAtMs: Long? = null
 
-    // A TubeArchivist video's own: the playlist and episodes around it, whether Jellyfin was told
-    // it started, the archiver's item when it's one of its YouTube-only videos, and its segments
-    private var taPlaylist: PlaylistManager? = null
+    // A video's own: the playlist and episodes around it, whether Jellyfin was told it started,
+    // the archiver's item when it's a JRWI episode's video, and its segments
+    private var playlist: PlaylistManager? = null
     private var taPlaylistName: String? = null
     private var jellyfinStarted = false
     private var linkedJrwi: JrwiItem? = null
-    private var taSegments: List<AudioSegment> = emptyList()
-    private var sponsorBlockAuto = false
+    private var segments: List<AudioSegment> = emptyList()
+    private var segmentRules = SegmentRules()
     private var skippedSegment: AudioSegment? = null
+
+    /** The video player's settings for skipping segments, read when a video starts. */
+    private data class SegmentRules(
+        val sponsorBlock: String = SPONSORBLOCK_OFF,
+        val button: Boolean = false,
+        val buttonTypes: Set<String> = emptySet(),
+        val auto: Boolean = false,
+        val autoTypes: Set<String> = emptySet(),
+        val autoMode: String = Constants.PlayerMediaSegmentsAutoSkip.ALWAYS,
+    ) {
+        /** Jellyfin's media segments are only looked up when something is done with them. */
+        val usesMediaSegments: Boolean
+            get() = button || auto
+
+        fun skipsOnItsOwn(segment: AudioSegment): Boolean =
+            if (segment.category != null) {
+                sponsorBlock == SPONSORBLOCK_AUTO
+            } else {
+                // Set to skip only in the small window, which this player hasn't, it isn't
+                auto &&
+                    segment.type?.let { it in autoTypes } == true &&
+                    autoMode == Constants.PlayerMediaSegmentsAutoSkip.ALWAYS
+            }
+
+        fun showsButton(segment: AudioSegment): Boolean =
+            if (segment.category != null) sponsorBlock != SPONSORBLOCK_OFF
+            else button && segment.type?.let { it in buttonTypes } == true
+    }
 
     private val listener =
         object : Player.Listener {
@@ -228,8 +277,8 @@ constructor(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
                     save(Save.END)
-                    if (_state.value.taVideo != null) {
-                        playNextTa(fromEnd = true)
+                    if (_state.value.video != null) {
+                        playNext(fromEnd = true)
                     } else if (_state.value.sleep?.atEnd == true) {
                         cancelSleep()
                     }
@@ -256,16 +305,19 @@ constructor(
         }
 
     /**
-     * Plays the JRWI audio whose post is [postId], where it was left unless [fromStart]. The same
-     * episode only plays on, from the start when asked, or from where it was played elsewhere
-     * meanwhile.
+     * Plays the JRWI audio whose post is [postId]: from [startMs] when given, or else where it was
+     * left unless [fromStart]. The same episode only plays on, from the start or [startMs] when
+     * asked, or from where it was played elsewhere meanwhile.
      */
-    fun playJrwi(postId: Long, fromStart: Boolean = false) {
+    fun playJrwi(postId: Long, fromStart: Boolean = false, startMs: Long? = null) {
         val player = exo
         val current = _state.value.jrwiItem
         if (player != null && current != null && current.audio?.postId == postId) {
-            if (fromStart) player.seekTo(0)
-            if (fromStart || player.isPlaying) {
+            when {
+                fromStart -> player.seekTo(0)
+                startMs != null -> player.seekTo(startMs)
+            }
+            if (fromStart || startMs != null || player.isPlaying) {
                 player.play()
                 return
             }
@@ -289,90 +341,138 @@ constructor(
             return
         }
         loadJob?.cancel()
+        loadJob = scope.launch { loadJrwi(postId, fromStart, startMs) }
+    }
+
+    private suspend fun loadJrwi(postId: Long, fromStart: Boolean, startAt: Long?) {
+        // What was playing keeps its place, and stops while this loads
+        if (_state.value.episode != null) save(Save.LEAVE)
+        forgetVideo()
+        _state.update { AudioState(loading = true, speed = it.speed, sleep = it.sleep) }
+        exo?.pause()
+        val download = jrwiDownloads.forAudio(postId)
+        val item =
+            try {
+                jrwiApi.getItem(postId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Without a connection, what was kept with the download
+                download?.let { jrwiDownloads.savedItem(it.itemId) }
+                    ?: run {
+                        Timber.w(e, "Could not load JRWI audio $postId")
+                        _state.update { it.copy(loading = false, error = e.localizedMessage ?: "") }
+                        return
+                    }
+            }
+        val audio = item.audio
+        val file = download?.let { jrwiDownloads.audioFile(it.itemId) }?.takeIf { it.exists() }
+        val url = file?.let { Uri.fromFile(it).toString() } ?: jrwiApi.fileUrlWithToken(audio?.url)
+        if (audio == null || url == null) {
+            _state.update { it.copy(loading = false, error = "") }
+            return
+        }
+        val startMs =
+            startAt
+                ?: run {
+                    val progress =
+                        if (fromStart) null else jrwiProgress.progress(item, audio = true)
+                    ((progress?.takeIf { !it.finished }?.position ?: 0.0) * 1000).toLong()
+                }
+        val showName = jrwiProgress.showNameOrNull(item.show) ?: download?.showName
+        val localPicture =
+            download?.let { jrwiDownloads.thumbnailFile(it.itemId) }?.takeIf { it.exists() }
+        val picture = localPicture?.let { Uri.fromFile(it).toString() } ?: item.thumbnail
+        val artwork =
+            localPicture?.let { Uri.fromFile(it) }
+                ?: jrwiApi.fileUrlWithToken(item.thumbnail)?.toUri()
+        val mediaItem =
+            MediaItem.Builder()
+                .setMediaId("jrwi-audio-${audio.postId}")
+                .setUri(url)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(item.title)
+                        .setArtist(showName)
+                        .setAlbumTitle(JRWI_ALBUM)
+                        .setArtworkUri(artwork)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
+                        .build()
+                )
+                .build()
+        _state.update {
+            it.copy(
+                episode = AudioEpisode.Jrwi(item),
+                subtitle = showName,
+                picture = picture,
+                loading = false,
+                fromPhone = file != null,
+                error = null,
+                ended = false,
+            )
+        }
+        start(mediaItem, startMs)
+    }
+
+    /**
+     * Goes on from a JRWI episode's video, the archiver's item [itemId], at [videoPositionMs]: in
+     * the episode's audio at the same moment. An episode without audio plays the video's own sound,
+     * from its Jellyfin episode [episodeId].
+     */
+    fun playJrwiFromVideo(itemId: Long, episodeId: UUID, videoPositionMs: Long) {
+        loadJob?.cancel()
         loadJob = scope.launch {
-            // What was playing keeps its place, and stops while this loads
-            if (_state.value.episode != null) save(Save.LEAVE)
-            forgetTa()
-            _state.update { AudioState(loading = true, speed = it.speed, sleep = it.sleep) }
-            exo?.pause()
-            val download = jrwiDownloads.forAudio(postId)
             val item =
                 try {
-                    jrwiApi.getItem(postId)
+                    jrwiApi.getItem(itemId)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    // Without a connection, what was kept with the download
-                    download?.let { jrwiDownloads.savedItem(it.itemId) }
-                        ?: run {
-                            Timber.w(e, "Could not load JRWI audio $postId")
-                            _state.update {
-                                it.copy(loading = false, error = e.localizedMessage ?: "")
-                            }
-                            return@launch
-                        }
+                    // Without a connection, what was kept with a download of either version
+                    Timber.w(e, "Could not load JRWI item $itemId, trying the phone's copy")
+                    jrwiDownloads.savedItem(itemId)
+                        ?: jrwiDownloads.savedVideoForEpisode(episodeId.toString())?.item
                 }
-            val audio = item.audio
-            val file = download?.let { jrwiDownloads.audioFile(it.itemId) }?.takeIf { it.exists() }
-            val url =
-                file?.let { Uri.fromFile(it).toString() } ?: jrwiApi.fileUrlWithToken(audio?.url)
-            if (audio == null || url == null) {
-                _state.update { it.copy(loading = false, error = "") }
+            val audio = item?.audio
+            if (item == null || audio == null) {
+                loadVideo(
+                    itemId = episodeId,
+                    kind = BaseItemKind.EPISODE,
+                    knownVideoId = null,
+                    positionMs = videoPositionMs,
+                    playlistId = null,
+                    fromStart = false,
+                )
                 return@launch
             }
-            val progress = if (fromStart) null else jrwiProgress.progress(item, audio = true)
-            val startMs = ((progress?.takeIf { !it.finished }?.position ?: 0.0) * 1000).toLong()
-            val showName = jrwiProgress.showNameOrNull(item.show) ?: download?.showName
-            val localPicture =
-                download?.let { jrwiDownloads.thumbnailFile(it.itemId) }?.takeIf { it.exists() }
-            val picture = localPicture?.let { Uri.fromFile(it).toString() } ?: item.thumbnail
-            val artwork =
-                localPicture?.let { Uri.fromFile(it) }
-                    ?: jrwiApi.fileUrlWithToken(item.thumbnail)?.toUri()
-            val mediaItem =
-                MediaItem.Builder()
-                    .setMediaId("jrwi-audio-${audio.postId}")
-                    .setUri(url)
-                    .setMediaMetadata(
-                        MediaMetadata.Builder()
-                            .setTitle(item.title)
-                            .setArtist(showName)
-                            .setAlbumTitle(JRWI_ALBUM)
-                            .setArtworkUri(artwork)
-                            .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
-                            .build()
-                    )
-                    .build()
-            _state.update {
-                it.copy(
-                    episode = AudioEpisode.Jrwi(item),
-                    subtitle = showName,
-                    picture = picture,
-                    loading = false,
-                    fromPhone = file != null,
-                    error = null,
-                    ended = false,
-                )
+            val audioMs = (item.audioSeconds(videoPositionMs / 1000.0) * 1000).toLong()
+            val player = exo
+            if (player != null && _state.value.jrwiItem?.audio?.postId == audio.postId) {
+                player.seekTo(audioMs)
+                player.play()
+            } else {
+                loadJrwi(audio.postId, fromStart = false, startAt = audioMs)
             }
-            start(mediaItem, startMs)
         }
     }
 
     /**
-     * Plays the sound of the TubeArchivist video whose Jellyfin episode is [episodeId]: from
-     * [positionMs], or else where Jellyfin has it unless [fromStart]. Played from the playlist
-     * [playlistId], the playlist's next videos follow it. [videoId] is looked up when it's null.
+     * Plays the sound of the Jellyfin video [itemId], a movie or an episode ([kind]): from
+     * [positionMs], or else where Jellyfin has it unless [fromStart]. A TubeArchivist video played
+     * from the playlist [playlistId] has the playlist's next videos follow it. [videoId], its
+     * TubeArchivist ID, is looked up when it's null.
      */
-    fun playTa(
-        episodeId: UUID,
+    fun playVideoSound(
+        itemId: UUID,
+        kind: BaseItemKind,
         videoId: String?,
         positionMs: Long?,
         playlistId: String?,
         fromStart: Boolean = false,
     ) {
         val player = exo
-        val current = _state.value.taVideo
-        if (player != null && current != null && current.episodeId == episodeId) {
+        val current = _state.value.video
+        if (player != null && current != null && current.itemId == itemId) {
             when {
                 fromStart -> player.seekTo(0)
                 positionMs != null -> player.seekTo(positionMs)
@@ -382,37 +482,48 @@ constructor(
         }
         loadJob?.cancel()
         loadJob = scope.launch {
-            if (_state.value.episode != null) save(Save.LEAVE)
-            forgetTa()
-            _state.update {
-                AudioState(loading = true, tubeArchivist = true, speed = it.speed, sleep = it.sleep)
-            }
-            exo?.pause()
-            // Only the sound, converted by Jellyfin; a download plays from the phone
-            val manager = playlistManagers.get().apply { quality = StreamQuality.AUDIO_ONLY }
-            if (playlistId != null) loadPlaylist(manager, playlistId)
-            val item =
-                try {
-                    manager.getInitialItem(
-                        itemId = episodeId,
-                        itemKind = BaseItemKind.EPISODE,
-                        startFromBeginning = fromStart,
-                    )
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.w(e, "Could not load the TubeArchivist video $episodeId")
-                    _state.update { it.copy(loading = false, error = e.localizedMessage ?: "") }
-                    return@launch
-                }
-            if (item == null) {
-                _state.update { it.copy(loading = false, error = "") }
-                return@launch
-            }
-            taPlaylist = manager
-            val startMs = if (fromStart) 0L else positionMs ?: item.playbackPosition
-            startTa(item, videoId ?: manager.currentTaVideoId, startMs, playlistId)
+            loadVideo(itemId, kind, videoId, positionMs, playlistId, fromStart)
         }
+    }
+
+    private suspend fun loadVideo(
+        itemId: UUID,
+        kind: BaseItemKind,
+        knownVideoId: String?,
+        positionMs: Long?,
+        playlistId: String?,
+        fromStart: Boolean,
+    ) {
+        if (_state.value.episode != null) save(Save.LEAVE)
+        forgetVideo()
+        _state.update {
+            AudioState(loading = true, appLook = true, speed = it.speed, sleep = it.sleep)
+        }
+        exo?.pause()
+        // Only the sound, converted by Jellyfin; a download plays from the phone
+        val manager = playlistManagers.get().apply { quality = StreamQuality.AUDIO_ONLY }
+        if (playlistId != null) loadPlaylist(manager, playlistId)
+        val item =
+            try {
+                manager.getInitialItem(
+                    itemId = itemId,
+                    itemKind = kind,
+                    startFromBeginning = fromStart,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Could not load the video $itemId")
+                _state.update { it.copy(loading = false, error = e.localizedMessage ?: "") }
+                return
+            }
+        if (item == null) {
+            _state.update { it.copy(loading = false, error = "") }
+            return
+        }
+        playlist = manager
+        val startMs = if (fromStart) 0L else positionMs ?: item.playbackPosition
+        startVideo(item, kind, knownVideoId ?: manager.currentTaVideoId, startMs, playlistId)
     }
 
     /** The playlist's other videos, as the video player has them: the downloaded ones in order. */
@@ -434,34 +545,45 @@ constructor(
         taPlaylistName = playlist.name
     }
 
-    /** Starts one of the TubeArchivist videos, the first or one after it in the playlist. */
-    private suspend fun startTa(
+    /** Starts one of the videos: the first, or one after it in the playlist or show. */
+    private suspend fun startVideo(
         item: PlayerItem,
+        kind: BaseItemKind,
         knownVideoId: String?,
         startMs: Long,
         playlistId: String?,
     ) {
-        val episode =
+        val details =
             try {
-                repositories.get().getEpisode(item.itemId)
+                val repository = repositories.get()
+                if (kind == BaseItemKind.MOVIE) repository.getMovie(item.itemId)
+                else repository.getEpisode(item.itemId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.w(e, "Could not load episode ${item.itemId}")
+                Timber.w(e, "Could not load ${item.itemId}")
                 null
             }
         val videoId = knownVideoId ?: findVideoId(item.itemId)
-        val picture = episode?.images?.primary?.toString()
-        val subtitle = item.subtitle ?: episode?.seriesName
+        val picture = details?.images?.let { it.primary ?: it.backdrop }?.toString()
+        val subtitle = item.subtitle ?: (details as? FindroidEpisode)?.seriesName
         jellyfinStarted = false
         linkedJrwi = null
-        taSegments = emptyList()
+        segments = emptyList()
         skippedSegment = null
-        sponsorBlockAuto =
-            appPreferences.getValue(appPreferences.tubeArchivistSponsorBlock) == SPONSORBLOCK_AUTO
+        segmentRules =
+            SegmentRules(
+                sponsorBlock = appPreferences.getValue(appPreferences.tubeArchivistSponsorBlock),
+                button = appPreferences.getValue(appPreferences.playerMediaSegmentsSkipButton),
+                buttonTypes =
+                    appPreferences.getValue(appPreferences.playerMediaSegmentsSkipButtonType),
+                auto = appPreferences.getValue(appPreferences.playerMediaSegmentsAutoSkip),
+                autoTypes = appPreferences.getValue(appPreferences.playerMediaSegmentsAutoSkipType),
+                autoMode = appPreferences.getValue(appPreferences.playerMediaSegmentsAutoSkipMode),
+            )
         val mediaItem =
             MediaItem.Builder()
-                .setMediaId("ta-audio-${item.itemId}")
+                .setMediaId("video-audio-${item.itemId}")
                 .setUri(item.mediaSourceUri)
                 // Converted streams are HLS playlists
                 .setMimeType(if (item.isTranscoded) MimeTypes.APPLICATION_M3U8 else null)
@@ -476,16 +598,17 @@ constructor(
                 .build()
         _state.update {
             it.copy(
-                episode = AudioEpisode.Ta(item.itemId, videoId, item.name, playlistId),
+                episode = AudioEpisode.Video(item.itemId, kind, videoId, item.name, playlistId),
                 subtitle = subtitle,
                 picture = picture,
-                tubeArchivist = true,
+                appLook = true,
                 loading = false,
                 fromPhone = item.isLocal,
                 error = null,
                 ended = false,
                 segment = null,
-                hasNext = taPlaylist?.nextTaVideoId != null,
+                hasNext = playlist?.nextTaVideoId != null,
+                linkedJrwiId = null,
             )
         }
         start(mediaItem, startMs)
@@ -493,63 +616,95 @@ constructor(
         if (playlistId != null && videoId != null) {
             taPlaylistSessions.update(playlistId, taPlaylistName.orEmpty(), videoId)
         }
-        if (videoId != null) {
-            val episodeId = item.itemId
-            scope.launch { loadTaExtras(episodeId, videoId) }
-        }
+        val itemId = item.itemId
+        scope.launch { loadVideoExtras(itemId, videoId) }
     }
 
     /** The video's TubeArchivist ID: kept with its download, or looked up in Jellyfin. */
-    private suspend fun findVideoId(episodeId: UUID): String? =
-        taOfflineStore.videoIdForItem(episodeId)
+    private suspend fun findVideoId(itemId: UUID): String? =
+        taOfflineStore.videoIdForItem(itemId)
             ?: try {
-                taJellyfinLookup.videoIdForItem(episodeId)
+                taJellyfinLookup.videoIdForItem(itemId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.w(e, "Could not find the TubeArchivist video of $episodeId")
+                Timber.w(e, "Could not find the TubeArchivist video of $itemId")
                 null
             }
 
-    /** The archiver's item of a YouTube-only video, and the video's SponsorBlock segments. */
-    private suspend fun loadTaExtras(episodeId: UUID, videoId: String) {
-        val isCurrent = { _state.value.taVideo?.episodeId == episodeId }
+    /**
+     * The archiver's item when the video is a JRWI episode's, as the video player looks it up, and
+     * the segments to skip: Jellyfin's media segments, and a TubeArchivist video's SponsorBlock
+     * ones, as far as the video player's settings ask for them.
+     */
+    private suspend fun loadVideoExtras(itemId: UUID, videoId: String?) {
+        val isCurrent = { _state.value.video?.itemId == itemId }
+        val rules = segmentRules
         try {
-            val item = jrwiProgress.itemForYoutube(videoId)
-            if (isCurrent()) linkedJrwi = item
+            val item =
+                jrwiProgress.itemForEpisode(itemId)
+                    ?: jrwiDownloads.savedVideoForEpisode(itemId.toString())?.item?.takeIf {
+                        jrwiApi.isConfigured
+                    }
+                    ?: videoId?.let { jrwiProgress.itemForYoutube(it) }
+            if (isCurrent()) {
+                linkedJrwi = item
+                _state.update { it.copy(linkedJrwiId = item?.id) }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Timber.w(e, "Could not look $videoId up in the JRWI archive")
+            Timber.w(e, "Could not look $itemId up in the JRWI archive")
         }
-        if (appPreferences.getValue(appPreferences.tubeArchivistSponsorBlock) == SPONSORBLOCK_OFF) {
-            return
-        }
-        val video =
-            taOfflineStore.savedVideo(videoId)
-                ?: try {
-                    taApi.getVideo(videoId)
+        val media =
+            if (!rules.usesMediaSegments) {
+                emptyList()
+            } else {
+                try {
+                    repositories.get().getSegments(itemId).map {
+                        AudioSegment(it.startTicks, it.endTicks, type = it.type.toString())
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Timber.w(e, "Could not load the segments of $videoId")
-                    null
+                    Timber.w(e, "Could not load the media segments of $itemId")
+                    emptyList()
                 }
-        val segments = video?.segments().orEmpty()
-        if (isCurrent()) taSegments = segments
+            }
+        val sponsor =
+            if (videoId == null || rules.sponsorBlock == SPONSORBLOCK_OFF) {
+                emptyList()
+            } else {
+                val video =
+                    taOfflineStore.savedVideo(videoId)
+                        ?: try {
+                            taApi.getVideo(videoId)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Timber.w(e, "Could not load the segments of $videoId")
+                            null
+                        }
+                video?.sponsorSegments().orEmpty()
+            }
+        if (isCurrent()) segments = media + sponsor
     }
 
     /** Skippable SponsorBlock segments, as the video player has them. */
-    private fun TaVideo.segments(): List<AudioSegment> =
+    private fun TaVideo.sponsorSegments(): List<AudioSegment> =
         sponsorblock?.segments.orEmpty().mapNotNull { segment ->
             val start = segment.segment.getOrNull(0) ?: return@mapNotNull null
             val end = segment.segment.getOrNull(1) ?: return@mapNotNull null
             // Segments that only mark a point (such as highlights) can't be skipped
             if (end - start < 1.0 || segment.actionType == "poi") return@mapNotNull null
-            AudioSegment((start * 1000).toLong(), (end * 1000).toLong(), segment.category)
+            AudioSegment(
+                (start * 1000).toLong(),
+                (end * 1000).toLong(),
+                category = segment.category,
+            )
         }
 
-    /** Skips the SponsorBlock segment that's playing. */
+    /** Skips the segment that's playing. */
     fun skipSegment() {
         val segment = _state.value.segment ?: return
         exo?.seekTo(segment.endMs)
@@ -558,17 +713,18 @@ constructor(
 
     /** Goes on to the playlist's next video now. */
     fun skipToNext() {
-        if (_state.value.taVideo == null) return
+        if (_state.value.video == null) return
         save(Save.LEAVE)
-        playNextTa(fromEnd = false)
+        playNext(fromEnd = false)
     }
 
     /**
-     * The playlist's next video, or the channel's, as the video player plays them: on its own when
-     * one ends, unless that's turned off or the sleep timer stops there.
+     * The playlist's next video, or the show's, as the video player plays them: on its own when one
+     * ends, unless that's turned off or the sleep timer stops there.
      */
-    private fun playNextTa(fromEnd: Boolean) {
-        val manager = taPlaylist ?: return
+    private fun playNext(fromEnd: Boolean) {
+        val manager = playlist ?: return
+        val current = _state.value.video ?: return
         if (fromEnd) {
             if (_state.value.sleep?.atEnd == true) {
                 cancelSleep()
@@ -576,7 +732,6 @@ constructor(
             }
             if (!appPreferences.getValue(appPreferences.playerAutoplay)) return
         }
-        val playlistId = _state.value.taVideo?.playlistId
         loadJob?.cancel()
         loadJob = scope.launch {
             val next =
@@ -589,15 +744,21 @@ constructor(
                     null
                 } ?: return@launch
             manager.setCurrentMediaItemIndex(next.itemId)
-            startTa(next, manager.currentTaVideoId, next.playbackPosition, playlistId)
+            startVideo(
+                next,
+                current.kind,
+                manager.currentTaVideoId,
+                next.playbackPosition,
+                current.playlistId,
+            )
         }
     }
 
-    private fun forgetTa() {
-        taPlaylist = null
+    private fun forgetVideo() {
+        playlist = null
         taPlaylistName = null
         linkedJrwi = null
-        taSegments = emptyList()
+        segments = emptyList()
         skippedSegment = null
         jellyfinStarted = false
     }
@@ -630,10 +791,15 @@ constructor(
         publish()
     }
 
-    /** Back or forward by [seconds]. */
-    fun skip(seconds: Int) {
+    /** Back as far as the video player goes back. */
+    fun skipBack() = skipBy(-backMs)
+
+    /** Forward as far as the video player goes forward. */
+    fun skipForward() = skipBy(forwardMs)
+
+    private fun skipBy(ms: Long) {
         val player = exo ?: return
-        seekTo(player.currentPosition + seconds * 1000L)
+        seekTo(player.currentPosition + ms)
     }
 
     /** The speed, kept for the next episode too. */
@@ -720,7 +886,7 @@ constructor(
         exo?.removeListener(listener)
         exo?.release()
         exo = null
-        forgetTa()
+        forgetVideo()
         context.stopService(Intent(context, AudioService::class.java))
         _state.update { AudioState(speed = it.speed) }
     }
@@ -747,8 +913,9 @@ constructor(
                 .setHandleAudioBecomingNoisy(true)
                 // Keeps the phone and Wi-Fi awake while it streams with the screen off
                 .setWakeMode(C.WAKE_MODE_NETWORK)
-                .setSeekBackIncrementMs(BACK_SECONDS * 1000L)
-                .setSeekForwardIncrementMs(FORWARD_SECONDS * 1000L)
+                // For the notification and Bluetooth, as far as the buttons
+                .setSeekBackIncrementMs(backMs)
+                .setSeekForwardIncrementMs(forwardMs)
                 .build()
         // Only the sound of a video file on the phone, without decoding its picture
         player.trackSelectionParameters =
@@ -786,14 +953,14 @@ constructor(
         }
     }
 
-    /** Jellyfin hears that a TubeArchivist video started, once it plays. */
+    /** Jellyfin hears that a video started, once it plays. */
     private fun tellJellyfinStarted() {
-        val episodeId = _state.value.taVideo?.episodeId ?: return
+        val itemId = _state.value.video?.itemId ?: return
         if (jellyfinStarted) return
         jellyfinStarted = true
         scope.launch {
             try {
-                repositories.get().postPlaybackStart(episodeId)
+                repositories.get().postPlaybackStart(itemId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -804,7 +971,7 @@ constructor(
 
     /**
      * Reads the player's position often while it plays, saves it every 15 seconds, and skips or
-     * offers to skip SponsorBlock segments.
+     * offers to skip segments.
      */
     private fun startTicking() {
         if (tickJob?.isActive == true) return
@@ -821,24 +988,38 @@ constructor(
         }
     }
 
+    /**
+     * Skips the segment playing now, or shows the button for it, as the video player's settings
+     * say. The button stays while the segment plays, as it does in the video player while its
+     * controls are showing, which they always are here.
+     */
     private fun checkSegment(positionMs: Long) {
-        val segment = taSegments.firstOrNull {
-            positionMs >= it.startMs && positionMs < it.endMs - 500
+        // A little before the end, as the video player has it, so the button doesn't stay after
+        val segment = segments.firstOrNull {
+            positionMs >= it.startMs && positionMs < it.endMs - 100
         }
-        if (segment == null) {
-            skippedSegment = null
-            if (_state.value.segment != null) _state.update { it.copy(segment = null) }
-            return
-        }
-        if (sponsorBlockAuto) {
-            // Once, as the seek takes a moment
-            if (skippedSegment != segment) {
-                skippedSegment = segment
-                exo?.seekTo(segment.endMs)
+        val rules = segmentRules
+        when {
+            segment == null -> {
+                skippedSegment = null
+                hideSegment()
             }
-        } else if (_state.value.segment != segment) {
-            _state.update { it.copy(segment = segment) }
+            rules.skipsOnItsOwn(segment) -> {
+                // Once, as the seek takes a moment
+                if (skippedSegment != segment) {
+                    skippedSegment = segment
+                    exo?.seekTo(segment.endMs)
+                }
+            }
+            rules.showsButton(segment) -> {
+                if (_state.value.segment != segment) _state.update { it.copy(segment = segment) }
+            }
+            else -> hideSegment()
         }
+    }
+
+    private fun hideSegment() {
+        if (_state.value.segment != null) _state.update { it.copy(segment = null) }
     }
 
     private fun publish() {
@@ -866,8 +1047,8 @@ constructor(
 
     /**
      * Saves where it is, as the other players do. A JRWI episode's goes to the archiver every time,
-     * and when it's paused or left also to its video. A TubeArchivist video's goes to Jellyfin and
-     * TubeArchivist, and to the archive for one of its YouTube-only videos. Most of the way through
+     * and when it's paused or left also to its video. A video's goes to Jellyfin, to TubeArchivist
+     * for one of its videos, and to the archive for a JRWI episode's video. Most of the way through
      * counts as watched.
      */
     private fun save(kind: Save): Job? {
@@ -884,8 +1065,8 @@ constructor(
                 when (episode) {
                     is AudioEpisode.Jrwi ->
                         saveJrwi(episode.item, position, duration, finished, kind != Save.TICK)
-                    is AudioEpisode.Ta ->
-                        saveTa(episode, linked, position, duration, finished, kind)
+                    is AudioEpisode.Video ->
+                        saveVideo(episode, linked, position, duration, finished, kind)
                 }
             }
         }
@@ -913,8 +1094,8 @@ constructor(
         }
     }
 
-    private suspend fun saveTa(
-        episode: AudioEpisode.Ta,
+    private suspend fun saveVideo(
+        episode: AudioEpisode.Video,
         linked: JrwiItem?,
         positionMs: Long,
         durationMs: Long?,
@@ -928,11 +1109,11 @@ constructor(
             when (kind) {
                 Save.TICK,
                 Save.PAUSE ->
-                    repository.postPlaybackProgress(episode.episodeId, ticks, kind == Save.PAUSE)
+                    repository.postPlaybackProgress(episode.itemId, ticks, kind == Save.PAUSE)
                 Save.LEAVE,
                 Save.END -> {
                     val percent = durationMs?.let { (positionMs * 100 / it).toInt() } ?: 0
-                    repository.postPlaybackStop(episode.episodeId, ticks, percent)
+                    repository.postPlaybackStop(episode.itemId, ticks, percent)
                 }
             }
         } catch (e: CancellationException) {
@@ -952,7 +1133,8 @@ constructor(
                 Timber.w(e, "Could not save progress in TubeArchivist")
                 taOfflineStore.addPendingProgress(videoId, seconds)
             }
-            // Pages showing the video update when it's left or paused, not every few seconds
+            // Pages showing the video update when it's left or paused, not every few seconds; for
+            // Jellyfin, saving it tells them
             if (kind != Save.TICK) MediaChanges.watched(videoId = videoId)
         }
         if (linked != null) {
@@ -971,10 +1153,6 @@ constructor(
     companion object {
         /** Set on the app's activity by the notification, to open the player. */
         const val EXTRA_OPEN_AUDIO_PLAYER = "openAudioPlayer"
-
-        /** How far back and forward the buttons go, as podcast apps do. */
-        const val BACK_SECONDS = 15
-        const val FORWARD_SECONDS = 30
 
         const val MIN_SPEED = 0.5f
         const val MAX_SPEED = 3f

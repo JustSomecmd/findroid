@@ -197,6 +197,7 @@ private fun PlayerButton.nameRes(): Int =
         PlayerButton.SUBTITLES -> SettingsR.string.player_button_subtitles
         PlayerButton.ROTATE -> SettingsR.string.player_button_rotate
         PlayerButton.PLAYLIST -> SettingsR.string.player_button_playlist
+        PlayerButton.LISTEN -> SettingsR.string.player_button_listen
     }
 
 @DrawableRes
@@ -213,6 +214,7 @@ private fun PlayerButton.iconRes(): Int =
         PlayerButton.SUBTITLES -> CoreR.drawable.ic_closed_caption
         PlayerButton.ROTATE -> CoreR.drawable.ic_rotate_to_portrait
         PlayerButton.PLAYLIST -> CoreR.drawable.ic_list_video
+        PlayerButton.LISTEN -> CoreR.drawable.ic_headphones
     }
 
 /**

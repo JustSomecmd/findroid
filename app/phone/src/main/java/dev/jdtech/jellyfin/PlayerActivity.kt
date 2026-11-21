@@ -93,6 +93,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.jellyfin.sdk.model.api.BaseItemKind
 import timber.log.Timber
 
 var isControlsLocked: Boolean = false
@@ -216,6 +217,7 @@ class PlayerActivity : BasePlayerActivity() {
         val playlistButton = binding.playerView.findViewById<ImageButton>(R.id.btn_playlist)
         val autoplayButton = binding.playerView.findViewById<ImageButton>(R.id.btn_autoplay)
         val sleepTimerButton = binding.playerView.findViewById<ImageButton>(R.id.btn_sleep_timer)
+        val listenButton = binding.playerView.findViewById<ImageButton>(R.id.btn_listen)
         val menuButton = binding.playerView.findViewById<ImageButton>(R.id.btn_menu)
         val upNextCard = binding.playerView.findViewById<View>(R.id.up_next_card)
         val upNextLabel = binding.playerView.findViewById<TextView>(R.id.up_next_label)
@@ -240,6 +242,7 @@ class PlayerActivity : BasePlayerActivity() {
             SleepTimerDialogFragment(viewModel).show(supportFragmentManager, "sleeptimerdialog")
         }
         menuButton.setOnClickListener { showPlayerMenu() }
+        listenButton.setOnClickListener { listenInAudioPlayer() }
         playlistButton.setOnClickListener { openPlaylist() }
         binding.playerView.findViewById<View>(R.id.up_next_play).setOnClickListener {
             viewModel.playNextNow()
@@ -259,6 +262,7 @@ class PlayerActivity : BasePlayerActivity() {
         applyButtonLayout(
             mapOf(
                 PlayerButton.AUTOPLAY to autoplayButton,
+                PlayerButton.LISTEN to listenButton,
                 PlayerButton.LOCK to lockButton,
                 PlayerButton.PIP to pipButton,
                 PlayerButton.CHAPTERS to chaptersButton,
@@ -624,32 +628,44 @@ class PlayerActivity : BasePlayerActivity() {
     }
 
     /**
-     * Picking only the sound of a TubeArchivist video plays it on in the app's audio player, from
-     * the same moment and with the rest of its playlist, and closes this one. False for other
-     * videos, which play their sound here.
+     * Goes on with only the sound in the app's audio player, from the same moment, and closes this
+     * one. A JRWI episode plays its audio, a TubeArchivist video the rest of its playlist after it,
+     * and any other video its sound.
      */
-    fun listenInAudioPlayer(): Boolean {
-        val page = viewModel.currentItemPage() as? PlayerViewModel.ItemPage.TubeArchivist
-        val episodeId =
+    private fun listenInAudioPlayer() {
+        val page = viewModel.currentItemPage() ?: return
+        val itemId =
             viewModel.player.currentMediaItem?.mediaId?.let {
                 try {
                     UUID.fromString(it)
                 } catch (_: IllegalArgumentException) {
                     null
                 }
-            }
-        if (page == null || episodeId == null) return false
+            } ?: return
         val position = viewModel.player.currentPosition
         viewModel.player.pause()
-        audioPlayer.playTa(
-            episodeId = episodeId,
-            videoId = page.videoId,
-            positionMs = position,
-            playlistId = page.playlistId,
-        )
+        when (page) {
+            is PlayerViewModel.ItemPage.Jrwi ->
+                audioPlayer.playJrwiFromVideo(page.postId, itemId, position)
+            is PlayerViewModel.ItemPage.TubeArchivist ->
+                audioPlayer.playVideoSound(
+                    itemId = itemId,
+                    kind = BaseItemKind.EPISODE,
+                    videoId = page.videoId,
+                    positionMs = position,
+                    playlistId = page.playlistId,
+                )
+            is PlayerViewModel.ItemPage.Jellyfin ->
+                audioPlayer.playVideoSound(
+                    itemId = page.itemId,
+                    kind = if (page.isEpisode) BaseItemKind.EPISODE else BaseItemKind.MOVIE,
+                    videoId = null,
+                    positionMs = position,
+                    playlistId = null,
+                )
+        }
         audioPlayer.requestOpen()
         finish()
-        return true
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -939,6 +955,13 @@ class PlayerActivity : BasePlayerActivity() {
                         else CoreR.drawable.ic_autoplay_off,
                     title = getString(PlayerR.string.player_autoplay),
                     value = if (state.autoplay) getString(PlayerR.string.player_on) else off,
+                ) {
+                    view.performClick()
+                }
+            PlayerButton.LISTEN ->
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_headphones,
+                    title = getString(PlayerR.string.player_audio_only),
                 ) {
                     view.performClick()
                 }

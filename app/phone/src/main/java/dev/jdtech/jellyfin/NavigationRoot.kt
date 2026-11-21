@@ -150,6 +150,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import org.jellyfin.sdk.model.api.BaseItemKind
 
 private val TOP_LEVEL_ROUTES =
     setOf(
@@ -1291,6 +1292,7 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
     }
     entry<AudioPlayerRoute> {
         val context = LocalContext.current
+        val audioViewModel: AudioViewModel = hiltViewModel()
         AudioPlayerScreen(
             onWatchVideo = { episode, positionMs ->
                 navigator.goBack()
@@ -1299,14 +1301,15 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
                     is AudioEpisode.Jrwi ->
                         navigator.navigate(JrwiItemRoute(episode.item.id, playVideo = true))
                     // The video player, from the same moment
-                    is AudioEpisode.Ta ->
+                    is AudioEpisode.Video ->
                         startTaPlayback(
                             context = context,
-                            episodeId = episode.episodeId,
+                            episodeId = episode.itemId,
                             startFromBeginning = false,
                             positionSeconds = positionMs?.div(1000.0),
                             playlistId = episode.playlistId,
                             showVideo = true,
+                            itemKind = episode.kind,
                         )
                 }
             },
@@ -1315,14 +1318,25 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
                     when (episode) {
                         is AudioEpisode.Jrwi ->
                             episode.item.audio?.let { navigator.navigate(JrwiItemRoute(it.postId)) }
-                        is AudioEpisode.Ta ->
+                        // As the video player opens it: the TubeArchivist video, the JRWI episode,
+                        // or the Jellyfin episode or movie
+                        is AudioEpisode.Video -> {
+                            val jrwiId = audioViewModel.player.state.value.linkedJrwiId
                             navigator.navigate(
-                                episode.videoId?.let { TaVideoRoute(it, episode.playlistId) }
-                                    ?: EpisodeRoute(episodeId = episode.episodeId.toString())
+                                when {
+                                    episode.videoId != null ->
+                                        TaVideoRoute(episode.videoId, episode.playlistId)
+                                    jrwiId != null -> JrwiItemRoute(jrwiId)
+                                    episode.kind == BaseItemKind.MOVIE ->
+                                        MovieRoute(movieId = episode.itemId.toString())
+                                    else -> EpisodeRoute(episodeId = episode.itemId.toString())
+                                }
                             )
+                        }
                     }
                 },
             navigateBack = dropUnlessResumed { navigator.goBack() },
+            viewModel = audioViewModel,
         )
     }
     entry<JrwiSettingsRoute> {
