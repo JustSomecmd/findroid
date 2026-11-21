@@ -195,9 +195,7 @@ constructor(
         loadJob = scope.launch {
             // What was playing keeps its place
             if (current != null) save(handOff = true)
-            _state.update {
-                JrwiAudioState(loading = true, speed = it.speed, sleep = it.sleep)
-            }
+            _state.update { JrwiAudioState(loading = true, speed = it.speed, sleep = it.sleep) }
             val download = jrwiDownloads.forAudio(postId)
             val item =
                 try {
