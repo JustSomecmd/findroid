@@ -668,7 +668,7 @@ fun JrwiItemScreen(
                 item(key = "header") {
                     JrwiItemHeader(
                         item = item,
-                        position = state.position,
+                        position = if (playsAudio) state.audioPosition else state.videoPosition,
                         finished = state.finished,
                         playsAudio = playsAudio,
                         lookingUp = state.lookingUp,
@@ -782,7 +782,10 @@ fun JrwiItemScreen(
     }
 }
 
-/** The picture, title and details, and the switch between the video and the audio. */
+/**
+ * The picture, title and details, and the switch between the video and the audio. [position] is in
+ * the timeline of the version that's picked.
+ */
 @Composable
 private fun JrwiItemHeader(
     item: JrwiItem,
@@ -799,7 +802,8 @@ private fun JrwiItemHeader(
     ) {
         Box {
             JrwiThumbnail(item = item, modifier = Modifier.fillMaxWidth())
-            val length = item.audio?.duration ?: item.duration
+            val length =
+                (if (playsAudio) item.audio?.duration else item.video?.duration) ?: item.duration
             if (!finished && position > 0 && length != null && length > 0) {
                 LinearProgressIndicator(
                     progress = { (position / length).toFloat().coerceIn(0f, 1f) },
@@ -892,10 +896,8 @@ private fun JrwiItemHeader(
                     color = MaterialTheme.colorScheme.primary,
                 )
             resuming -> {
-                // In the version that's picked, which can start a little apart from the other
-                val at = if (playsAudio) position else item.videoSeconds(position)
                 Text(
-                    text = stringResource(CoreR.string.jrwi_resume_at, formatDuration(at)),
+                    text = stringResource(CoreR.string.jrwi_resume_at, formatDuration(position)),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

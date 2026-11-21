@@ -20,7 +20,9 @@ import dev.jdtech.jellyfin.tubearchivist.TaPaginate
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,7 +80,10 @@ data class JrwiShowsState(
 
 /** The JRWI tab: the shows, like the channels on the Channels tab, and what's new. */
 @HiltViewModel
-class JrwiShowsViewModel @Inject constructor(private val jrwiApi: JrwiApi) : ViewModel() {
+class JrwiShowsViewModel
+@Inject
+constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgressSync) :
+    ViewModel() {
     private val _state = MutableStateFlow(JrwiShowsState(configured = jrwiApi.isConfigured))
     val state = _state.asStateFlow()
 
@@ -103,6 +108,7 @@ class JrwiShowsViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vie
                     } catch (_: Exception) {
                         emptyList()
                     }
+                jrwiProgress.remember(latest)
                 _state.update {
                     it.copy(shows = shows, latest = latest, loading = false, error = null)
                 }
@@ -121,7 +127,10 @@ class JrwiShowsViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vie
 
 /** A show's page: its tabs, and a list for each that loads as it's scrolled. */
 @HiltViewModel
-class JrwiShowViewModel @Inject constructor(private val jrwiApi: JrwiApi) : ViewModel() {
+class JrwiShowViewModel
+@Inject
+constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgressSync) :
+    ViewModel() {
     private val _show = MutableStateFlow<JrwiShow?>(null)
     val show = _show.asStateFlow()
 
@@ -156,7 +165,9 @@ class JrwiShowViewModel @Inject constructor(private val jrwiApi: JrwiApi) : View
         viewModelScope.launch {
             items(tab).loadNextPage(key = { it.id.toString() }) { page ->
                 // Episodes go by number, newest first, as on the site
-                jrwiApi.getShowItems(showId, tab, page = page).asTaPage()
+                val items = jrwiApi.getShowItems(showId, tab, page = page)
+                jrwiProgress.remember(items.items)
+                items.asTaPage()
             }
         }
     }
@@ -165,8 +176,12 @@ class JrwiShowViewModel @Inject constructor(private val jrwiApi: JrwiApi) : View
 data class JrwiItemState(
     val item: JrwiItem? = null,
     val error: String? = null,
-    /** How far the audio was listened to, which the video shares. */
-    val position: Double = 0.0,
+    /**
+     * Where the episode was left, in the video's timeline and in the audio's. The archiver keeps
+     * one record for both and gives it in either.
+     */
+    val videoPosition: Double = 0.0,
+    val audioPosition: Double = 0.0,
     val finished: Boolean = false,
     /** Jellyfin's copy of the video, once looked up. */
     val episodeId: java.util.UUID? = null,
@@ -176,7 +191,7 @@ data class JrwiItemState(
 
 /** What the item page asks the screen to do. */
 sealed interface JrwiItemEvent {
-    /** [positionSeconds] is where the audio was left, moved to the same moment in the video. */
+    /** [positionSeconds] is where the archive says the episode was left, in the video. */
     data class PlayVideo(
         val episodeId: java.util.UUID,
         val fromStart: Boolean,
@@ -221,6 +236,7 @@ constructor(
         viewModelScope.launch {
             try {
                 val item = _state.value.item ?: jrwiApi.getItem(postId)
+                jrwiProgress.remember(listOf(item))
                 _state.update { it.copy(item = item, error = null) }
                 refreshProgress(item)
                 if (comments.value.page == 0) loadMoreComments()
@@ -232,9 +248,20 @@ constructor(
         }
     }
 
-    private suspend fun refreshProgress(item: JrwiItem) {
-        val progress = jrwiProgress.progress(item) ?: return
-        _state.update { it.copy(position = progress.position, finished = progress.finished) }
+    /** Reads the episode's one record in both versions' timelines, so the switch needs no wait. */
+    private suspend fun refreshProgress(item: JrwiItem) = coroutineScope {
+        val video = async { jrwiProgress.progress(item, audio = false) }
+        val audio = async { jrwiProgress.progress(item, audio = true) }
+        val videoProgress = video.await()
+        val audioProgress = audio.await()
+        val finished = (videoProgress ?: audioProgress)?.finished ?: return@coroutineScope
+        _state.update {
+            it.copy(
+                videoPosition = videoProgress?.position ?: 0.0,
+                audioPosition = audioProgress?.position ?: 0.0,
+                finished = finished,
+            )
+        }
     }
 
     fun loadMoreComments() {
@@ -264,12 +291,10 @@ constructor(
             if (episodeId == null) {
                 _events.send(JrwiItemEvent.Message(JrwiMessages.NOT_IN_JELLYFIN))
             } else {
-                // The archiver has the newest position, as the video hands it on while playing
+                // The archive has the newest position, as both versions save to it while playing
                 val state = _state.value
                 val position =
-                    state.position
-                        .takeIf { !fromStart && !state.finished && it > 0 && item.audio != null }
-                        ?.let { item.videoSeconds(it) }
+                    state.videoPosition.takeIf { !fromStart && !state.finished && it > 0 }
                 _events.send(JrwiItemEvent.PlayVideo(episodeId, fromStart, position))
             }
         }
@@ -289,7 +314,9 @@ constructor(
         viewModelScope.launch {
             try {
                 jrwiProgress.setWatched(item, watched)
-                _state.update { it.copy(finished = watched, position = 0.0) }
+                _state.update {
+                    it.copy(finished = watched, videoPosition = 0.0, audioPosition = 0.0)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

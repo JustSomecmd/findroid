@@ -157,15 +157,20 @@ class JrwiApi(private val config: JrwiConfig) {
     suspend fun getComments(postId: Long, page: Int = 1): JrwiPage<JrwiComment> =
         decode(get("api/items/$postId/comments") { addQueryParameter("page", page.toString()) })
 
-    // Listening progress
+    // Watching and listening progress, one record per episode for its video and audio
 
-    /** How far the audio with this post ID was listened to. */
-    suspend fun getProgress(audioPostId: Long): JrwiProgress =
-        decode(get("api/progress/$audioPostId"))
+    /**
+     * How far the episode was played, in the timeline of the video or audio post with this ID.
+     * Needs archiver 0.4.0 or newer for video posts.
+     */
+    suspend fun getProgress(postId: Long): JrwiProgress = decode(get("api/progress/$postId"))
 
-    /** Saves how far the audio with this post ID was listened to, in seconds. */
+    /**
+     * Saves how far the episode was played, in seconds in the timeline of the video or audio post
+     * with this ID. The archiver moves it to the other version's timeline itself.
+     */
     suspend fun setProgress(
-        audioPostId: Long,
+        postId: Long,
         position: Double,
         duration: Double?,
         finished: Boolean,
@@ -173,7 +178,7 @@ class JrwiApi(private val config: JrwiConfig) {
         decode(
             send(
                 "PUT",
-                url("api/progress/$audioPostId") {},
+                url("api/progress/$postId") {},
                 buildJsonObject {
                         put("position", position)
                         duration?.let { put("duration", it) }

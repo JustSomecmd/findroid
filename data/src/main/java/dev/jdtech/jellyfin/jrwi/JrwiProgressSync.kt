@@ -9,9 +9,10 @@ import timber.log.Timber
 
 /**
  * Keeps the video and the audio of a JRWI episode on one position and one watched state, the way
- * the app keeps TubeArchivist and Jellyfin in step. The video's progress lives in Jellyfin (or in
- * TubeArchivist, for videos only on YouTube) and the audio's on the archiver; whatever is played
- * hands its progress to the other, moved by the offset between the two.
+ * the app keeps TubeArchivist and Jellyfin in step. The archiver keeps one record per episode and
+ * reads and saves it through either version's post, each in its own timeline. The video's progress
+ * also lives in Jellyfin (or in TubeArchivist, for videos only on YouTube), so playing the audio
+ * hands its position on to there, moved by the offset between the two.
  */
 class JrwiProgressSync(
     private val jrwiApi: JrwiApi,
@@ -21,15 +22,46 @@ class JrwiProgressSync(
 ) {
     private val showNames = ConcurrentHashMap<String, String>()
 
-    /** How far the audio was listened to, which the video shares; null without audio. */
-    suspend fun progress(item: JrwiItem): JrwiProgress? {
-        val audio = item.audio ?: return null
+    // The archiver's YouTube-only videos by YouTube ID, from the items the JRWI tab has loaded, so
+    // playing one through TubeArchivist saves to the archive too
+    private val youtubePosts = ConcurrentHashMap<String, Long>()
+
+    /**
+     * How far the episode was played, in the timeline of its video or, with [audio], its audio.
+     * Null without that version, or when the archiver can't be reached.
+     */
+    suspend fun progress(item: JrwiItem, audio: Boolean): JrwiProgress? {
+        val postId = (if (audio) item.audio?.postId else item.video?.postId) ?: return null
         return try {
-            jrwiApi.getProgress(audio.postId)
+            jrwiApi.getProgress(postId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Timber.w(e, "Could not get the progress of ${audio.postId}")
+            Timber.w(e, "Could not get the progress of $postId")
+            null
+        }
+    }
+
+    /** Notes the YouTube IDs of [items] whose video is only on YouTube. */
+    fun remember(items: List<JrwiItem>) {
+        items.forEach { item ->
+            item.video?.takeIf { it.isYoutube }?.youtubeId?.let { youtubePosts[it] = item.id }
+        }
+    }
+
+    /**
+     * The archiver's item of a TubeArchivist video, when it's one of its YouTube-only videos that
+     * the JRWI tab has loaded since the app started.
+     */
+    suspend fun itemForYoutube(youtubeId: String): JrwiItem? {
+        if (!jrwiApi.isConfigured) return null
+        val postId = youtubePosts[youtubeId] ?: return null
+        return try {
+            jrwiApi.getItem(postId).takeIf { it.video?.youtubeId == youtubeId }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Could not get the JRWI item of YouTube video $youtubeId")
             null
         }
     }
@@ -61,11 +93,24 @@ class JrwiProgressSync(
         }
     }
 
-    /** The video was played to [videoSeconds]: the audio is moved to the same moment. */
-    suspend fun videoPlayed(item: JrwiItem, videoSeconds: Double, finished: Boolean) {
-        val audio = item.audio ?: return
-        val position = if (finished) 0.0 else item.audioSeconds(videoSeconds)
-        jrwiApi.setProgress(audio.postId, position, audio.duration, finished)
+    /**
+     * The video was played to [videoSeconds]. Saved on the archiver under the video's own post,
+     * which also moves the audio, if there is one, to the same moment. [durationSeconds] is the
+     * player's length of the video, for when the archiver doesn't know it.
+     */
+    suspend fun videoPlayed(
+        item: JrwiItem,
+        videoSeconds: Double,
+        finished: Boolean,
+        durationSeconds: Double?,
+    ) {
+        val video = item.video ?: return
+        jrwiApi.setProgress(
+            video.postId,
+            if (finished) 0.0 else videoSeconds,
+            video.duration ?: durationSeconds,
+            finished,
+        )
     }
 
     /**
@@ -78,12 +123,13 @@ class JrwiProgressSync(
         audioSeconds: Double,
         finished: Boolean,
         handOff: Boolean,
+        durationSeconds: Double?,
     ) {
         val audio = item.audio ?: return
         jrwiApi.setProgress(
             audio.postId,
             if (finished) 0.0 else audioSeconds,
-            audio.duration,
+            audio.duration ?: durationSeconds,
             finished,
         )
         if (!handOff && !finished) return
@@ -108,8 +154,14 @@ class JrwiProgressSync(
 
     /** Marks both the video and the audio watched, or both not watched. */
     suspend fun setWatched(item: JrwiItem, watched: Boolean) {
-        item.audio?.let { jrwiApi.setProgress(it.postId, 0.0, it.duration, watched) }
-        val video = item.video ?: return
+        // The archiver's one record covers both versions, so either post will do
+        val video = item.video
+        val audio = item.audio
+        when {
+            video != null -> jrwiApi.setProgress(video.postId, 0.0, video.duration, watched)
+            audio != null -> jrwiApi.setProgress(audio.postId, 0.0, audio.duration, watched)
+        }
+        if (video == null) return
         if (video.isYoutube) {
             val youtubeId = video.youtubeId ?: return
             if (taApi.isConfigured) taApi.setWatched(youtubeId, watched)

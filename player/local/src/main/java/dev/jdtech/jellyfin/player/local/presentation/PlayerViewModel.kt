@@ -321,6 +321,9 @@ constructor(
         jrwiAudioMediaId = null
         // The audio of a JRWI episode, from the archiver rather than Jellyfin
         if (jrwiAudioPostId != null) {
+            // Nothing of a TubeArchivist video that played before it in this player
+            taVideoId = null
+            taSegments = emptyList()
             startJrwiAudio(jrwiAudioPostId, startFromBeginning)
             return
         }
@@ -431,7 +434,8 @@ constructor(
                 eventsChannel.trySend(PlayerEvents.NavigateBack)
                 return@launch
             }
-            val progress = if (startFromBeginning) null else jrwiProgress.progress(item)
+            val progress =
+                if (startFromBeginning) null else jrwiProgress.progress(item, audio = true)
             val seconds = progress?.takeIf { !it.finished }?.position ?: 0.0
             val mediaId = jrwiAudioMediaId(audio.postId)
             jrwiItem = item
@@ -471,9 +475,9 @@ constructor(
      * episode or movie.
      */
     fun currentItemPage(): ItemPage? {
-        jrwiItem?.let {
-            return ItemPage.Jrwi(it.id)
-        }
+        // A JRWI video that's only on YouTube plays as a TubeArchivist video, so that page it is
+        val jrwi = jrwiItem
+        if (jrwi != null && taVideoId == null) return ItemPage.Jrwi(jrwi.id)
         taVideoId?.let {
             return ItemPage.TubeArchivist(it, _uiState.value.taPlaylistId)
         }
@@ -497,8 +501,19 @@ constructor(
     }
 
     /**
-     * Hands the position to the other version of a JRWI episode: from the video to the audio on the
-     * archiver, or from the audio to the archiver and, when [force]d, to the video.
+     * Looks up whether a TubeArchivist video is one of the archiver's YouTube-only videos, so its
+     * progress goes to the archive as well.
+     */
+    private suspend fun loadJrwiYoutubeInfo(itemId: UUID, videoId: String) {
+        val item = jrwiProgress.itemForYoutube(videoId) ?: return
+        if (player.currentMediaItem?.mediaId == itemId.toString() && jrwiItem == null) {
+            jrwiItem = item
+        }
+    }
+
+    /**
+     * Saves the position of a JRWI episode in the archive, which keeps one record for its video and
+     * audio. Playing the audio also hands the position to the video, when [force]d.
      */
     private fun reportJrwiProgress(force: Boolean, finished: Boolean = false) {
         val item = jrwiItem ?: return
@@ -510,20 +525,24 @@ constructor(
         }
         jrwiLastReport = if (force || finished) -1L else now
         val seconds = player.currentPosition / 1000.0
+        val length = player.duration.takeIf { it > 0 }?.div(1000.0)
         val audio = isJrwiAudio(player.currentMediaItem?.mediaId)
-        viewModelScope.launch { saveJrwiProgress(item, audio, seconds, finished, handOff = force) }
+        viewModelScope.launch {
+            saveJrwiProgress(item, audio, seconds, length, finished, handOff = force)
+        }
     }
 
     private suspend fun saveJrwiProgress(
         item: JrwiItem,
         audio: Boolean,
         seconds: Double,
+        lengthSeconds: Double?,
         finished: Boolean,
         handOff: Boolean,
     ) {
         try {
-            if (audio) jrwiProgress.audioPlayed(item, seconds, finished, handOff)
-            else jrwiProgress.videoPlayed(item, seconds, finished)
+            if (audio) jrwiProgress.audioPlayed(item, seconds, finished, handOff, lengthSeconds)
+            else jrwiProgress.videoPlayed(item, seconds, finished, lengthSeconds)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -576,6 +595,7 @@ constructor(
                     finalJrwiItem,
                     jrwiAudio,
                     position / 1000.0,
+                    duration.takeIf { it > 0 }?.div(1000.0),
                     finished,
                     handOff = true,
                 )
@@ -687,6 +707,8 @@ constructor(
             val videoId = savedVideoId ?: taJellyfinLookup.videoIdForItem(itemId) ?: return
             if (!isCurrent()) return
             taVideoId = videoId
+            // Apart from the segments, so a slow archiver doesn't hold them up
+            viewModelScope.launch { loadJrwiYoutubeInfo(itemId, videoId) }
             if (sponsorBlockMode == SPONSORBLOCK_OFF) return
             val segments = taApi.getVideo(videoId).sponsorBlockSegments()
             if (isCurrent()) taSegments = segments

@@ -151,9 +151,13 @@ data class JrwiComment(
 
 @Serializable data class JrwiAuthor(val name: String = "", val avatar: String? = null)
 
-/** How far the audio of an item was listened to, in seconds. */
+/**
+ * How far an episode was played, in seconds in the timeline of the post [postId]: its video or its
+ * audio. [finished] is shared by both.
+ */
 @Serializable
 data class JrwiProgress(
+    @SerialName("post_id") val postId: Long? = null,
     val position: Double = 0.0,
     val duration: Double? = null,
     val finished: Boolean = false,
