@@ -68,11 +68,28 @@ data class JrwiVideo(
     val duration: Double? = null,
     @SerialName("youtube_id") val youtubeId: String? = null,
     @SerialName("youtube_url") val youtubeUrl: String? = null,
+    /**
+     * Set when the item's archived video was deleted because TubeArchivist has the same video from
+     * YouTube (v0.15). The video is then the YouTube one, and its [postId] the YouTube post.
+     */
+    @SerialName("handed_over") val handedOver: JrwiHandOver? = null,
 ) {
     /** On YouTube only, so played through TubeArchivist. */
     val isYoutube: Boolean
         get() = youtubeId != null && jellyfinPath == null
 }
+
+/**
+ * A video handed over to TubeArchivist (v0.15). On an item's video, [postId] is the members-only
+ * post the deleted file belonged to; on that post, it's the post with the YouTube version.
+ */
+@Serializable
+data class JrwiHandOver(
+    val at: String? = null,
+    @SerialName("post_id") val postId: Long? = null,
+    @SerialName("youtube_id") val youtubeId: String? = null,
+    @SerialName("youtube_url") val youtubeUrl: String? = null,
+)
 
 @Serializable
 data class JrwiAudio(
@@ -133,6 +150,10 @@ data class JrwiItem(
     val embeds: List<JrwiEmbed> = emptyList(),
     val versions: List<JrwiVersion> = emptyList(),
     val problems: List<String> = emptyList(),
+    /** On a single post: when the archiver noticed the site no longer has it (v0.15). */
+    @SerialName("removed_from_site") val removedFromSite: String? = null,
+    /** On a single post whose video was handed over to TubeArchivist (v0.15). */
+    @SerialName("handed_over") val handedOver: JrwiHandOver? = null,
 ) {
     /** Every tab the item is in within its own show, also from archivers older than v0.12. */
     val ownTabs: List<String>
@@ -180,6 +201,9 @@ data class JrwiVersion(
     @SerialName("post_id") val postId: Long,
     val title: String = "",
     val url: String? = null,
+    val version: String? = null,
+    /** When the archiver noticed the site no longer has this post (v0.15). */
+    @SerialName("removed_from_site") val removedFromSite: String? = null,
 )
 
 @Serializable
@@ -284,4 +308,80 @@ data class JrwiProblem(
     val title: String = "",
     val status: String? = null,
     val problems: List<String> = emptyList(),
+)
+
+/** The files of a post or of all an item's versions (v0.15). */
+@Serializable data class JrwiPostFiles(val files: List<JrwiPostFile> = emptyList())
+
+/**
+ * One file a post carries, for the file inspector (v0.15). [type] says how to show it: `image`,
+ * `audio`, `video`, `pdf`, `table`, `document`, `text`, `archive`, `youtube`, `link` or `other`.
+ */
+@Serializable
+data class JrwiPostFile(
+    val name: String = "",
+    /** `video`, `audio`, `document`, `attachment`, `image`, `thumbnail` or `link`. */
+    val role: String = "",
+    val type: String = "other",
+    val mime: String? = null,
+    val size: Long? = null,
+    /** Where the file is, or null for what isn't saved (`youtube`, `link`). */
+    val url: String? = null,
+    /** The file's path under /files/, or null for the video and for what isn't saved. */
+    val path: String? = null,
+    @SerialName("post_id") val postId: Long? = null,
+    /** Where it was saved from, such as a Google Docs link, or a `link` entry's address. */
+    val source: String? = null,
+    val saved: Boolean = true,
+    /** The Preview address, for `pdf`, `table`, `document`, `text` and `archive`. */
+    val preview: String? = null,
+    val duration: Double? = null,
+    @SerialName("youtube_id") val youtubeId: String? = null,
+)
+
+/**
+ * What's inside a file, from the archiver's preview (v0.15); which fields are set goes by [type].
+ */
+@Serializable
+data class JrwiPreview(
+    val name: String = "",
+    val type: String = "other",
+    val mime: String? = null,
+    val size: Long? = null,
+    val url: String? = null,
+    /** For a PDF: how many pages, and the address of one as a picture, with {n} for its number. */
+    val pages: Int? = null,
+    @SerialName("page_url") val pageUrl: String? = null,
+    val sheets: List<JrwiSheet> = emptyList(),
+    val blocks: List<JrwiBlock> = emptyList(),
+    val text: String? = null,
+    /** For text: `plain`, `markdown`, `subtitles`, `json` or `html`, all shown as text. */
+    val format: String? = null,
+    val entries: List<JrwiArchiveEntry> = emptyList(),
+    val truncated: Boolean = false,
+    /** Why a table, document or zip can't be shown. */
+    val note: String? = null,
+)
+
+@Serializable
+data class JrwiSheet(
+    val name: String = "",
+    val rows: List<List<String>> = emptyList(),
+    val truncated: Boolean = false,
+)
+
+/** A piece of a Word or PowerPoint file: `heading`, `paragraph`, `item` (of a list) or `row`. */
+@Serializable
+data class JrwiBlock(
+    val kind: String = "paragraph",
+    val level: Int? = null,
+    val text: String? = null,
+    val cells: List<String> = emptyList(),
+)
+
+@Serializable
+data class JrwiArchiveEntry(
+    val name: String = "",
+    val size: Long? = null,
+    val folder: Boolean = false,
 )

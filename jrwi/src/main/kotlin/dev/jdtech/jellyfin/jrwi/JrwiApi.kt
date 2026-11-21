@@ -173,6 +173,22 @@ class JrwiApi(private val config: JrwiConfig) {
     suspend fun getPostComments(postId: Long, page: Int = 1): JrwiPage<JrwiComment> =
         decode(get("api/posts/$postId/comments") { addQueryParameter("page", page.toString()) })
 
+    /** Every file of all an item's versions, for the file inspector (archiver 0.9.0 and newer). */
+    suspend fun getItemFiles(postId: Long): List<JrwiPostFile> =
+        decode<JrwiPostFiles>(get("api/items/$postId/files")).files
+
+    /** Only this post's files (archiver 0.9.0 and newer). */
+    suspend fun getPostFiles(postId: Long): List<JrwiPostFile> =
+        decode<JrwiPostFiles>(get("api/posts/$postId/files")).files
+
+    /** What's inside a file, from its `preview` address (archiver 0.9.0 and newer). */
+    suspend fun getPreview(address: String): JrwiPreview {
+        val url =
+            fileUrl(address)?.toHttpUrlOrNull()
+                ?: throw IOException("The JRWI archiver is not set up")
+        return decode(send("GET", url, null))
+    }
+
     // Watching and listening progress, one record per episode for its video and audio
 
     /**

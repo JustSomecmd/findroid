@@ -93,6 +93,8 @@ constructor(
         val item = jrwiApi.getItem(itemId)
         val audio = item.audio ?: throw JrwiApiException(404, "This episode has no audio")
         val showName = jrwiProgress.showNameOrNull(item.show)
+        // Run again for a download that's whole, to keep what's new, such as the post's files
+        val whole = downloads.get(itemId)?.done == true && downloads.audioFile(itemId).isFile
         downloads.update(itemId) {
             it.copy(
                 audioPostId = audio.postId,
@@ -106,6 +108,8 @@ constructor(
         // Its page's text and comments, for showing it without a connection
         downloads.saveDetails(itemId, item, post(audio.postId), comments(audio.postId))
         item.thumbnail?.let { saveFile(it, downloads.thumbnailFile(itemId)) }
+        saveFiles(itemId)
+        if (whole) return
         val etag = downloadAudio(itemId, audio, item)
         downloads.update(itemId) {
             it.copy(
@@ -113,6 +117,39 @@ constructor(
                 etag = etag,
                 done = true,
             )
+        }
+    }
+
+    /**
+     * The files of the item's versions, apart from the video and audio, and what's inside those the
+     * archiver can preview, so the file inspector works without a connection. PDFs are drawn on the
+     * phone. Archivers older than 0.9.0 list no files.
+     */
+    private suspend fun saveFiles(itemId: Long) {
+        val files =
+            try {
+                jrwiApi.getItemFiles(itemId)
+            } catch (e: JrwiApiException) {
+                if (e.code != NOT_FOUND) throw e
+                emptyList()
+            }
+        downloads.saveFiles(itemId, files)
+        for (file in files) {
+            if (!file.saved || file.role == "video" || file.role == "audio") continue
+            val path = file.path ?: continue
+            val url = file.url ?: continue
+            val target = downloads.fileFor(itemId, path)
+            if (!target.isFile || (file.size != null && target.length() != file.size)) {
+                saveFile(url, target)
+            }
+            val preview = file.preview ?: continue
+            if (file.type == "pdf" || downloads.savedPreview(itemId, path) != null) continue
+            try {
+                downloads.savePreview(itemId, path, jrwiApi.getPreview(preview))
+            } catch (e: JrwiApiException) {
+                // The file itself is kept, which is enough to save it elsewhere
+                if (e.code !in 400..499) throw e
+            }
         }
     }
 
@@ -295,6 +332,7 @@ constructor(
         private const val BUFFER_SIZE = 64 * 1024
         private const val PROGRESS_INTERVAL_MS = 500L
         private const val MAX_COMMENT_PAGES = 20
+        private const val NOT_FOUND = 404
 
         private fun workName(itemId: Long) = "jrwi_download_$itemId"
 
@@ -336,5 +374,9 @@ class JrwiDownloaderImpl(private val context: Context, private val downloads: Jr
     override fun remove(itemId: Long) {
         JrwiDownloadWorker.cancel(context, itemId)
         downloads.delete(itemId)
+    }
+
+    override fun refresh(itemId: Long) {
+        if (downloads.get(itemId)?.done == true) JrwiDownloadWorker.enqueue(context, itemId)
     }
 }

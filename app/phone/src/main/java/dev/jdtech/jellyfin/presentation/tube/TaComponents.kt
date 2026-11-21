@@ -707,6 +707,21 @@ fun PagerState.switchSide(scope: CoroutineScope) {
 }
 
 /**
+ * Slides a side pager to its server side, to its own side, or with null to the side it isn't on,
+ * with the server side first when [serverFirst] is set.
+ */
+fun PagerState.showSide(scope: CoroutineScope, server: Boolean?, serverFirst: Boolean = false) {
+    val page = if (server == null) 1 - currentPage else if (server == serverFirst) 0 else 1
+    scope.launch { animateScrollToPage(page) }
+}
+
+/** Puts a side pager on its own side at once, for a page that's out of sight. */
+fun PagerState.requestOwnSide(serverFirst: Boolean = false) {
+    val page = if (serverFirst) 1 else 0
+    if (currentPage != page || currentPageOffsetFraction != 0f) requestScrollToPage(page)
+}
+
+/**
  * The phone side and the server side of something, side by side, so a swipe moves between them like
  * the tabs on the Channels page.
  */

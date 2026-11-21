@@ -74,6 +74,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -131,6 +132,7 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.pages
 import dev.jdtech.jellyfin.jrwi.JrwiBadge
 import dev.jdtech.jellyfin.jrwi.JrwiComment
 import dev.jdtech.jellyfin.jrwi.JrwiItem
+import dev.jdtech.jellyfin.jrwi.JrwiPostFile
 import dev.jdtech.jellyfin.jrwi.JrwiShow
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.isDownloaded
@@ -153,8 +155,6 @@ import dev.jdtech.jellyfin.presentation.tube.startJrwiAudio
 import dev.jdtech.jellyfin.presentation.tube.startTaPlayback
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
 
 /** Address of the JRWI archiver, for the images it serves. */
 val LocalJrwiBaseUrl = staticCompositionLocalOf<String?> { null }
@@ -200,7 +200,7 @@ private fun jrwiMessageText(context: Context, message: String): String =
     }
 
 /** Opens an address in the browser, or whatever app handles it. */
-private fun openUrl(context: Context, url: String?) {
+internal fun openUrl(context: Context, url: String?) {
     if (url == null) return
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
@@ -212,10 +212,10 @@ private fun openUrl(context: Context, url: String?) {
 // The JRWI tab
 
 /**
- * The JRWI tab: what's new, then the shows, as the Channels tab lists channels. Tapping the title,
- * or the tab in the bottom bar while it's open ([serverToggles]), slides the archiver's own page
- * down over the shows in the server colours, as Home and Downloads turn to their server side.
- * Swipes still only go to the tabs next to it.
+ * The JRWI tab: what's new, then the shows, as the Channels tab lists channels. Tapping the title
+ * slides the archiver's own page down over the shows in the server colours, as Home and Downloads
+ * turn to their server side; [onServer] says whether it's shown, so the bottom bar can show it too.
+ * Swipes still only go to the tabs next to it. The tab is on its own side again once it's left.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -223,7 +223,8 @@ fun JrwiShowsScreen(
     onShowClick: (String) -> Unit,
     onItemClick: (Long) -> Unit,
     onSetUp: () -> Unit,
-    serverToggles: Flow<Unit> = emptyFlow(),
+    onServer: Boolean = false,
+    onServerChange: (Boolean) -> Unit = {},
     viewModel: JrwiShowsViewModel = hiltViewModel(),
 ) {
     // In the archiver's own colours
@@ -234,12 +235,9 @@ fun JrwiShowsScreen(
             onPauseOrDispose {}
         }
         val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-        var onServer by rememberSaveable { mutableStateOf(false) }
-        val configured by rememberUpdatedState(state.configured)
-        LaunchedEffect(serverToggles) {
-            serverToggles.collect { if (configured) onServer = !onServer }
-        }
         val serverShown = onServer && state.configured
+        val leave by rememberUpdatedState(onServerChange)
+        DisposableEffect(Unit) { onDispose { leave(false) } }
         // The purple glow belongs to the archive side
         val glow by
             animateFloatAsState(
@@ -261,7 +259,7 @@ fun JrwiShowsScreen(
                                 TaSideTitle(
                                     title = stringResource(CoreR.string.jrwi_tab),
                                     onServer = serverShown,
-                                    onToggle = { onServer = !onServer },
+                                    onToggle = { onServerChange(!onServer) },
                                     localIcon = CoreR.drawable.ic_dice,
                                     localLabel = stringResource(CoreR.string.jrwi_side_archive),
                                 )
@@ -768,6 +766,18 @@ fun JrwiItemScreen(
         var menuOpen by remember { mutableStateOf(false) }
         // A post's pictures, full screen, after one is tapped
         var pictures by remember { mutableStateOf<JrwiPictures?>(null) }
+        // A file shown in the file inspector, after it's tapped
+        var inspected by remember { mutableStateOf<JrwiPostFile?>(null) }
+        inspected?.let { file ->
+            JrwiFileInspector(
+                file = file,
+                hasLocalCopy = remember(file) { viewModel.localCopy(file) != null },
+                loadPreview = viewModel::preview,
+                fileOnPhone = viewModel::fileOnPhone,
+                fileUrl = viewModel::fileUrl,
+                onClose = { inspected = null },
+            )
+        }
         pictures?.let { shown ->
             JrwiPictureViewer(
                 pictures = shown,
@@ -946,8 +956,26 @@ fun JrwiItemScreen(
                     else ->
                         jrwiPostContent(
                             post = post,
+                            files = state.content.files,
                             onOpen = { openUrl(context, it) },
                             onPicture = { pictures = it },
+                            onFile = { file ->
+                                when {
+                                    file.type == "youtube" -> file.youtubeId?.let(onOpenYoutube)
+                                    file.type == "link" -> openUrl(context, file.source)
+                                    // The episode's own video and audio play as Play does
+                                    file.role == "video" -> viewModel.playVideo()
+                                    file.role == "audio" -> viewModel.playAudio()
+                                    file.type == "image" ->
+                                        viewModel.showFrom(file)?.let {
+                                            pictures = JrwiPictures(listOf(it), 0)
+                                        }
+                                    // Other sound and video open in another app
+                                    file.type == "audio" || file.type == "video" ->
+                                        openUrl(context, viewModel.fileUrl(file.url))
+                                    else -> inspected = file
+                                }
+                            },
                             fileUrl = viewModel::fileUrl,
                         )
                 }
@@ -1215,12 +1243,31 @@ private fun JrwiVideoDownloadRow(
  */
 private fun LazyListScope.jrwiPostContent(
     post: JrwiItem,
+    files: List<JrwiPostFile>?,
     onOpen: (String?) -> Unit,
     onPicture: (JrwiPictures) -> Unit,
+    onFile: (JrwiPostFile) -> Unit,
     fileUrl: (String?) -> String?,
 ) {
     // Keyed by post, so switching versions never mixes the two
     val id = post.id
+    // The site took it down, such as a members-only episode once it's on YouTube (v0.15)
+    val removed =
+        post.removedFromSite ?: post.versions.firstOrNull { it.postId == id }?.removedFromSite
+    if (removed != null) {
+        item(key = "removed:$id") {
+            Text(
+                text =
+                    stringResource(
+                        CoreR.string.jrwi_removed_from_site,
+                        fullDate(removed) ?: removed,
+                    ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = MaterialTheme.spacings.medium),
+            )
+        }
+    }
     val body = post.bodyHtml?.takeIf { it.isNotBlank() }
     if (body != null || !post.bodyText.isNullOrBlank()) {
         item(key = "body:$id") {
@@ -1256,16 +1303,38 @@ private fun LazyListScope.jrwiPostContent(
             }
         }
     }
-    val files = (post.attachments + post.documents).distinctBy { it.url }
-    if (files.isNotEmpty()) {
-        item(key = "files_title:$id") { JrwiSectionTitle(stringResource(CoreR.string.jrwi_files)) }
-        items(files, key = { "file:$id:" + it.url }) { file ->
-            JrwiLinkRow(
-                icon = CoreR.drawable.ic_download,
-                text = file.name,
-                detail = file.size?.let { formatBytes(it) },
-                onClick = { onOpen(fileUrl(file.url)) },
-            )
+    // Every file of the post, to open in the file inspector (archiver 0.9.0 and newer); the
+    // pictures are in their row above
+    val listed = files?.filter { it.role != "image" && it.role != "thumbnail" }
+    if (listed != null) {
+        if (listed.isNotEmpty()) {
+            item(key = "files_title:$id") {
+                JrwiSectionTitle(stringResource(CoreR.string.jrwi_files))
+            }
+            itemsIndexed(listed, key = { index, _ -> "postfile:$id:$index" }) { _, file ->
+                JrwiLinkRow(
+                    icon = jrwiFileIcon(file.type),
+                    text = file.name,
+                    detail = jrwiFileDetail(file),
+                    onClick = { onFile(file) },
+                )
+            }
+        }
+    } else {
+        // Older archivers list a post's attachments and documents, which open in the browser
+        val attached = (post.attachments + post.documents).distinctBy { it.url }
+        if (attached.isNotEmpty()) {
+            item(key = "files_title:$id") {
+                JrwiSectionTitle(stringResource(CoreR.string.jrwi_files))
+            }
+            items(attached, key = { "file:$id:" + it.url }) { file ->
+                JrwiLinkRow(
+                    icon = CoreR.drawable.ic_download,
+                    text = file.name,
+                    detail = file.size?.let { formatBytes(it) },
+                    onClick = { onOpen(fileUrl(file.url)) },
+                )
+            }
         }
     }
     if (post.links.isNotEmpty()) {
@@ -1324,6 +1393,18 @@ private fun JrwiItemHeader(
             Text(
                 text = stringResource(CoreR.string.jrwi_locked),
                 color = MaterialTheme.colorScheme.error,
+            )
+        }
+        // The archived video was deleted once TubeArchivist had it from YouTube (v0.15)
+        item.video?.handedOver?.let { handedOver ->
+            Text(
+                text =
+                    stringResource(
+                        CoreR.string.jrwi_handed_over,
+                        fullDate(handedOver.at) ?: handedOver.at.orEmpty(),
+                    ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (item.video == null && item.audio == null) return@Column

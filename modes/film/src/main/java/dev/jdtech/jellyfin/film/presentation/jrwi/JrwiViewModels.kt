@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin.film.presentation.jrwi
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,6 +15,8 @@ import dev.jdtech.jellyfin.jrwi.JrwiDownloader
 import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiPage
+import dev.jdtech.jellyfin.jrwi.JrwiPostFile
+import dev.jdtech.jellyfin.jrwi.JrwiPreview
 import dev.jdtech.jellyfin.jrwi.JrwiProblem
 import dev.jdtech.jellyfin.jrwi.JrwiProgressChange
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
@@ -25,10 +28,12 @@ import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaPage
 import dev.jdtech.jellyfin.tubearchivist.TaPaginate
+import java.io.File
 import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -45,6 +50,8 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 /** A page of the archiver's list in the shape the TubeArchivist lists are paged with. */
 fun <T> JrwiPage<T>.asTaPage(): TaPage<T> =
@@ -335,6 +342,11 @@ data class JrwiItemContent(
     val post: JrwiItem? = null,
     val error: String? = null,
     val comments: TaListState<JrwiComment> = TaListState(),
+    /**
+     * Every file the post carries, for the file inspector (archiver 0.9.0 and newer), or null
+     * before they're in or from older archivers, which show the post's attachments and documents.
+     */
+    val files: List<JrwiPostFile>? = null,
 )
 
 /** What the item page asks the screen to do. */
@@ -419,6 +431,10 @@ constructor(
                 }
                 // Also tries again what didn't load before
                 showContent(item, _state.value.playsAudio)
+                // A download from before the post's files were kept with it gets them now
+                if (!_state.value.offline && jrwiDownloads.savedFiles(item.id) == null) {
+                    jrwiDownloader.refresh(item.id)
+                }
                 refreshProgress(item)
             } catch (e: CancellationException) {
                 throw e
@@ -538,8 +554,90 @@ constructor(
             content.collect { loaded -> _state.update { it.copy(content = loaded) } }
         }
         if (content.value.post == null) loadPost(item, postId, content)
+        if (content.value.files == null) loadFiles(item, postId, content)
         if (content.value.comments.page == 0) loadMoreComments()
     }
+
+    private val filesLoading = mutableSetOf<Long>()
+
+    /**
+     * The shown version's files, or all the item's with one version. Without a connection, those
+     * kept with the audio's download, for all the item's versions.
+     */
+    private fun loadFiles(
+        item: JrwiItem,
+        postId: Long,
+        content: MutableStateFlow<JrwiItemContent>,
+    ) {
+        if (_state.value.offline) {
+            val saved = jrwiDownloads.savedFiles(item.id)?.takeIf { it.isNotEmpty() }
+            content.update { it.copy(files = saved) }
+            return
+        }
+        if (!filesLoading.add(postId)) return
+        viewModelScope.launch {
+            try {
+                val files =
+                    if (item.hasBoth) jrwiApi.getPostFiles(postId)
+                    else jrwiApi.getItemFiles(item.id)
+                content.update { it.copy(files = files) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Archivers older than 0.9.0 have no file lists
+                Timber.d(e, "No files for post $postId")
+            } finally {
+                filesLoading.remove(postId)
+            }
+        }
+    }
+
+    /** What's inside a file: as kept with the download when there's one, or from the archiver. */
+    suspend fun preview(file: JrwiPostFile): JrwiPreview {
+        _state.value.item?.id?.let { itemId ->
+            jrwiDownloads.savedPreview(itemId, file.path)?.let {
+                return it
+            }
+        }
+        val address = file.preview ?: throw IOException("This file has no preview")
+        return jrwiApi.getPreview(address)
+    }
+
+    /**
+     * The file on the phone, for drawing a PDF there: the copy kept with the download, or one
+     * fetched now into the cache.
+     */
+    suspend fun fileOnPhone(file: JrwiPostFile): File =
+        withContext(Dispatchers.IO) {
+            localCopy(file)?.let {
+                return@withContext it
+            }
+            val url = file.url ?: throw IOException("This file isn't in the archive")
+            val target = jrwiDownloads.cacheFileFor(file.path ?: url)
+            if (!target.isFile || (file.size != null && target.length() != file.size)) {
+                jrwiApi.openFile(url).use { response ->
+                    if (!response.isSuccessful) {
+                        throw JrwiApiException(
+                            response.code,
+                            "The archiver answered ${response.code}",
+                        )
+                    }
+                    target.parentFile?.mkdirs()
+                    val temp = File(target.path + ".part")
+                    temp.outputStream().use { out -> response.body.byteStream().copyTo(out) }
+                    if (!temp.renameTo(target)) throw IOException("Could not keep ${file.name}")
+                }
+            }
+            target
+        }
+
+    /** The copy of a file kept with the episode's download, if there's one. */
+    fun localCopy(file: JrwiPostFile): File? =
+        _state.value.item?.id?.let { jrwiDownloads.localFile(it, file.path) }
+
+    /** Where to show a file from: the phone's copy when there's one, or the archiver. */
+    fun showFrom(file: JrwiPostFile): String? =
+        localCopy(file)?.let { Uri.fromFile(it).toString() } ?: file.url
 
     private fun loadPost(
         item: JrwiItem,

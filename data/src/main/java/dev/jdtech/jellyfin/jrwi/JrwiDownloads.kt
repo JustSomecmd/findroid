@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin.jrwi
 import android.content.Context
 import android.net.Uri
 import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +47,9 @@ interface JrwiDownloader {
 
     /** Stops a download, if it's still going, and takes the episode off the phone. */
     fun remove(itemId: Long)
+
+    /** Keeps what's new for a whole download, such as the post's files, without the audio again. */
+    fun refresh(itemId: Long)
 }
 
 /**
@@ -55,6 +59,7 @@ interface JrwiDownloader {
  */
 class JrwiDownloads(context: Context) {
     private val dir = File(context.filesDir, "jrwi")
+    private val cacheDir = context.cacheDir
     private val videoDir = File(dir, VIDEOS)
     private val json = Json {
         ignoreUnknownKeys = true
@@ -98,8 +103,63 @@ class JrwiDownloads(context: Context) {
         return item.copy(thumbnail = thumbnailUri(itemId) ?: item.thumbnail)
     }
 
-    /** The audio's own post, with its description. */
-    fun savedPost(itemId: Long): JrwiItem? = read(itemId, POST, JrwiItem.serializer())
+    /**
+     * The audio's own post, with its description, and its pictures from the phone where they were
+     * kept with the download.
+     */
+    fun savedPost(itemId: Long): JrwiItem? {
+        val post = read(itemId, POST, JrwiItem.serializer()) ?: return null
+        val local = localUrls(itemId)
+        if (local.isEmpty()) return post
+        return post.copy(images = post.images.map { it.copy(url = local[it.url] ?: it.url) })
+    }
+
+    // A post's files, kept with the download so the file inspector works without a connection
+
+    /**
+     * The files of the item's versions as listed when it was downloaded; empty from old archivers.
+     */
+    fun savedFiles(itemId: Long): List<JrwiPostFile>? =
+        read(itemId, FILES, ListSerializer(JrwiPostFile.serializer()))
+
+    fun saveFiles(itemId: Long, files: List<JrwiPostFile>) {
+        write(itemId, FILES, json.encodeToString(ListSerializer(JrwiPostFile.serializer()), files))
+    }
+
+    /** Where a file of the item is kept on the phone, by its path under /files/. */
+    fun fileFor(itemId: Long, path: String): File =
+        File(File(folder(itemId), FILE_DIR), storedName(path))
+
+    /** The phone's copy of one of the item's files, once it's whole. */
+    fun localFile(itemId: Long, path: String?): File? =
+        path?.let { fileFor(itemId, it) }?.takeIf { it.isFile }
+
+    /** What's inside one of the item's files, as the archiver gave it when it was downloaded. */
+    fun savedPreview(itemId: Long, path: String?): JrwiPreview? = path?.let {
+        read(itemId, "$PREVIEW_DIR/${storedName(it)}.json", JrwiPreview.serializer())
+    }
+
+    fun savePreview(itemId: Long, path: String, preview: JrwiPreview) {
+        File(folder(itemId), PREVIEW_DIR).mkdirs()
+        write(
+            itemId,
+            "$PREVIEW_DIR/${storedName(path)}.json",
+            json.encodeToString(JrwiPreview.serializer(), preview),
+        )
+    }
+
+    /** A file fetched only to be shown, such as a PDF to draw, which Android can clear. */
+    fun cacheFileFor(path: String): File = File(File(cacheDir, CACHE_DIR), storedName(path))
+
+    /** The archiver's addresses of the item's files mapped to the phone's copies. */
+    private fun localUrls(itemId: Long): Map<String, String> =
+        savedFiles(itemId)
+            .orEmpty()
+            .mapNotNull { file ->
+                val url = file.url ?: return@mapNotNull null
+                localFile(itemId, file.path)?.let { url to Uri.fromFile(it).toString() }
+            }
+            .toMap()
 
     /** The comments on the audio's own post. */
     fun savedComments(itemId: Long): List<JrwiComment> =
@@ -186,6 +246,18 @@ class JrwiDownloads(context: Context) {
 
     private fun folder(itemId: Long) = File(dir, itemId.toString())
 
+    // A name of its own for each path, so no path can reach outside the folder, with the extension
+    // kept for what opens it
+    private fun storedName(path: String): String {
+        val digest = MessageDigest.getInstance("SHA-1").digest(path.toByteArray())
+        val hash = digest.take(10).joinToString("") { "%02x".format(it) }
+        val extension =
+            path.substringAfterLast('/').substringAfterLast('.', "").takeIf {
+                it.isNotEmpty() && it.length <= 8 && it.all(Char::isLetterOrDigit)
+            }
+        return if (extension != null) "$hash.$extension" else hash
+    }
+
     private fun readAll(): List<JrwiDownload> =
         dir.listFiles()
             ?.mapNotNull { folder ->
@@ -226,6 +298,10 @@ class JrwiDownloads(context: Context) {
         const val ITEM = "item.json"
         const val POST = "post.json"
         const val COMMENTS = "comments.json"
+        const val FILES = "files.json"
+        const val FILE_DIR = "files"
+        const val PREVIEW_DIR = "previews"
+        const val CACHE_DIR = "jrwi-files"
         const val AUDIO = "audio"
         const val THUMBNAIL = "thumbnail"
         const val VIDEOS = "videos"
