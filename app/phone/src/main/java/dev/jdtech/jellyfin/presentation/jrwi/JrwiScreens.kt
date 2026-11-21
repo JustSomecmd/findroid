@@ -1815,7 +1815,10 @@ private fun JrwiServerContent(
         }
         state.status?.let { status ->
             item {
-                val phase = listOfNotNull(status.phase, status.detail).joinToString(": ")
+                // Archivers since 0.9.3 word the detail to stand on its own line
+                val phase =
+                    if (status.step != null) status.phase.orEmpty()
+                    else listOfNotNull(status.phase, status.detail).joinToString(": ")
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
@@ -1835,17 +1838,43 @@ private fun JrwiServerContent(
                         color = JrwiColors.Text,
                     )
                 }
+                if (status.running && status.step != null) {
+                    status.detail
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { detail ->
+                            Text(
+                                text = detail,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = JrwiColors.BodyText,
+                            )
+                        }
+                }
                 val progress = status.progress
-                if (status.running && progress?.total != null && progress.total!! > 0) {
+                val total = progress?.total ?: 0
+                if (status.running && progress != null && total > 0) {
+                    val done = progress.done ?: 0
+                    // With the file that's downloading now as part of the one being worked on
+                    val fraction = (done + (progress.current ?: 0.0)).toFloat() / total
                     LinearProgressIndicator(
                         trackColor = JrwiBarTrack,
-                        progress = {
-                            ((progress.done ?: 0).toFloat() / progress.total!!).coerceIn(
-                                0f,
-                                1f,
-                            )
-                        },
+                        progress = { fraction.coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    )
+                    // "Post 3 of 12", as the web app shows it
+                    val number = (done + 1).coerceAtMost(total)
+                    Text(
+                        text =
+                            when (progress.unit) {
+                                "post" ->
+                                    stringResource(CoreR.string.jrwi_count_post, number, total)
+                                "episode" ->
+                                    stringResource(CoreR.string.jrwi_count_episode, number, total)
+                                "page" ->
+                                    stringResource(CoreR.string.jrwi_count_page, number, total)
+                                else -> stringResource(CoreR.string.jrwi_count, number, total)
+                            },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

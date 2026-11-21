@@ -543,6 +543,10 @@
     <string name="jrwi_check_running">A check is already running</string>
     <string name="jrwi_status_running">Checking: %1$s</string>
     <string name="jrwi_status_idle">Waiting for the next check</string>
+    <string name="jrwi_count_post">Post %1$d of %2$d</string>
+    <string name="jrwi_count_episode">Episode %1$d of %2$d</string>
+    <string name="jrwi_count_page">Page %1$d of %2$d</string>
+    <string name="jrwi_count">%1$d of %2$d</string>
     <string name="jrwi_last_check">Last check: %1$s, %2$s</string>
     <string name="jrwi_next_check">Next check: %1$s</string>
     <string name="jrwi_next_check_manual">Checks only run when started by hand</string>

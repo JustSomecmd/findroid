@@ -261,6 +261,12 @@ data class JrwiProgress(
 @Serializable
 data class JrwiStatus(
     val running: Boolean = false,
+    /**
+     * What the check is doing, as a stable name (v0.16): starting, login, feed, pages, posts,
+     * comments, tubearchivist, line_up, finishing, reparse or idle.
+     */
+    val step: String? = null,
+    /** What the check is doing, and on which post or page, worded for people. */
     val phase: String? = null,
     val detail: String? = null,
     val progress: JrwiCheckProgress? = null,
@@ -275,7 +281,18 @@ data class JrwiStatus(
     val disk: JrwiDisk = JrwiDisk(),
 )
 
-@Serializable data class JrwiCheckProgress(val done: Int? = null, val total: Int? = null)
+/**
+ * [done] of [total] in the current step; the one being worked on is number done + 1. [current] is
+ * how far the file downloading now has got, from 0 to 1 (v0.6), and [unit] what's counted: post,
+ * episode or page (v0.16).
+ */
+@Serializable
+data class JrwiCheckProgress(
+    val done: Int? = null,
+    val total: Int? = null,
+    val current: Double? = null,
+    val unit: String? = null,
+)
 
 @Serializable
 data class JrwiCounts(
