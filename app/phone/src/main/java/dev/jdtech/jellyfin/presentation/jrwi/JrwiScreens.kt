@@ -450,7 +450,12 @@ private fun JrwiShowCard(show: JrwiShow, picture: String?, onClick: () -> Unit) 
 @Composable
 private fun JrwiItemCard(item: JrwiItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Column(modifier = modifier.clip(JrwiShape).clickable(onClick = onClick)) {
-        JrwiThumbnail(item = item, modifier = Modifier.fillMaxWidth())
+        // The whole picture, with bars where it isn't 16:9, rather than cut to fill the card
+        JrwiThumbnail(
+            item = item,
+            modifier = Modifier.fillMaxWidth(),
+            contentScale = ContentScale.Fit,
+        )
         Text(
             text = item.title,
             style = MaterialTheme.typography.titleSmall,
@@ -473,11 +478,21 @@ private fun JrwiItemCard(item: JrwiItem, onClick: () -> Unit, modifier: Modifier
 /**
  * An item's picture with its length, and whether it has a video, audio or both. With [marks], a
  * check when it was watched and a bar when it was partly played, as in the TubeArchivist lists.
+ * [contentScale] crops the picture to fill its 16:9 box, or fits it whole inside.
  */
 @Composable
-private fun JrwiThumbnail(item: JrwiItem, modifier: Modifier = Modifier, marks: Boolean = true) {
+private fun JrwiThumbnail(
+    item: JrwiItem,
+    modifier: Modifier = Modifier,
+    marks: Boolean = true,
+    contentScale: ContentScale = ContentScale.Crop,
+) {
     Box(modifier = modifier.aspectRatio(16f / 9f).clip(JrwiShape)) {
-        JrwiImage(path = item.thumbnail, modifier = Modifier.fillMaxSize())
+        JrwiImage(
+            path = item.thumbnail,
+            contentScale = contentScale,
+            modifier = Modifier.fillMaxSize(),
+        )
         if (marks && item.progress?.finished == true) {
             Icon(
                 painter = painterResource(CoreR.drawable.ic_check),
