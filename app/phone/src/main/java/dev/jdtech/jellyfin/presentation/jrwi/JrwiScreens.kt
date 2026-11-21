@@ -120,6 +120,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiContinue
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiPostFile
 import dev.jdtech.jellyfin.jrwi.JrwiShow
+import dev.jdtech.jellyfin.presentation.audio.AudioViewModel
 import dev.jdtech.jellyfin.presentation.components.pageSwipes
 import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
 import dev.jdtech.jellyfin.presentation.theme.spacings
@@ -753,7 +754,7 @@ fun JrwiItemScreen(
     // Opened from the audio player to watch the video from where the audio was
     playVideoOnOpen: Boolean = false,
     viewModel: JrwiItemViewModel = hiltViewModel(),
-    audioViewModel: JrwiAudioViewModel = hiltViewModel(),
+    audioViewModel: AudioViewModel = hiltViewModel(),
     // The video downloads through Jellyfin, as the app's other downloads
     downloaderViewModel: DownloaderViewModel = hiltViewModel(),
 ) {
@@ -795,7 +796,7 @@ fun JrwiItemScreen(
                 is JrwiItemEvent.PlayYoutube -> onOpenYoutube(event.videoId)
                 // In the app's own audio player, which opens with it
                 is JrwiItemEvent.PlayAudio -> {
-                    audioViewModel.player.play(event.postId, event.fromStart)
+                    audioViewModel.player.playJrwi(event.postId, event.fromStart)
                     onOpenAudioPlayer()
                 }
                 is JrwiItemEvent.Message ->
@@ -810,13 +811,13 @@ fun JrwiItemScreen(
             remember(item?.id) {
                 derivedStateOf {
                     audioState.value
-                        .takeIf { item != null && it.item?.id == item.id }
+                        .takeIf { item != null && it.jrwiItem?.id == item.id }
                         ?.let { (it.positionMs / 1000).toDouble() }
                 }
             }
         // The video, after the audio player hands this episode over to it, when it has it
         fun playVideo(fromStart: Boolean = false) {
-            if (item != null && audioState.value.item?.id == item.id) {
+            if (item != null && audioState.value.jrwiItem?.id == item.id) {
                 scope.launch {
                     audioPlayer.closeForVideo()
                     viewModel.playVideo(fromStart, freshPosition = true)

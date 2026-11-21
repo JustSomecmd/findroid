@@ -7,6 +7,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.DialogFragment
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import dev.jdtech.jellyfin.PlayerActivity
 import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.local.R
 import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
@@ -33,8 +34,13 @@ class QualitySelectionDialogFragment(private val viewModel: PlayerViewModel) : D
                     labels.toTypedArray(),
                     qualities.indexOf(viewModel.uiState.value.currentQuality),
                 ) { dialog, which ->
-                    viewModel.selectQuality(qualities[which])
+                    val quality = qualities[which]
                     dialog.dismiss()
+                    // A TubeArchivist video's sound plays on in the app's audio player
+                    val handedOver =
+                        quality == StreamQuality.AUDIO_ONLY &&
+                            (activity as? PlayerActivity)?.listenInAudioPlayer() == true
+                    if (!handedOver) viewModel.selectQuality(quality)
                 }
                 .create()
         } ?: throw IllegalStateException("Activity cannot be null")

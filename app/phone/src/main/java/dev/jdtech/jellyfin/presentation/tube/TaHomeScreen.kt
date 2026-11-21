@@ -110,6 +110,7 @@ fun TaHomeScreen(
             startFromBeginning = false,
             positionSeconds = request.positionSeconds,
             playlistId = request.playlistId,
+            videoId = request.videoId,
         )
     }
     ObserveAsEvents(viewModel.messages) { message ->

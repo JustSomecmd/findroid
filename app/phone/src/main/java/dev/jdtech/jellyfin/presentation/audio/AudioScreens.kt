@@ -1,4 +1,4 @@
-package dev.jdtech.jellyfin.presentation.jrwi
+package dev.jdtech.jellyfin.presentation.audio
 
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -31,7 +32,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -39,13 +44,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -56,9 +65,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
@@ -73,10 +86,21 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.jdtech.jellyfin.audio.AudioEpisode
+import dev.jdtech.jellyfin.audio.AudioPlayer
+import dev.jdtech.jellyfin.audio.AudioState
 import dev.jdtech.jellyfin.core.R as CoreR
-import dev.jdtech.jellyfin.jrwi.JrwiItem
-import dev.jdtech.jellyfin.jrwiaudio.JrwiAudioPlayer
-import dev.jdtech.jellyfin.jrwiaudio.JrwiAudioState
+import dev.jdtech.jellyfin.player.local.R as PlayerR
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiBarTrack
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiColors
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiGhostBorder
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiImage
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiScaffold
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiShape
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiTheme
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiTonal
+import dev.jdtech.jellyfin.presentation.jrwi.jrwiGhostButtonColors
+import dev.jdtech.jellyfin.presentation.jrwi.jrwiTopBarColors
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.formatDuration
 import javax.inject.Inject
@@ -87,9 +111,79 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** The app's one JRWI audio player, for the pages that show or control it. */
-@HiltViewModel
-class JrwiAudioViewModel @Inject constructor(val player: JrwiAudioPlayer) : ViewModel()
+/** The app's one audio player, for the pages that show or control it. */
+@HiltViewModel class AudioViewModel @Inject constructor(val player: AudioPlayer) : ViewModel()
+
+/**
+ * The player's colours and shapes: the archiver's yellow and square corners for JRWI audio, the
+ * app's own colours and round buttons for a TubeArchivist video.
+ */
+@Immutable
+private class PlayerLook(
+    val jrwi: Boolean,
+    val accent: Color,
+    val onAccent: Color,
+    val tonal: Color,
+    val onTonal: Color,
+    val text: Color,
+    val muted: Color,
+    val track: Color,
+    /** Behind the mini player. */
+    val bar: Color,
+    /** Behind the speed and sleep sheets. */
+    val sheet: Color,
+    val picture: Color,
+    val buttonShape: Shape,
+    val pictureShape: Shape,
+)
+
+private val LocalPlayerLook = staticCompositionLocalOf<PlayerLook> { error("No player look") }
+
+private val JrwiLook =
+    PlayerLook(
+        jrwi = true,
+        accent = JrwiColors.Accent,
+        onAccent = JrwiColors.AccentInk,
+        tonal = JrwiTonal,
+        onTonal = JrwiColors.Accent,
+        text = JrwiColors.Text,
+        muted = JrwiColors.Muted,
+        track = JrwiBarTrack,
+        bar = JrwiColors.Header,
+        sheet = JrwiColors.Header,
+        picture = JrwiColors.Picture,
+        buttonShape = JrwiShape,
+        pictureShape = JrwiShape,
+    )
+
+/** In the archiver's look for JRWI audio, or the app's for a TubeArchivist video. */
+@Composable
+private fun PlayerLookTheme(tubeArchivist: Boolean, content: @Composable () -> Unit) {
+    if (tubeArchivist) {
+        val colors = MaterialTheme.colorScheme
+        val look =
+            remember(colors) {
+                PlayerLook(
+                    jrwi = false,
+                    accent = colors.primary,
+                    onAccent = colors.onPrimary,
+                    tonal = colors.secondaryContainer,
+                    onTonal = colors.onSecondaryContainer,
+                    text = colors.onSurface,
+                    muted = colors.onSurfaceVariant,
+                    track = colors.surfaceContainerHighest,
+                    bar = colors.surfaceContainer,
+                    sheet = colors.surfaceContainerLow,
+                    picture = colors.surfaceContainerHighest,
+                    buttonShape = CircleShape,
+                    pictureShape = RoundedCornerShape(12.dp),
+                )
+            }
+        CompositionLocalProvider(LocalPlayerLook provides look, content = content)
+    } else {
+        JrwiTheme { CompositionLocalProvider(LocalPlayerLook provides JrwiLook, content = content) }
+    }
+}
 
 /**
  * The audio that's loaded, at the bottom of every page but the player's own, as storii has it: the
@@ -97,11 +191,11 @@ class JrwiAudioViewModel @Inject constructor(val player: JrwiAudioPlayer) : View
  * swipe up opens the player.
  */
 @Composable
-fun JrwiMiniPlayer(
+fun AudioMiniPlayer(
     visible: Boolean,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: JrwiAudioViewModel = hiltViewModel(),
+    viewModel: AudioViewModel = hiltViewModel(),
 ) {
     val player = viewModel.player
     val state by player.state.collectAsStateWithLifecycle()
@@ -112,22 +206,23 @@ fun JrwiMiniPlayer(
         exit = shrinkVertically(shrinkTowards = Alignment.Top),
         modifier = modifier,
     ) {
-        JrwiTheme {
+        PlayerLookTheme(tubeArchivist = state.tubeArchivist) {
+            val look = LocalPlayerLook.current
             Column(
                 modifier =
                     Modifier.fillMaxWidth()
-                        .background(JrwiColors.Header)
+                        .background(look.bar)
                         // Under the bottom bar there's no gap; without the bar, above the phone's
                         .windowInsetsPadding(
                             WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)
                         )
             ) {
                 // How far it is, along the top
-                Box(Modifier.fillMaxWidth().height(2.dp).background(JrwiBarTrack)) {
+                Box(Modifier.fillMaxWidth().height(2.dp).background(look.track)) {
                     Box(
                         Modifier.fillMaxWidth(state.fraction())
                             .fillMaxHeight()
-                            .background(JrwiColors.Accent)
+                            .background(look.accent)
                     )
                 }
                 Row(
@@ -152,14 +247,17 @@ fun JrwiMiniPlayer(
                 ) {
                     JrwiImage(
                         path = state.picture,
-                        modifier = Modifier.width(64.dp).aspectRatio(16f / 9f).clip(JrwiShape),
+                        modifier =
+                            Modifier.width(64.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(if (look.jrwi) JrwiShape else RoundedCornerShape(6.dp)),
                     )
                     Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
                         Text(
-                            text = state.item?.title.orEmpty(),
+                            text = state.episode?.title.orEmpty(),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = JrwiColors.Text,
+                            color = look.text,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -168,20 +266,20 @@ fun JrwiMiniPlayer(
                             style = MaterialTheme.typography.labelSmall,
                             color =
                                 if (state.error != null) MaterialTheme.colorScheme.error
-                                else JrwiColors.Muted,
+                                else look.muted,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    IconButton(onClick = { player.skip(-JrwiAudioPlayer.BACK_SECONDS) }) {
-                        JrwiSeekIcon(seconds = JrwiAudioPlayer.BACK_SECONDS, forward = false)
+                    IconButton(onClick = { player.skip(-AudioPlayer.BACK_SECONDS) }) {
+                        SeekIcon(seconds = AudioPlayer.BACK_SECONDS, forward = false)
                     }
-                    JrwiPlayPauseButton(state = state, onClick = player::toggle, size = 40.dp)
+                    PlayPauseButton(state = state, onClick = player::toggle, size = 40.dp)
                     IconButton(onClick = { player.stop() }) {
                         Icon(
                             painter = painterResource(CoreR.drawable.ic_x),
                             contentDescription = stringResource(CoreR.string.jrwi_player_close),
-                            tint = JrwiColors.Muted,
+                            tint = look.muted,
                         )
                     }
                 }
@@ -192,7 +290,7 @@ fun JrwiMiniPlayer(
 
 /** "12:04 · 23 mins left", or that it's loading or couldn't play. */
 @Composable
-private fun miniLine(state: JrwiAudioState): String =
+private fun miniLine(state: AudioState): String =
     when {
         state.error != null -> stringResource(CoreR.string.jrwi_player_error)
         state.loading || state.durationMs <= 0 -> stringResource(CoreR.string.jrwi_player_loading)
@@ -206,18 +304,19 @@ private fun miniLine(state: JrwiAudioState): String =
     }
 
 /**
- * The audio player, a page of its own in the archiver's colours, after storii's: the episode's
- * picture, title and show, a bar to seek along with the time gone and the time left at the speed it
- * plays at (or the whole length, with a tap), back 15 and forward 30 seconds around play, then the
- * speed, the sleep timer, and the video from the same moment when the episode has one.
+ * The audio player, a page of its own, after storii's: the episode's picture, title and show or
+ * channel, a bar to seek along with the time gone and the time left at the speed it plays at (or
+ * the whole length, with a tap), back 15 and forward 30 seconds around play, then the speed, the
+ * sleep timer, the playlist's next video, and the video from the same moment. JRWI audio is in the
+ * archiver's look, a TubeArchivist video in the app's.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun JrwiAudioPlayerScreen(
-    onWatchVideo: (JrwiItem) -> Unit,
-    onOpenEpisode: (postId: Long) -> Unit,
+fun AudioPlayerScreen(
+    onWatchVideo: (episode: AudioEpisode, positionMs: Long?) -> Unit,
+    onOpenEpisode: (AudioEpisode) -> Unit,
     navigateBack: () -> Unit,
-    viewModel: JrwiAudioViewModel = hiltViewModel(),
+    viewModel: AudioViewModel = hiltViewModel(),
 ) {
     val player = viewModel.player
     val state by player.state.collectAsStateWithLifecycle()
@@ -234,10 +333,11 @@ fun JrwiAudioPlayerScreen(
     var sleepOpen by rememberSaveable { mutableStateOf(false) }
     // The end of the bar shows the time left, or with a tap the whole length
     var showLength by rememberSaveable { mutableStateOf(false) }
-    val item = state.item
+    val episode = state.episode
 
-    JrwiTheme {
-        JrwiScaffold(
+    PlayerLookTheme(tubeArchivist = state.tubeArchivist) {
+        val look = LocalPlayerLook.current
+        PlayerScaffold(
             topBar = {
                 TopAppBar(
                     title = {},
@@ -250,22 +350,29 @@ fun JrwiAudioPlayerScreen(
                         }
                     },
                     actions = {
-                        val audio = item?.audio
-                        if (audio != null) {
-                            IconButton(onClick = { onOpenEpisode(audio.postId) }) {
+                        if (episode != null) {
+                            IconButton(onClick = { onOpenEpisode(episode) }) {
                                 Icon(
                                     painterResource(CoreR.drawable.ic_info),
                                     contentDescription =
-                                        stringResource(CoreR.string.jrwi_player_episode),
+                                        stringResource(
+                                            if (episode is AudioEpisode.Ta)
+                                                CoreR.string.audio_player_video_page
+                                            else CoreR.string.jrwi_player_episode
+                                        ),
                                 )
                             }
                         }
                     },
                     windowInsets = PLAYER_TOP_INSETS,
-                    colors = jrwiTopBarColors(),
+                    colors =
+                        if (look.jrwi) jrwiTopBarColors()
+                        else
+                            TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.background
+                            ),
                 )
-            },
-            contentWindowInsets = PLAYER_TOP_INSETS,
+            }
         ) { innerPadding ->
             if (!state.active) {
                 Box(
@@ -274,10 +381,10 @@ fun JrwiAudioPlayerScreen(
                 ) {
                     Text(
                         text = stringResource(CoreR.string.jrwi_player_nothing),
-                        color = JrwiColors.Muted,
+                        color = look.muted,
                     )
                 }
-                return@JrwiScaffold
+                return@PlayerScaffold
             }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -295,29 +402,29 @@ fun JrwiAudioPlayerScreen(
                         Modifier.widthIn(max = 560.dp)
                             .fillMaxWidth()
                             .aspectRatio(16f / 9f)
-                            .clip(JrwiShape)
-                            .background(JrwiColors.Picture)
+                            .clip(look.pictureShape)
+                            .background(look.picture)
                 ) {
                     JrwiImage(path = state.picture, modifier = Modifier.fillMaxSize())
                     if (state.loading) {
                         CircularProgressIndicator(
-                            color = JrwiColors.Accent,
+                            color = look.accent,
                             modifier = Modifier.align(Alignment.Center),
                         )
                     }
                 }
                 Spacer(Modifier.height(24.dp))
                 Text(
-                    text = item?.title.orEmpty(),
+                    text = episode?.title.orEmpty(),
                     style = MaterialTheme.typography.titleLarge,
-                    color = JrwiColors.Text,
+                    color = look.text,
                     textAlign = TextAlign.Center,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
                 val subtitle =
                     listOfNotNull(
-                            state.showName,
+                            state.subtitle,
                             if (state.fromPhone) stringResource(CoreR.string.jrwi_player_from_phone)
                             else null,
                         )
@@ -326,7 +433,7 @@ fun JrwiAudioPlayerScreen(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.titleSmall,
-                        color = JrwiColors.Muted,
+                        color = look.muted,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = 4.dp),
                     )
@@ -342,34 +449,45 @@ fun JrwiAudioPlayerScreen(
                     )
                 }
                 Spacer(Modifier.height(MaterialTheme.spacings.large))
-                JrwiSeekBar(
+                SeekBar(
                     state = state,
                     showLength = showLength,
                     onToggleEnd = { showLength = !showLength },
                     onSeek = player::seekTo,
                 )
+                // A SponsorBlock segment, when Settings asks for a button rather than skipping
+                state.segment?.let { segment ->
+                    Button(
+                        onClick = player::skipSegment,
+                        shape = look.buttonShape,
+                        colors =
+                            ButtonDefaults.buttonColors(
+                                containerColor = look.accent,
+                                contentColor = look.onAccent,
+                            ),
+                        modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+                    ) {
+                        Text(stringResource(skipLabel(segment.category)))
+                    }
+                }
                 Spacer(Modifier.height(MaterialTheme.spacings.medium))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(
-                        onClick = { player.skip(-JrwiAudioPlayer.BACK_SECONDS) },
+                        onClick = { player.skip(-AudioPlayer.BACK_SECONDS) },
                         modifier = Modifier.size(56.dp),
                     ) {
-                        JrwiSeekIcon(
-                            seconds = JrwiAudioPlayer.BACK_SECONDS,
-                            forward = false,
-                            size = 40.dp,
-                        )
+                        SeekIcon(seconds = AudioPlayer.BACK_SECONDS, forward = false, size = 40.dp)
                     }
-                    JrwiPlayPauseButton(state = state, onClick = player::toggle, size = 72.dp)
+                    PlayPauseButton(state = state, onClick = player::toggle, size = 72.dp)
                     IconButton(
-                        onClick = { player.skip(JrwiAudioPlayer.FORWARD_SECONDS) },
+                        onClick = { player.skip(AudioPlayer.FORWARD_SECONDS) },
                         modifier = Modifier.size(56.dp),
                     ) {
-                        JrwiSeekIcon(
-                            seconds = JrwiAudioPlayer.FORWARD_SECONDS,
+                        SeekIcon(
+                            seconds = AudioPlayer.FORWARD_SECONDS,
                             forward = true,
                             size = 40.dp,
                         )
@@ -377,7 +495,7 @@ fun JrwiAudioPlayerScreen(
                 }
                 Spacer(Modifier.height(MaterialTheme.spacings.large))
                 Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
-                    JrwiSquareButton(
+                    PlayerButton(
                         icon = CoreR.drawable.ic_gauge,
                         contentDescription = stringResource(CoreR.string.jrwi_player_speed),
                         onClick = { speedOpen = true },
@@ -389,17 +507,30 @@ fun JrwiAudioPlayerScreen(
                             style = MaterialTheme.typography.labelLarge,
                         )
                     }
-                    JrwiSleepButton(state = state, onClick = { sleepOpen = true })
-                    if (item?.video != null) {
-                        JrwiSquareButton(
+                    SleepButton(state = state, onClick = { sleepOpen = true })
+                    if (state.hasNext) {
+                        PlayerButton(
+                            icon = CoreR.drawable.ic_skip_forward,
+                            contentDescription = stringResource(CoreR.string.audio_player_next),
+                            onClick = player::skipToNext,
+                        )
+                    }
+                    val hasVideo =
+                        when (episode) {
+                            is AudioEpisode.Jrwi -> episode.item.video != null
+                            is AudioEpisode.Ta -> true
+                            null -> false
+                        }
+                    if (episode != null && hasVideo) {
+                        PlayerButton(
                             icon = CoreR.drawable.ic_film,
                             contentDescription =
                                 stringResource(CoreR.string.jrwi_player_watch_video),
                             onClick = {
                                 leaving = true
                                 scope.launch {
-                                    player.closeForVideo()
-                                    onWatchVideo(item)
+                                    val position = player.closeForVideo()
+                                    onWatchVideo(episode, position)
                                 }
                             },
                         )
@@ -408,14 +539,14 @@ fun JrwiAudioPlayerScreen(
             }
         }
         if (speedOpen) {
-            JrwiSpeedSheet(
+            SpeedSheet(
                 speed = state.speed,
                 onSpeed = player::setSpeed,
                 onDismiss = { speedOpen = false },
             )
         }
         if (sleepOpen) {
-            JrwiSleepSheet(
+            SleepSheet(
                 state = state,
                 onSleepIn = {
                     player.sleepIn(it)
@@ -436,14 +567,47 @@ fun JrwiAudioPlayerScreen(
     }
 }
 
+/** The page: the archiver's navy with its glow, or the app's background. */
+@Composable
+private fun PlayerScaffold(
+    topBar: @Composable () -> Unit,
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    if (LocalPlayerLook.current.jrwi) {
+        JrwiScaffold(topBar = topBar, contentWindowInsets = PLAYER_TOP_INSETS, content = content)
+    } else {
+        Scaffold(
+            topBar = topBar,
+            containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = PLAYER_TOP_INSETS,
+            content = content,
+        )
+    }
+}
+
+/** The video player's words for skipping each kind of SponsorBlock segment. */
+private fun skipLabel(category: String): Int =
+    when (category) {
+        "sponsor" -> PlayerR.string.player_controls_skip_sponsor
+        "selfpromo" -> PlayerR.string.player_controls_skip_selfpromo
+        "interaction" -> PlayerR.string.player_controls_skip_interaction
+        "intro" -> PlayerR.string.player_controls_skip_intro
+        "outro" -> PlayerR.string.player_controls_skip_outro
+        "preview" -> PlayerR.string.player_controls_skip_preview
+        "music_offtopic" -> PlayerR.string.player_controls_skip_music_offtopic
+        "filler" -> PlayerR.string.player_controls_skip_filler
+        else -> PlayerR.string.player_controls_skip_unknown
+    }
+
 /** The bar to seek along, with the time gone under its start and the time left under its end. */
 @Composable
-private fun JrwiSeekBar(
-    state: JrwiAudioState,
+private fun SeekBar(
+    state: AudioState,
     showLength: Boolean,
     onToggleEnd: () -> Unit,
     onSeek: (Long) -> Unit,
 ) {
+    val look = LocalPlayerLook.current
     // Where the finger has it while it's held, so the bar doesn't jump back meanwhile
     var held by remember { mutableStateOf<Float?>(null) }
     val duration = state.durationMs
@@ -458,21 +622,17 @@ private fun JrwiSeekBar(
             enabled = duration > 0,
             colors =
                 SliderDefaults.colors(
-                    thumbColor = JrwiColors.Accent,
-                    activeTrackColor = JrwiColors.Accent,
-                    inactiveTrackColor = JrwiBarTrack,
-                    disabledThumbColor = JrwiColors.Muted,
-                    disabledInactiveTrackColor = JrwiBarTrack,
+                    thumbColor = look.accent,
+                    activeTrackColor = look.accent,
+                    inactiveTrackColor = look.track,
+                    disabledThumbColor = look.muted,
+                    disabledInactiveTrackColor = look.track,
                 ),
         )
         val shownMs = held?.let { (it * duration).toLong() } ?: state.positionMs
         Row(modifier = Modifier.fillMaxWidth()) {
             val labelStyle = MaterialTheme.typography.labelMedium
-            Text(
-                text = formatDuration(shownMs / 1000.0),
-                style = labelStyle,
-                color = JrwiColors.Muted,
-            )
+            Text(text = formatDuration(shownMs / 1000.0), style = labelStyle, color = look.muted)
             Spacer(Modifier.weight(1f))
             Text(
                 text =
@@ -484,28 +644,31 @@ private fun JrwiSeekBar(
                                 max(0L, duration - shownMs) / state.speed.toDouble() / 1000.0
                             ),
                 style = labelStyle,
-                color = JrwiColors.Muted,
-                modifier = Modifier.clip(JrwiShape).clickable(onClick = onToggleEnd),
+                color = look.muted,
+                modifier = Modifier.clip(look.buttonShape).clickable(onClick = onToggleEnd),
             )
         }
     }
 }
 
-/** Play or pause in the archiver's yellow, square, with a spinner while it loads. */
+/**
+ * Play or pause in the accent, square or round as the look has it, with a spinner while it loads.
+ */
 @Composable
-private fun JrwiPlayPauseButton(state: JrwiAudioState, onClick: () -> Unit, size: Dp) {
+private fun PlayPauseButton(state: AudioState, onClick: () -> Unit, size: Dp) {
+    val look = LocalPlayerLook.current
     Surface(
         onClick = onClick,
         enabled = !state.loading,
-        shape = JrwiShape,
-        color = JrwiColors.Accent,
-        contentColor = JrwiColors.AccentInk,
+        shape = look.buttonShape,
+        color = look.accent,
+        contentColor = look.onAccent,
         modifier = Modifier.size(size),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            if (state.loading || (state.buffering && state.playing.not() && !state.ended)) {
+            if (state.loading || (state.buffering && !state.playing && !state.ended)) {
                 CircularProgressIndicator(
-                    color = JrwiColors.AccentInk,
+                    color = look.onAccent,
                     strokeWidth = 2.dp,
                     modifier = Modifier.size(size / 2),
                 )
@@ -526,9 +689,40 @@ private fun JrwiPlayPauseButton(state: JrwiAudioState, onClick: () -> Unit, size
     }
 }
 
+/**
+ * One of the player's buttons: [filled] in the accent for one that's on, such as a set sleep timer,
+ * or else tonal. Square for JRWI audio, round for a TubeArchivist video.
+ */
+@Composable
+private fun PlayerButton(
+    icon: Int,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    filled: Boolean = false,
+    enabled: Boolean = true,
+    content: (@Composable () -> Unit)? = null,
+) {
+    val look = LocalPlayerLook.current
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = look.buttonShape,
+        color = if (filled) look.accent else look.tonal,
+        contentColor = if (filled) look.onAccent else look.onTonal,
+        modifier = modifier.size(BUTTON_SIZE).alpha(if (enabled) 1f else DISABLED_ALPHA),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            if (content != null) content()
+            else Icon(painterResource(icon), contentDescription = contentDescription)
+        }
+    }
+}
+
 /** A round arrow with how many seconds it goes, turned the other way to go forward. */
 @Composable
-private fun JrwiSeekIcon(seconds: Int, forward: Boolean, size: Dp = 24.dp) {
+private fun SeekIcon(seconds: Int, forward: Boolean, size: Dp = 24.dp) {
+    val color = LocalPlayerLook.current.text
     Box(contentAlignment = Alignment.Center) {
         Icon(
             painter = painterResource(CoreR.drawable.ic_rotate_ccw),
@@ -538,12 +732,12 @@ private fun JrwiSeekIcon(seconds: Int, forward: Boolean, size: Dp = 24.dp) {
                     else CoreR.string.jrwi_player_back,
                     seconds,
                 ),
-            tint = JrwiColors.Text,
+            tint = color,
             modifier = Modifier.size(size).graphicsLayer { if (forward) scaleX = -1f },
         )
         Text(
             text = seconds.toString(),
-            color = JrwiColors.Text,
+            color = color,
             fontSize = (size.value * 0.27f).sp,
             fontWeight = FontWeight.Bold,
         )
@@ -552,11 +746,11 @@ private fun JrwiSeekIcon(seconds: Int, forward: Boolean, size: Dp = 24.dp) {
 
 /** The sleep timer's button: a moon, or the time left on it once it's set. */
 @Composable
-private fun JrwiSleepButton(state: JrwiAudioState, onClick: () -> Unit) {
+private fun SleepButton(state: AudioState, onClick: () -> Unit) {
     val sleep = state.sleep
     val endsAt = sleep?.endsAtMs
     val now by rememberTicker(running = endsAt != null)
-    JrwiSquareButton(
+    PlayerButton(
         icon = if (sleep != null) CoreR.drawable.ic_moon_filled else CoreR.drawable.ic_moon,
         contentDescription = stringResource(CoreR.string.jrwi_player_sleep),
         onClick = onClick,
@@ -594,8 +788,9 @@ private fun rememberTicker(running: Boolean) =
 /** The speed: a step down or up, a bar, and the usual speeds to pick, as storii has. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun JrwiSpeedSheet(speed: Float, onSpeed: (Float) -> Unit, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = JrwiColors.Header) {
+private fun SpeedSheet(speed: Float, onSpeed: (Float) -> Unit, onDismiss: () -> Unit) {
+    val look = LocalPlayerLook.current
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = look.sheet) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
@@ -604,30 +799,30 @@ private fun JrwiSpeedSheet(speed: Float, onSpeed: (Float) -> Unit, onDismiss: ()
             Text(
                 text = stringResource(CoreR.string.jrwi_player_speed),
                 style = MaterialTheme.typography.titleMedium,
-                color = JrwiColors.Text,
+                color = look.text,
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
             ) {
-                JrwiSquareButton(
+                PlayerButton(
                     icon = CoreR.drawable.ic_minus_fat,
                     contentDescription = null,
                     onClick = { onSpeed(roundSpeed(speed - SPEED_STEP)) },
-                    enabled = speed > JrwiAudioPlayer.MIN_SPEED,
+                    enabled = speed > AudioPlayer.MIN_SPEED,
                 )
                 Text(
                     text = speedLabel(speed),
                     style = MaterialTheme.typography.headlineMedium,
-                    color = JrwiColors.Text,
+                    color = look.text,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.width(110.dp),
                 )
-                JrwiSquareButton(
+                PlayerButton(
                     icon = CoreR.drawable.ic_plus,
                     contentDescription = null,
                     onClick = { onSpeed(roundSpeed(speed + SPEED_STEP)) },
-                    enabled = speed < JrwiAudioPlayer.MAX_SPEED,
+                    enabled = speed < AudioPlayer.MAX_SPEED,
                 )
             }
             // Moved with the finger, and set once it's let go
@@ -639,17 +834,16 @@ private fun JrwiSpeedSheet(speed: Float, onSpeed: (Float) -> Unit, onDismiss: ()
                     if (held >= 0f) onSpeed(held)
                     held = -1f
                 },
-                valueRange = JrwiAudioPlayer.MIN_SPEED..JrwiAudioPlayer.MAX_SPEED,
+                valueRange = AudioPlayer.MIN_SPEED..AudioPlayer.MAX_SPEED,
                 steps =
-                    ((JrwiAudioPlayer.MAX_SPEED - JrwiAudioPlayer.MIN_SPEED) / SPEED_STEP)
-                        .roundToInt() - 1,
+                    ((AudioPlayer.MAX_SPEED - AudioPlayer.MIN_SPEED) / SPEED_STEP).roundToInt() - 1,
                 colors =
                     SliderDefaults.colors(
-                        thumbColor = JrwiColors.Accent,
-                        activeTrackColor = JrwiColors.Accent,
-                        inactiveTrackColor = JrwiBarTrack,
-                        activeTickColor = JrwiColors.AccentInk.copy(alpha = 0.3f),
-                        inactiveTickColor = JrwiColors.Muted.copy(alpha = 0.3f),
+                        thumbColor = look.accent,
+                        activeTrackColor = look.accent,
+                        inactiveTrackColor = look.track,
+                        activeTickColor = look.onAccent.copy(alpha = 0.3f),
+                        inactiveTickColor = look.muted.copy(alpha = 0.3f),
                     ),
             )
             FlowRow(
@@ -662,7 +856,7 @@ private fun JrwiSpeedSheet(speed: Float, onSpeed: (Float) -> Unit, onDismiss: ()
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 SPEED_PRESETS.forEach { preset ->
-                    JrwiChoice(
+                    Choice(
                         text = speedLabel(preset),
                         selected = speed == preset,
                         onClick = { onSpeed(preset) },
@@ -679,18 +873,19 @@ private fun JrwiSpeedSheet(speed: Float, onSpeed: (Float) -> Unit, onDismiss: ()
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun JrwiSleepSheet(
-    state: JrwiAudioState,
+private fun SleepSheet(
+    state: AudioState,
     onSleepIn: (Int) -> Unit,
     onSleepAtEnd: () -> Unit,
     onAdd: (Int) -> Unit,
     onOff: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val look = LocalPlayerLook.current
     val sleep = state.sleep
     val endsAt = sleep?.endsAtMs
     val now by rememberTicker(running = endsAt != null)
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = JrwiColors.Header) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = look.sheet) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
@@ -699,14 +894,14 @@ private fun JrwiSleepSheet(
             Text(
                 text = stringResource(CoreR.string.jrwi_player_sleep),
                 style = MaterialTheme.typography.titleMedium,
-                color = JrwiColors.Text,
+                color = look.text,
             )
             when {
                 endsAt != null -> {
                     Text(
                         text = formatDuration(max(0L, endsAt - now) / 1000.0),
                         style = MaterialTheme.typography.displaySmall,
-                        color = JrwiColors.Text,
+                        color = look.text,
                     )
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)
@@ -720,19 +915,19 @@ private fun JrwiSleepSheet(
                                                 CoreR.string.jrwi_player_minutes,
                                                 abs(minutes),
                                             ),
-                                    color = JrwiColors.Accent,
+                                    color = look.accent,
                                 )
                             }
                         }
                     }
-                    JrwiOffButton(onOff)
+                    OffButton(onOff)
                 }
                 sleep?.atEnd == true -> {
                     Text(
                         text = stringResource(CoreR.string.jrwi_player_sleep_at_end),
-                        color = JrwiColors.BodyText,
+                        color = look.text,
                     )
-                    JrwiOffButton(onOff)
+                    OffButton(onOff)
                 }
                 else -> {
                     FlowRow(
@@ -745,13 +940,13 @@ private fun JrwiSleepSheet(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         SLEEP_PRESETS.forEach { minutes ->
-                            JrwiChoice(
+                            Choice(
                                 text = stringResource(CoreR.string.jrwi_player_minutes, minutes),
                                 selected = false,
                                 onClick = { onSleepIn(minutes) },
                             )
                         }
-                        JrwiChoice(
+                        Choice(
                             text = stringResource(CoreR.string.jrwi_player_sleep_end),
                             selected = false,
                             onClick = onSleepAtEnd,
@@ -763,26 +958,34 @@ private fun JrwiSleepSheet(
     }
 }
 
+/** Turns the sleep timer off: the archiver's outlined button, or the app's. */
 @Composable
-private fun JrwiOffButton(onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        shape = JrwiShape,
-        border = JrwiGhostBorder,
-        colors = jrwiGhostButtonColors(),
-    ) {
-        Text(stringResource(CoreR.string.jrwi_player_sleep_off))
+private fun OffButton(onClick: () -> Unit) {
+    if (LocalPlayerLook.current.jrwi) {
+        OutlinedButton(
+            onClick = onClick,
+            shape = JrwiShape,
+            border = JrwiGhostBorder,
+            colors = jrwiGhostButtonColors(),
+        ) {
+            Text(stringResource(CoreR.string.jrwi_player_sleep_off))
+        }
+    } else {
+        OutlinedButton(onClick = onClick) {
+            Text(stringResource(CoreR.string.jrwi_player_sleep_off))
+        }
     }
 }
 
-/** One of a few choices, as the site's pills: yellow when it's the one picked. */
+/** One of a few choices, as pills: in the accent when it's the one picked. */
 @Composable
-private fun JrwiChoice(text: String, selected: Boolean, onClick: () -> Unit) {
+private fun Choice(text: String, selected: Boolean, onClick: () -> Unit) {
+    val look = LocalPlayerLook.current
     Surface(
         onClick = onClick,
-        shape = JrwiShape,
-        color = if (selected) JrwiColors.Accent else JrwiTonal,
-        contentColor = if (selected) JrwiColors.AccentInk else JrwiColors.Accent,
+        shape = look.buttonShape,
+        color = if (selected) look.accent else look.tonal,
+        contentColor = if (selected) look.onAccent else look.onTonal,
     ) {
         Text(
             text = text,
@@ -793,11 +996,11 @@ private fun JrwiChoice(text: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 /** How far through it is, from 0 to 1. */
-private fun JrwiAudioState.fraction(): Float =
+private fun AudioState.fraction(): Float =
     if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 
 /** What's left, in the time it takes at the speed it plays at. */
-private fun JrwiAudioState.leftAtSpeedMs(): Long =
+private fun AudioState.leftAtSpeedMs(): Long =
     (max(0L, durationMs - positionMs) / speed.toDouble()).toLong()
 
 /** Such as 1.25×. */
@@ -806,12 +1009,14 @@ private fun speedLabel(speed: Float): String =
 
 private fun roundSpeed(speed: Float): Float =
     ((speed / SPEED_STEP).roundToInt() * SPEED_STEP)
-        .coerceIn(JrwiAudioPlayer.MIN_SPEED, JrwiAudioPlayer.MAX_SPEED)
+        .coerceIn(AudioPlayer.MIN_SPEED, AudioPlayer.MAX_SPEED)
         .let { (it * 100).roundToInt() / 100f }
 
 private val PLAYER_TOP_INSETS
     @Composable get() = WindowInsets.statusBars.union(WindowInsets.displayCutout)
 
+private val BUTTON_SIZE = 48.dp
+private const val DISABLED_ALPHA = 0.38f
 private const val SPEED_STEP = 0.05f
 private val SPEED_PRESETS = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 private val SLEEP_PRESETS = listOf(5, 10, 15, 30, 45, 60, 90)

@@ -57,9 +57,9 @@
             </intent-filter>
         </service>
 
-        <!-- Keeps the JRWI audio player going in the background, with its notification -->
+        <!-- Keeps the audio player going in the background, with its notification -->
         <service
-            android:name=".jrwiaudio.JrwiAudioService"
+            android:name=".audio.AudioService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>

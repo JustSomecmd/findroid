@@ -15,7 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
-import dev.jdtech.jellyfin.jrwiaudio.JrwiAudioPlayer
+import dev.jdtech.jellyfin.audio.AudioPlayer
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.tube.LocalTaNowPlaying
 import dev.jdtech.jellyfin.presentation.utils.LocalEpisodeTitleFirst
@@ -32,13 +32,13 @@ class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var appPreferences: AppPreferences
 
-    @Inject lateinit var jrwiAudio: JrwiAudioPlayer
+    @Inject lateinit var audioPlayer: AudioPlayer
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         enableEdgeToEdge()
-        openJrwiPlayerIfAsked(intent)
+        openAudioPlayerIfAsked(intent)
 
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
@@ -96,14 +96,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        openJrwiPlayerIfAsked(intent)
+        openAudioPlayerIfAsked(intent)
     }
 
-    /** The JRWI audio player's notification opens the player. */
-    private fun openJrwiPlayerIfAsked(intent: Intent?) {
-        if (intent?.getBooleanExtra(JrwiAudioPlayer.EXTRA_OPEN_JRWI_PLAYER, false) == true) {
-            intent.removeExtra(JrwiAudioPlayer.EXTRA_OPEN_JRWI_PLAYER)
-            jrwiAudio.requestOpen()
+    /** The audio player's notification opens the player. */
+    private fun openAudioPlayerIfAsked(intent: Intent?) {
+        if (intent?.getBooleanExtra(AudioPlayer.EXTRA_OPEN_AUDIO_PLAYER, false) == true) {
+            intent.removeExtra(AudioPlayer.EXTRA_OPEN_AUDIO_PLAYER)
+            audioPlayer.requestOpen()
         }
     }
 

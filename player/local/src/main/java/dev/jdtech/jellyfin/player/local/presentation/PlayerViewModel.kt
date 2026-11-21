@@ -1321,6 +1321,16 @@ constructor(
      * Streams every item that isn't downloaded in [quality] from now on, carrying on from the same
      * spot. [showErrors] tells the user when the server couldn't convert the video.
      */
+    /**
+     * Plays the picture as well when Settings stream only the sound, as asked for from the audio
+     * player. Called before [initializePlayer].
+     */
+    fun preferVideo() {
+        if (playlistManager.quality == StreamQuality.AUDIO_ONLY) {
+            playlistManager.quality = StreamQuality.ORIGINAL
+        }
+    }
+
     fun selectQuality(quality: StreamQuality, showErrors: Boolean = true) {
         if (quality == playlistManager.quality) return
         playlistManager.quality = quality

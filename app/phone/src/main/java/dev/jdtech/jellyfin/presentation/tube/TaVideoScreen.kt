@@ -124,6 +124,7 @@ fun TaVideoScreen(
                 startFromBeginning = fromStart,
                 positionSeconds = position,
                 playlistId = playlistId,
+                videoId = videoId,
             )
         }
     }

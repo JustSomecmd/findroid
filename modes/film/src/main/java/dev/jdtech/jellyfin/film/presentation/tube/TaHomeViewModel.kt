@@ -418,6 +418,7 @@ constructor(
                         episodeId = episodeId,
                         positionSeconds = if (item.saved) null else video.player?.position,
                         playlistId = item.playlistId,
+                        videoId = video.youtubeId,
                     )
                 )
             } catch (e: CancellationException) {
@@ -491,4 +492,10 @@ sealed interface TaWatchLater {
 }
 
 /** Play a video's Jellyfin episode from [positionSeconds], with its playlist after it. */
-data class TaPlayRequest(val episodeId: UUID, val positionSeconds: Double?, val playlistId: String?)
+data class TaPlayRequest(
+    val episodeId: UUID,
+    val positionSeconds: Double?,
+    val playlistId: String?,
+    /** The TubeArchivist video, so Settings' sound-only streaming can play it as audio. */
+    val videoId: String? = null,
+)

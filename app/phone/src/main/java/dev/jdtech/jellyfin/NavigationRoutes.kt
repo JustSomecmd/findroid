@@ -85,7 +85,7 @@ data class CollectionRoute(val collectionId: String, val collectionName: String)
 /** With [playVideo], as from the audio player, the page plays the video once it's in. */
 @Serializable data class JrwiItemRoute(val postId: Long, val playVideo: Boolean = false) : NavKey
 
-/** The JRWI audio player. */
-@Serializable data object JrwiPlayerRoute : NavKey
-
 @Serializable data object JrwiSettingsRoute : NavKey
+
+/** The audio player, for JRWI audio and TubeArchivist videos' sound. */
+@Serializable data object AudioPlayerRoute : NavKey

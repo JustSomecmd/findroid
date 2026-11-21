@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -67,6 +68,7 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.window.core.layout.WindowSizeClass
+import dev.jdtech.jellyfin.audio.AudioEpisode
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiNavViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.TaChannelsTab
@@ -83,6 +85,9 @@ import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.navigation.navigateOrReuse
 import dev.jdtech.jellyfin.navigation.resumedAction
+import dev.jdtech.jellyfin.presentation.audio.AudioMiniPlayer
+import dev.jdtech.jellyfin.presentation.audio.AudioPlayerScreen
+import dev.jdtech.jellyfin.presentation.audio.AudioViewModel
 import dev.jdtech.jellyfin.presentation.components.pageSwipes
 import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
 import dev.jdtech.jellyfin.presentation.film.CollectionScreen
@@ -99,10 +104,7 @@ import dev.jdtech.jellyfin.presentation.film.PlaylistScreen
 import dev.jdtech.jellyfin.presentation.film.PlaylistsScreen
 import dev.jdtech.jellyfin.presentation.film.SeasonScreen
 import dev.jdtech.jellyfin.presentation.film.ShowScreen
-import dev.jdtech.jellyfin.presentation.jrwi.JrwiAudioPlayerScreen
-import dev.jdtech.jellyfin.presentation.jrwi.JrwiAudioViewModel
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiItemScreen
-import dev.jdtech.jellyfin.presentation.jrwi.JrwiMiniPlayer
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiPurple
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiSettingsScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiSheetState
@@ -137,6 +139,7 @@ import dev.jdtech.jellyfin.presentation.tube.TaVideoScreen
 import dev.jdtech.jellyfin.presentation.tube.rememberSidePagerState
 import dev.jdtech.jellyfin.presentation.tube.requestOwnSide
 import dev.jdtech.jellyfin.presentation.tube.showSide
+import dev.jdtech.jellyfin.presentation.tube.startTaPlayback
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionAction
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionViewModel
@@ -371,19 +374,19 @@ private fun MainNavigation(
         if (topLevelRoute != JrwiRoute || !atTabRoot) jrwiSheet.closeNow()
     }
 
-    val jrwiAudioViewModel: JrwiAudioViewModel = hiltViewModel()
-    val audioPlayer = jrwiAudioViewModel.player
+    val audioViewModel: AudioViewModel = hiltViewModel()
+    val audioPlayer = audioViewModel.player
     // The audio's notification opens the player
     val openPlayer by audioPlayer.openRequested.collectAsStateWithLifecycle()
     LaunchedEffect(openPlayer) {
         if (openPlayer) {
             audioPlayer.openHandled()
-            if (navigationState.currentBackStack().last() != JrwiPlayerRoute) {
-                navigator.navigate(JrwiPlayerRoute)
+            if (navigationState.currentBackStack().last() != AudioPlayerRoute) {
+                navigator.navigate(AudioPlayerRoute)
             }
         }
     }
-    val miniPlayerShown = navigationState.currentBackStack().last() != JrwiPlayerRoute
+    val miniPlayerShown = navigationState.currentBackStack().last() != AudioPlayerRoute
     val doubleTapMillis = LocalViewConfiguration.current.doubleTapTimeoutMillis
 
     // The search bar belongs to the Media tab: collapse it when the active top level route
@@ -536,10 +539,10 @@ private fun MainNavigation(
                         navDisplay()
                     }
                 }
-                JrwiMiniPlayer(
+                AudioMiniPlayer(
                     visible = miniPlayerShown,
-                    onOpen = { navigator.navigate(JrwiPlayerRoute) },
-                    viewModel = jrwiAudioViewModel,
+                    onOpen = { navigator.navigate(AudioPlayerRoute) },
+                    viewModel = audioViewModel,
                 )
             }
         }
@@ -1281,19 +1284,44 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
         JrwiItemScreen(
             postId = key.postId,
             onOpenYoutube = resumedAction<String> { openVideo(it) },
-            onOpenAudioPlayer = { navigator.navigate(JrwiPlayerRoute) },
+            onOpenAudioPlayer = { navigator.navigate(AudioPlayerRoute) },
             navigateBack = dropUnlessResumed { navigator.goBack() },
             playVideoOnOpen = key.playVideo,
         )
     }
-    entry<JrwiPlayerRoute> {
-        JrwiAudioPlayerScreen(
-            // The episode's page takes the player's place, and plays the video
-            onWatchVideo = { item ->
+    entry<AudioPlayerRoute> {
+        val context = LocalContext.current
+        AudioPlayerScreen(
+            onWatchVideo = { episode, positionMs ->
                 navigator.goBack()
-                navigator.navigate(JrwiItemRoute(item.id, playVideo = true))
+                when (episode) {
+                    // The episode's page takes the player's place, and plays the video
+                    is AudioEpisode.Jrwi ->
+                        navigator.navigate(JrwiItemRoute(episode.item.id, playVideo = true))
+                    // The video player, from the same moment
+                    is AudioEpisode.Ta ->
+                        startTaPlayback(
+                            context = context,
+                            episodeId = episode.episodeId,
+                            startFromBeginning = false,
+                            positionSeconds = positionMs?.div(1000.0),
+                            playlistId = episode.playlistId,
+                            showVideo = true,
+                        )
+                }
             },
-            onOpenEpisode = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
+            onOpenEpisode =
+                resumedAction<AudioEpisode> { episode ->
+                    when (episode) {
+                        is AudioEpisode.Jrwi ->
+                            episode.item.audio?.let { navigator.navigate(JrwiItemRoute(it.postId)) }
+                        is AudioEpisode.Ta ->
+                            navigator.navigate(
+                                episode.videoId?.let { TaVideoRoute(it, episode.playlistId) }
+                                    ?: EpisodeRoute(episodeId = episode.episodeId.toString())
+                            )
+                    }
+                },
             navigateBack = dropUnlessResumed { navigator.goBack() },
         )
     }

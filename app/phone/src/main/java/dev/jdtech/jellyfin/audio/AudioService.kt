@@ -1,4 +1,4 @@
-package dev.jdtech.jellyfin.jrwiaudio
+package dev.jdtech.jellyfin.audio
 
 import android.content.Intent
 import androidx.media3.session.MediaSession
@@ -7,12 +7,12 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 /**
- * Keeps the JRWI audio player going with the app in the background or closed, with its notification
- * and the phone's media controls. The player itself is [JrwiAudioPlayer]'s.
+ * Keeps the audio player going with the app in the background or closed, with its notification and
+ * the phone's media controls. The player itself is [AudioPlayer]'s.
  */
 @AndroidEntryPoint
-class JrwiAudioService : MediaSessionService() {
-    @Inject lateinit var audio: JrwiAudioPlayer
+class AudioService : MediaSessionService() {
+    @Inject lateinit var audio: AudioPlayer
 
     override fun onCreate() {
         super.onCreate()

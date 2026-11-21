@@ -62,6 +62,7 @@ import androidx.navigation3.runtime.NavKey
 import coil3.load
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
+import dev.jdtech.jellyfin.audio.AudioPlayer
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.databinding.ActivityPlayerBinding
 import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
@@ -100,6 +101,8 @@ var isControlsLocked: Boolean = false
 class PlayerActivity : BasePlayerActivity() {
 
     @Inject lateinit var appPreferences: AppPreferences
+
+    @Inject lateinit var audioPlayer: AudioPlayer
 
     lateinit var binding: ActivityPlayerBinding
     private var playerGestureHelper: PlayerGestureHelper? = null
@@ -553,6 +556,7 @@ class PlayerActivity : BasePlayerActivity() {
             pipControlReceiverRegistered = true
         }
 
+        if (intent.getBooleanExtra(EXTRA_SHOW_VIDEO, false)) viewModel.preferVideo()
         viewModel.initializePlayer(
             itemId = itemId,
             itemKind = itemKind ?: "",
@@ -608,6 +612,7 @@ class PlayerActivity : BasePlayerActivity() {
         val itemKind = intent.extras!!.getString("itemKind")
         val startFromBeginning = intent.extras!!.getBoolean("startFromBeginning")
 
+        if (intent.getBooleanExtra(EXTRA_SHOW_VIDEO, false)) viewModel.preferVideo()
         viewModel.initializePlayer(
             itemId = itemId,
             itemKind = itemKind ?: "",
@@ -616,6 +621,35 @@ class PlayerActivity : BasePlayerActivity() {
             taPlaylistId = intent.extras?.getString("taPlaylistId"),
             jrwiAudioPostId = intent.extras?.getLong(EXTRA_JRWI_AUDIO, 0L)?.takeIf { it > 0 },
         )
+    }
+
+    /**
+     * Picking only the sound of a TubeArchivist video plays it on in the app's audio player, from
+     * the same moment and with the rest of its playlist, and closes this one. False for other
+     * videos, which play their sound here.
+     */
+    fun listenInAudioPlayer(): Boolean {
+        val page = viewModel.currentItemPage() as? PlayerViewModel.ItemPage.TubeArchivist
+        val episodeId =
+            viewModel.player.currentMediaItem?.mediaId?.let {
+                try {
+                    UUID.fromString(it)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+            }
+        if (page == null || episodeId == null) return false
+        val position = viewModel.player.currentPosition
+        viewModel.player.pause()
+        audioPlayer.playTa(
+            episodeId = episodeId,
+            videoId = page.videoId,
+            positionMs = position,
+            playlistId = page.playlistId,
+        )
+        audioPlayer.requestOpen()
+        finish()
+        return true
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -1394,6 +1428,9 @@ private const val EXTRA_REOPEN_IN_PIP = "reopenInPip"
 
 /** The post ID of a JRWI episode's audio, to play from the archiver rather than Jellyfin. */
 const val EXTRA_JRWI_AUDIO = "jrwiAudioPostId"
+
+/** Shows the picture even when Settings stream only the sound, as asked from the audio player. */
+const val EXTRA_SHOW_VIDEO = "showVideo"
 private const val EXTRA_PIP_CONTROL = "control"
 private const val PIP_CONTROL_PLAY = 1
 private const val PIP_CONTROL_PAUSE = 2

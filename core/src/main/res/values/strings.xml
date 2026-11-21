@@ -572,4 +572,6 @@
     <string name="jrwi_player_sleep_at_end">Pauses at the end of the episode</string>
     <string name="jrwi_player_sleep_off">Turn off</string>
     <string name="jrwi_player_watch_video">Watch the video from here</string>
+    <string name="audio_player_next">Next video</string>
+    <string name="audio_player_video_page">Video page</string>
 </resources>
