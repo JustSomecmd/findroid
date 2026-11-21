@@ -44,7 +44,7 @@ fun TaDownloadsScreen(
     /** The phone and server sides, when the main pager needs to turn them. */
     sides: PagerState = rememberSidePagerState(),
     /** Which downloads on the phone it lists: without JRWI's when JRWI has its own mode. */
-    scope: DownloadsScope = DownloadsScope.ALL,
+    downloadsScope: DownloadsScope = DownloadsScope.ALL,
 ) {
     val scope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -92,7 +92,7 @@ fun TaDownloadsScreen(
                         onItemClick = onItemClick,
                         onJrwiItemClick = onJrwiItemClick,
                         embedded = true,
-                        scope = scope,
+                        scope = downloadsScope,
                     )
                 },
                 server = { TaQueueScreen(embedded = true, onChannelClick = onChannelClick) },

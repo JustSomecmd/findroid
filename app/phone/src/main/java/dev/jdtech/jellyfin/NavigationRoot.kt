@@ -899,7 +899,7 @@ private fun TaMainPager(
                         onJrwiItemClick =
                             resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
                         sides = downloadSides,
-                        scope =
+                        downloadsScope =
                             if (hideJrwiDownloads) DownloadsScope.NOT_JRWI else DownloadsScope.ALL,
                     )
             }
@@ -1128,7 +1128,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
                     onChannelClick =
                         resumedAction<String> { navigator.navigateOrReuse(TaChannelRoute(it)) },
                     onJrwiItemClick = onJrwiItemClick,
-                    scope = scope,
+                    downloadsScope = scope,
                 )
             }
         } else {
