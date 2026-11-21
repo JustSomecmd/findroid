@@ -1,8 +1,15 @@
 package dev.jdtech.jellyfin.presentation.jrwi
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Environment
+import android.os.StatFs
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,6 +70,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -95,6 +103,10 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderAction
+import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderEvent
+import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderState
+import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemEvent
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemViewModel
@@ -107,8 +119,14 @@ import dev.jdtech.jellyfin.jrwi.JrwiBadge
 import dev.jdtech.jellyfin.jrwi.JrwiComment
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiShow
+import dev.jdtech.jellyfin.models.FindroidEpisode
+import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.presentation.components.pageSwipes
 import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
+import dev.jdtech.jellyfin.presentation.film.components.CancelDownloadDialog
+import dev.jdtech.jellyfin.presentation.film.components.DeleteDownloadDialog
+import dev.jdtech.jellyfin.presentation.film.components.DownloaderCard
+import dev.jdtech.jellyfin.presentation.film.components.StorageSelectionDialog
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.TaSectionTitle
 import dev.jdtech.jellyfin.presentation.tube.formatBytes
@@ -600,12 +618,24 @@ fun JrwiItemScreen(
     onOpenYoutube: (String) -> Unit,
     navigateBack: () -> Unit,
     viewModel: JrwiItemViewModel = hiltViewModel(),
+    // The video downloads through Jellyfin, as the app's other downloads
+    downloaderViewModel: DownloaderViewModel = hiltViewModel(),
 ) {
     // In the archiver's own colours
     JrwiTheme {
         val context = LocalContext.current
         val state by viewModel.state.collectAsStateWithLifecycle()
         val download by viewModel.download.collectAsStateWithLifecycle()
+        val videoDownload by downloaderViewModel.state.collectAsStateWithLifecycle()
+        LaunchedEffect(state.jellyfinEpisode) {
+            state.jellyfinEpisode?.let { downloaderViewModel.update(it) }
+        }
+        ObserveAsEvents(downloaderViewModel.events) { event ->
+            when (event) {
+                is DownloaderEvent.Successful,
+                is DownloaderEvent.Deleted -> viewModel.reloadEpisode()
+            }
+        }
         // Loaded again on coming back from the player, for the new position
         LifecycleResumeEffect(postId) {
             viewModel.load(postId)
@@ -741,6 +771,28 @@ fun JrwiItemScreen(
                             entry = download,
                             onDownload = viewModel::downloadAudio,
                             onRemove = viewModel::removeDownload,
+                        )
+                    }
+                }
+                val episode = state.jellyfinEpisode
+                if (
+                    !playsAudio &&
+                        episode != null &&
+                        (episode.canDownload || episode.isDownloaded())
+                ) {
+                    item(key = "video_download") {
+                        JrwiVideoDownloadRow(
+                            episode = episode,
+                            state = videoDownload,
+                            onAction = { action ->
+                                when (action) {
+                                    is DownloaderAction.Download -> viewModel.keepVideo()
+                                    is DownloaderAction.DeleteDownload,
+                                    is DownloaderAction.CancelDownload -> viewModel.forgetVideo()
+                                    else -> {}
+                                }
+                                downloaderViewModel.onAction(action)
+                            },
                         )
                     }
                 }
@@ -910,6 +962,133 @@ private fun JrwiDownloadRow(
                     )
                 }
         }
+    }
+}
+
+/**
+ * The archived video's download, through Jellyfin like the app's other downloads: a button to start
+ * it, how far it's got with pause and cancel, or that it's on the phone.
+ */
+@Composable
+private fun JrwiVideoDownloadRow(
+    episode: FindroidEpisode,
+    state: DownloaderState,
+    onAction: (DownloaderAction) -> Unit,
+) {
+    val context = LocalContext.current
+    var storageDialogOpen by remember { mutableStateOf(false) }
+    var cancelDialogOpen by remember { mutableStateOf(false) }
+    var deleteDialogOpen by remember { mutableStateOf(false) }
+    var storageIndex by remember { mutableIntStateOf(0) }
+    // Progress shows in a notification, which needs this permission on Android 13 and newer. The
+    // download starts whether or not it's given.
+    val notificationPermission =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val startDownload: () -> Unit = {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (context.getExternalFilesDirs(null).size > 1) {
+            storageDialogOpen = true
+        } else {
+            storageIndex = 0
+            onAction(DownloaderAction.Download(episode, 0))
+        }
+    }
+    if (state.isDownloading) {
+        Box(Modifier.padding(horizontal = MaterialTheme.spacings.medium, vertical = 4.dp)) {
+            DownloaderCard(
+                state = state,
+                onCancelClick = { cancelDialogOpen = true },
+                onRetryClick = {
+                    if (state.canResume) onAction(DownloaderAction.ResumeDownload(episode))
+                    else onAction(DownloaderAction.Download(episode, storageIndex))
+                },
+                onPauseClick = { onAction(DownloaderAction.PauseDownload(episode)) },
+                onResumeClick = { onAction(DownloaderAction.ResumeDownload(episode)) },
+            )
+        }
+    } else {
+        val downloaded = episode.isDownloaded()
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+                Modifier.fillMaxWidth()
+                    .padding(horizontal = MaterialTheme.spacings.medium, vertical = 4.dp),
+        ) {
+            Icon(
+                painter = painterResource(CoreR.drawable.ic_download),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(MaterialTheme.spacings.small))
+            Text(
+                text =
+                    stringResource(
+                        if (downloaded) CoreR.string.jrwi_video_downloaded
+                        else CoreR.string.jrwi_download_video
+                    ),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            if (downloaded) {
+                TextButton(onClick = { deleteDialogOpen = true }) {
+                    Text(stringResource(CoreR.string.jrwi_download_remove))
+                }
+            } else {
+                TextButton(onClick = startDownload) {
+                    Text(stringResource(CoreR.string.jrwi_download))
+                }
+            }
+        }
+    }
+    if (storageDialogOpen) {
+        val locations = remember {
+            context.getExternalFilesDirs(null).map { dir ->
+                val where =
+                    context.getString(
+                        if (Environment.isExternalStorageRemovable(dir)) CoreR.string.external
+                        else CoreR.string.internal
+                    )
+                context.getString(
+                    CoreR.string.storage_name,
+                    where,
+                    StatFs(dir.path).availableBytes / 1_000_000,
+                )
+            }
+        }
+        StorageSelectionDialog(
+            storageLocations = locations,
+            onSelect = { index ->
+                storageIndex = index
+                storageDialogOpen = false
+                onAction(DownloaderAction.Download(episode, index))
+            },
+            onDismiss = { storageDialogOpen = false },
+        )
+    }
+    if (cancelDialogOpen) {
+        CancelDownloadDialog(
+            onCancel = {
+                cancelDialogOpen = false
+                onAction(DownloaderAction.CancelDownload(episode))
+            },
+            onDismiss = { cancelDialogOpen = false },
+        )
+    }
+    if (deleteDialogOpen) {
+        DeleteDownloadDialog(
+            onDelete = {
+                deleteDialogOpen = false
+                onAction(DownloaderAction.DeleteDownload(episode))
+            },
+            onDismiss = { deleteDialogOpen = false },
+        )
     }
 }
 

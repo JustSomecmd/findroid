@@ -19,10 +19,14 @@ import dev.jdtech.jellyfin.jrwi.JrwiProgressChange
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.jrwi.JrwiShow
 import dev.jdtech.jellyfin.jrwi.JrwiStatus
+import dev.jdtech.jellyfin.models.FindroidEpisode
+import dev.jdtech.jellyfin.models.isDownloaded
+import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaPage
 import dev.jdtech.jellyfin.tubearchivist.TaPaginate
 import java.io.IOException
+import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
@@ -272,6 +276,8 @@ data class JrwiItemState(
     val content: JrwiItemContent = JrwiItemContent(),
     /** The archiver can't be reached, so this is the copy kept with the audio's download. */
     val offline: Boolean = false,
+    /** Jellyfin's episode of the archived video, for downloading it, once looked up. */
+    val jellyfinEpisode: FindroidEpisode? = null,
 )
 
 /**
@@ -312,6 +318,8 @@ constructor(
     private val jrwiProgress: JrwiProgressSync,
     private val jrwiDownloads: JrwiDownloads,
     private val jrwiDownloader: JrwiDownloader,
+    // Online or offline, as it is at the time
+    private val repository: JellyfinRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(JrwiItemState())
     val state = _state.asStateFlow()
@@ -382,10 +390,72 @@ constructor(
         } catch (e: IOException) {
             if (e is JrwiApiException) throw e
             val saved =
-                jrwiDownloads.forPost(postId)?.let { jrwiDownloads.savedItem(it.itemId) } ?: throw e
+                jrwiDownloads.forPost(postId)?.let { jrwiDownloads.savedItem(it.itemId) }
+                    ?: jrwiDownloads.savedVideo(postId)?.item
+                    ?: throw e
             _state.update { it.copy(offline = true) }
             saved
         }
+
+    private var episodeJob: Job? = null
+
+    /**
+     * Looks up Jellyfin's episode of an archived video, for its download. The video downloads
+     * through Jellyfin like its other downloads; YouTube-only videos download through
+     * TubeArchivist.
+     */
+    private fun lookUpEpisode(item: JrwiItem) {
+        if (item.video?.isYoutube != false) return
+        if (_state.value.jellyfinEpisode != null || episodeJob?.isActive == true) return
+        episodeJob = viewModelScope.launch {
+            val episodeId = episodeIdOf(item) ?: return@launch
+            val episode =
+                try {
+                    repository.getEpisode(episodeId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+            _state.update { it.copy(episodeId = episodeId, jellyfinEpisode = episode) }
+            // A download made elsewhere, such as on the Jellyfin episode's page, gets it too
+            if (episode?.isDownloaded() == true) jrwiDownloads.saveVideo(item, episodeId.toString())
+        }
+    }
+
+    /**
+     * Jellyfin's copy of the video: as looked up before, from Jellyfin, or kept with a download.
+     */
+    private suspend fun episodeIdOf(item: JrwiItem): UUID? =
+        _state.value.episodeId
+            ?: jrwiProgress.episodeId(item)
+            ?: jrwiDownloads.savedVideo(item.id)?.episodeId?.let {
+                runCatching { UUID.fromString(it) }.getOrNull()
+            }
+
+    /** Looks at the episode again, once its download has finished or been removed. */
+    fun reloadEpisode() {
+        val item = _state.value.item ?: return
+        episodeJob?.cancel()
+        _state.update { it.copy(jellyfinEpisode = null) }
+        lookUpEpisode(item)
+    }
+
+    /**
+     * The video's download starts: the episode is kept with it, so the video's progress goes to the
+     * archive and its page opens without a connection.
+     */
+    fun keepVideo() {
+        val state = _state.value
+        val item = state.item ?: return
+        val episodeId = state.episodeId ?: return
+        jrwiDownloads.saveVideo(item, episodeId.toString())
+    }
+
+    /** The video's download is removed, and what was kept with it goes too. */
+    fun forgetVideo() {
+        _state.value.item?.let { jrwiDownloads.deleteVideo(it.id) }
+    }
 
     /** Downloads the audio, to listen to without a connection. */
     fun downloadAudio() {
@@ -411,6 +481,7 @@ constructor(
     }
 
     private fun showContent(item: JrwiItem, audio: Boolean) {
+        if (!audio) lookUpEpisode(item)
         val postId = contentPostId(item, audio)
         val content = contents.getOrPut(postId) { MutableStateFlow(JrwiItemContent()) }
         // In one go, so the page never shows one version's comments under the other's switch
@@ -510,7 +581,7 @@ constructor(
                     return@launch
                 }
             _state.update { it.copy(lookingUp = true) }
-            val episodeId = jrwiProgress.episodeId(item)
+            val episodeId = episodeIdOf(item)
             _state.update { it.copy(lookingUp = false, episodeId = episodeId) }
             if (episodeId == null) {
                 _events.send(JrwiItemEvent.Message(JrwiMessages.NOT_IN_JELLYFIN))

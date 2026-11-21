@@ -505,7 +505,11 @@ constructor(
         jrwiItem = null
         jrwiLastReport = 0L
         if (!jrwiApi.isConfigured) return
-        val item = jrwiProgress.itemForEpisode(itemId) ?: return
+        // A video downloaded from its JRWI page kept its episode, for playing without a connection
+        val item =
+            jrwiProgress.itemForEpisode(itemId)
+                ?: jrwiDownloads.savedVideoForEpisode(itemId.toString())?.item
+                ?: return
         // Kept without audio too, for the title to open the post
         if (player.currentMediaItem?.mediaId == itemId.toString()) jrwiItem = item
     }

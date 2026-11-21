@@ -459,6 +459,8 @@
     <string name="jrwi_season_episode">Season %1$d, episode %2$d</string>
     <string name="jrwi_download_audio">Download the audio</string>
     <string name="jrwi_download">Download</string>
+    <string name="jrwi_download_video">Download the video</string>
+    <string name="jrwi_video_downloaded">Video on this phone</string>
     <string name="jrwi_download_waiting">Waiting to download the audio</string>
     <string name="jrwi_download_running">Downloading the audio: %1$d%%</string>
     <string name="jrwi_download_failed">The archiver couldn\'t give the audio</string>

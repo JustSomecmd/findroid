@@ -32,6 +32,13 @@ data class JrwiDownload(
     val addedAt: Long = 0,
 )
 
+/**
+ * A JRWI episode whose archived video was downloaded through Jellyfin, as its other downloads are.
+ * The episode is kept with the Jellyfin episode's ID, so the video's progress still goes to the
+ * archive, and its page still opens, without a connection.
+ */
+@Serializable data class JrwiSavedVideo(val episodeId: String, val item: JrwiItem)
+
 /** Starts and removes downloads of episodes' audio, which run in the background. */
 interface JrwiDownloader {
     /** Downloads the audio of [item], with what's needed to show its page without a connection. */
@@ -48,6 +55,7 @@ interface JrwiDownloader {
  */
 class JrwiDownloads(context: Context) {
     private val dir = File(context.filesDir, "jrwi")
+    private val videoDir = File(dir, VIDEOS)
     private val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -142,6 +150,40 @@ class JrwiDownloads(context: Context) {
         setProgress(itemId, null)
     }
 
+    /** Keeps the episode with its Jellyfin episode, for a video downloaded through Jellyfin. */
+    @Synchronized
+    fun saveVideo(item: JrwiItem, episodeId: String) {
+        videoDir.mkdirs()
+        val text = json.encodeToString(JrwiSavedVideo.serializer(), JrwiSavedVideo(episodeId, item))
+        File(videoDir, "${item.id}.json").writeText(text)
+    }
+
+    /** The kept episode of a downloaded video, by any of its post IDs. */
+    fun savedVideo(postId: Long): JrwiSavedVideo? =
+        readVideo(File(videoDir, "$postId.json"))
+            ?: savedVideos().firstOrNull { it.item.video?.postId == postId }
+
+    /** The kept episode of the Jellyfin episode [episodeId], when its video was downloaded. */
+    fun savedVideoForEpisode(episodeId: String): JrwiSavedVideo? =
+        savedVideos().firstOrNull { it.episodeId == episodeId }
+
+    fun deleteVideo(itemId: Long) {
+        File(videoDir, "$itemId.json").delete()
+    }
+
+    private fun savedVideos(): List<JrwiSavedVideo> =
+        videoDir.listFiles()?.mapNotNull { readVideo(it) }.orEmpty()
+
+    private fun readVideo(file: File): JrwiSavedVideo? {
+        if (!file.exists()) return null
+        return try {
+            json.decodeFromString(JrwiSavedVideo.serializer(), file.readText())
+        } catch (e: Exception) {
+            Timber.w(e, "Could not read the kept JRWI video ${file.name}")
+            null
+        }
+    }
+
     private fun folder(itemId: Long) = File(dir, itemId.toString())
 
     private fun readAll(): List<JrwiDownload> =
@@ -186,5 +228,6 @@ class JrwiDownloads(context: Context) {
         const val COMMENTS = "comments.json"
         const val AUDIO = "audio"
         const val THUMBNAIL = "thumbnail"
+        const val VIDEOS = "videos"
     }
 }
