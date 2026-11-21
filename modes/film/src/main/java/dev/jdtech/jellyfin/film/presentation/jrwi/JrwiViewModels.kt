@@ -11,6 +11,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiComment
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiPage
 import dev.jdtech.jellyfin.jrwi.JrwiProblem
+import dev.jdtech.jellyfin.jrwi.JrwiProgressChange
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.jrwi.JrwiShow
 import dev.jdtech.jellyfin.jrwi.JrwiStatus
@@ -21,6 +22,7 @@ import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,10 +72,17 @@ object JrwiMessages {
     const val NOT_IN_JELLYFIN = "jrwi:not_in_jellyfin"
 }
 
+/** [this] with the progress just saved for one of its items. */
+private fun List<JrwiItem>.withProgress(change: JrwiProgressChange): List<JrwiItem> {
+    return map { if (it.id == change.itemId) it.copy(progress = change.progress) else it }
+}
+
 data class JrwiShowsState(
     val configured: Boolean = false,
     val shows: List<JrwiShow> = emptyList(),
     val latest: List<JrwiItem> = emptyList(),
+    /** For shows without art of their own, the picture of their newest item, by show ID. */
+    val showPictures: Map<String, String> = emptyMap(),
     val loading: Boolean = false,
     val error: String? = null,
 )
@@ -88,6 +97,15 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
     val state = _state.asStateFlow()
 
     private var job: Job? = null
+
+    init {
+        // Marks what's been played since the row was loaded
+        viewModelScope.launch {
+            jrwiProgress.changes.collect { change ->
+                _state.update { it.copy(latest = it.latest.withProgress(change)) }
+            }
+        }
+    }
 
     /** Loads the shows, unless they're in already. [force] loads them again anyway. */
     fun load(force: Boolean = false) {
@@ -108,10 +126,10 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
                     } catch (_: Exception) {
                         emptyList()
                     }
-                jrwiProgress.remember(latest)
                 _state.update {
                     it.copy(shows = shows, latest = latest, loading = false, error = null)
                 }
+                loadShowPictures(shows, latest)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -120,8 +138,41 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
         }
     }
 
+    /**
+     * Shows whose page on the site has no art of its own get the picture of their newest item, as
+     * on the archiver's web app: from the Latest row when it has one of theirs, or else asked for.
+     */
+    private suspend fun loadShowPictures(shows: List<JrwiShow>, latest: List<JrwiItem>) {
+        val missing = shows.filter { it.poster == null && it.banner == null }.map { it.id }
+        if (missing.isEmpty()) return
+        val pictures = mutableMapOf<String, String>()
+        // Newest first, so the first picture of a show is its newest
+        latest.forEach { item ->
+            val picture = item.thumbnail ?: return@forEach
+            if (item.show in missing) pictures.putIfAbsent(item.show, picture)
+        }
+        val toAsk = missing.filter { it !in pictures }
+        val found = coroutineScope { toAsk.map { async { it to newestPicture(it) } }.awaitAll() }
+        found.forEach { (showId, picture) -> picture?.let { pictures[showId] = it } }
+        _state.update { it.copy(showPictures = pictures.toMap()) }
+    }
+
+    /** The picture of a show's newest item that has one, or null. */
+    private suspend fun newestPicture(showId: String): String? =
+        try {
+            val items = jrwiApi.search(show = showId, pageSize = PICTURE_SEARCH_SIZE).items
+            items.firstNotNullOfOrNull { it.thumbnail }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+
     private companion object {
         const val LATEST_COUNT = 20
+
+        // Text posts have no picture, so a few items in case the newest are those
+        const val PICTURE_SEARCH_SIZE = 10
     }
 }
 
@@ -140,6 +191,17 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
     private val lists = mutableMapOf<String, MutableStateFlow<TaListState<JrwiItem>>>()
 
     private var showId: String? = null
+
+    init {
+        // Marks what's been played since the lists were loaded
+        viewModelScope.launch {
+            jrwiProgress.changes.collect { change ->
+                lists.values.forEach { list ->
+                    list.update { it.copy(items = it.items.withProgress(change)) }
+                }
+            }
+        }
+    }
 
     fun load(showId: String) {
         if (this.showId == showId && _show.value != null) return
@@ -165,9 +227,7 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
         viewModelScope.launch {
             items(tab).loadNextPage(key = { it.id.toString() }) { page ->
                 // Episodes go by number, newest first, as on the site
-                val items = jrwiApi.getShowItems(showId, tab, page = page)
-                jrwiProgress.remember(items.items)
-                items.asTaPage()
+                jrwiApi.getShowItems(showId, tab, page = page).asTaPage()
             }
         }
     }
@@ -236,7 +296,6 @@ constructor(
         viewModelScope.launch {
             try {
                 val item = _state.value.item ?: jrwiApi.getItem(postId)
-                jrwiProgress.remember(listOf(item))
                 _state.update { it.copy(item = item, error = null) }
                 refreshProgress(item)
                 if (comments.value.page == 0) loadMoreComments()

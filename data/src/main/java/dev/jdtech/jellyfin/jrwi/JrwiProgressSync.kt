@@ -5,7 +5,12 @@ import dev.jdtech.jellyfin.tubearchivist.TaApi
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import timber.log.Timber
+
+/** An episode's progress as just saved, for the item [itemId] in lists. */
+data class JrwiProgressChange(val itemId: Long, val progress: JrwiProgress)
 
 /**
  * Keeps the video and the audio of a JRWI episode on one position and one watched state, the way
@@ -22,9 +27,10 @@ class JrwiProgressSync(
 ) {
     private val showNames = ConcurrentHashMap<String, String>()
 
-    // The archiver's YouTube-only videos by YouTube ID, from the items the JRWI tab has loaded, so
-    // playing one through TubeArchivist saves to the archive too
-    private val youtubePosts = ConcurrentHashMap<String, Long>()
+    private val _changes = MutableSharedFlow<JrwiProgressChange>(extraBufferCapacity = 16)
+
+    /** Progress as it's saved from this app, so lists can update their marks. */
+    val changes = _changes.asSharedFlow()
 
     /**
      * How far the episode was played, in the timeline of its video or, with [audio], its audio.
@@ -42,22 +48,16 @@ class JrwiProgressSync(
         }
     }
 
-    /** Notes the YouTube IDs of [items] whose video is only on YouTube. */
-    fun remember(items: List<JrwiItem>) {
-        items.forEach { item ->
-            item.video?.takeIf { it.isYoutube }?.youtubeId?.let { youtubePosts[it] = item.id }
-        }
-    }
-
     /**
-     * The archiver's item of a TubeArchivist video, when it's one of its YouTube-only videos that
-     * the JRWI tab has loaded since the app started.
+     * The archiver's item of a TubeArchivist video, when it's one of its YouTube-only videos. An
+     * item whose own video is archived plays from Jellyfin instead, so it isn't one.
      */
     suspend fun itemForYoutube(youtubeId: String): JrwiItem? {
         if (!jrwiApi.isConfigured) return null
-        val postId = youtubePosts[youtubeId] ?: return null
         return try {
-            jrwiApi.getItem(postId).takeIf { it.video?.youtubeId == youtubeId }
+            // Older archivers ignore the filter and list their newest items, which this skips
+            val items = jrwiApi.search(youtubeId = youtubeId, pageSize = 5).items
+            items.firstOrNull { it.video?.youtubeId == youtubeId }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -105,7 +105,8 @@ class JrwiProgressSync(
         durationSeconds: Double?,
     ) {
         val video = item.video ?: return
-        jrwiApi.setProgress(
+        save(
+            item,
             video.postId,
             if (finished) 0.0 else videoSeconds,
             video.duration ?: durationSeconds,
@@ -126,7 +127,8 @@ class JrwiProgressSync(
         durationSeconds: Double?,
     ) {
         val audio = item.audio ?: return
-        jrwiApi.setProgress(
+        save(
+            item,
             audio.postId,
             if (finished) 0.0 else audioSeconds,
             audio.duration ?: durationSeconds,
@@ -158,8 +160,8 @@ class JrwiProgressSync(
         val video = item.video
         val audio = item.audio
         when {
-            video != null -> jrwiApi.setProgress(video.postId, 0.0, video.duration, watched)
-            audio != null -> jrwiApi.setProgress(audio.postId, 0.0, audio.duration, watched)
+            video != null -> save(item, video.postId, 0.0, video.duration, watched)
+            audio != null -> save(item, audio.postId, 0.0, audio.duration, watched)
         }
         if (video == null) return
         if (video.isYoutube) {
@@ -170,6 +172,18 @@ class JrwiProgressSync(
         val episodeId = episodeId(item) ?: return
         if (watched) repository().markAsPlayed(episodeId)
         else repository().markAsUnplayed(episodeId)
+    }
+
+    /** Saves progress on the archiver and tells the lists showing [item]. */
+    private suspend fun save(
+        item: JrwiItem,
+        postId: Long,
+        position: Double,
+        duration: Double?,
+        finished: Boolean,
+    ) {
+        val saved = jrwiApi.setProgress(postId, position, duration, finished)
+        _changes.tryEmit(JrwiProgressChange(item.id, saved))
     }
 
     /** The name of a show, or null when the archiver can't be reached. */

@@ -124,12 +124,16 @@ class JrwiApi(private val config: JrwiConfig) {
             }
         )
 
-    /** Searches everything, or one show, tab or kind (video, audio or post). */
+    /**
+     * Searches everything, or one show, tab or kind (video, audio or post). [youtubeId] gives the
+     * items that embed that YouTube video, on archiver 0.4.1 or newer; older ones ignore it.
+     */
     suspend fun search(
         query: String? = null,
         show: String? = null,
         tab: String? = null,
         kind: String? = null,
+        youtubeId: String? = null,
         page: Int = 1,
         pageSize: Int = PAGE_SIZE,
     ): JrwiPage<JrwiItem> =
@@ -139,6 +143,7 @@ class JrwiApi(private val config: JrwiConfig) {
                 show?.let { addQueryParameter("show", it) }
                 tab?.let { addQueryParameter("tab", it) }
                 kind?.let { addQueryParameter("kind", it) }
+                youtubeId?.let { addQueryParameter("youtube_id", it) }
                 addQueryParameter("page", page.toString())
                 addQueryParameter("page_size", pageSize.toString())
             }

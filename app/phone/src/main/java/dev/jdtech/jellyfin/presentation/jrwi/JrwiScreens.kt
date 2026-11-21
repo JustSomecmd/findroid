@@ -270,7 +270,11 @@ fun JrwiShowsScreen(
                         }
                     }
                     items(state.shows, key = { it.id }) { show ->
-                        JrwiShowCard(show = show, onClick = { onShowClick(show.id) })
+                        JrwiShowCard(
+                            show = show,
+                            picture = state.showPictures[show.id],
+                            onClick = { onShowClick(show.id) },
+                        )
                     }
                 }
             }
@@ -278,11 +282,12 @@ fun JrwiShowsScreen(
     }
 }
 
+/** A show's tile. [picture] stands in for the show's own art when it has none. */
 @Composable
-private fun JrwiShowCard(show: JrwiShow, onClick: () -> Unit) {
+private fun JrwiShowCard(show: JrwiShow, picture: String?, onClick: () -> Unit) {
     Column(modifier = Modifier.clip(JrwiShape).clickable(onClick = onClick)) {
         JrwiImage(
-            path = show.poster ?: show.banner,
+            path = show.poster ?: show.banner ?: picture,
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(JrwiShape),
         )
         Text(
@@ -328,11 +333,35 @@ private fun JrwiItemCard(item: JrwiItem, onClick: () -> Unit, modifier: Modifier
     }
 }
 
-/** An item's picture with its length, and whether it has a video, audio or both. */
+/**
+ * An item's picture with its length, and whether it has a video, audio or both. With [marks], a
+ * check when it was watched and a bar when it was partly played, as in the TubeArchivist lists.
+ */
 @Composable
-private fun JrwiThumbnail(item: JrwiItem, modifier: Modifier = Modifier) {
+private fun JrwiThumbnail(item: JrwiItem, modifier: Modifier = Modifier, marks: Boolean = true) {
     Box(modifier = modifier.aspectRatio(16f / 9f).clip(JrwiShape)) {
         JrwiImage(path = item.thumbnail, modifier = Modifier.fillMaxSize())
+        if (marks && item.progress?.finished == true) {
+            Icon(
+                painter = painterResource(CoreR.drawable.ic_check),
+                contentDescription = stringResource(CoreR.string.jrwi_watched),
+                tint = JrwiColors.AccentInk,
+                modifier =
+                    Modifier.align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .clip(CircleShape)
+                        .background(JrwiColors.Accent)
+                        .padding(4.dp)
+                        .size(14.dp),
+            )
+        }
+        val played = item.playedFraction
+        if (marks && played != null) {
+            val bar = Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp)
+            Box(modifier = bar.background(Color.Black.copy(alpha = 0.4f))) {
+                Box(Modifier.fillMaxWidth(played).height(4.dp).background(JrwiColors.Accent))
+            }
+        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -801,7 +830,8 @@ private fun JrwiItemHeader(
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
     ) {
         Box {
-            JrwiThumbnail(item = item, modifier = Modifier.fillMaxWidth())
+            // With its own bar, for the version that's picked
+            JrwiThumbnail(item = item, modifier = Modifier.fillMaxWidth(), marks = false)
             val length =
                 (if (playsAudio) item.audio?.duration else item.video?.duration) ?: item.duration
             if (!finished && position > 0 && length != null && length > 0) {

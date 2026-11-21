@@ -88,6 +88,8 @@ data class JrwiItem(
     val video: JrwiVideo? = null,
     val audio: JrwiAudio? = null,
     val sync: JrwiSync? = null,
+    /** Where the episode was left, in its main post's timeline; null when it was never played. */
+    val progress: JrwiProgress? = null,
     @SerialName("comment_count") val commentCount: Int? = null,
     @SerialName("like_count") val likeCount: Int? = null,
     val locked: Boolean = false,
@@ -120,6 +122,18 @@ data class JrwiItem(
     /** The moment in the video that matches [audioSeconds] in the audio. */
     fun videoSeconds(audioSeconds: Double): Double =
         (audioSeconds - offset).coerceIn(0.0, video?.duration ?: Double.MAX_VALUE)
+
+    /** How far through the episode [progress] is, from 0 to 1; null unless partly played. */
+    val playedFraction: Float?
+        get() {
+            val saved = progress?.takeIf { !it.finished && it.position > 0 } ?: return null
+            // In the timeline of the version it was saved in
+            val versionLength =
+                if (saved.postId == audio?.postId) audio?.duration else video?.duration
+            val length = saved.duration ?: versionLength ?: duration ?: return null
+            if (length <= 0) return null
+            return (saved.position / length).toFloat().coerceIn(0f, 1f)
+        }
 }
 
 @Serializable data class JrwiImage(val url: String)
