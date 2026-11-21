@@ -109,9 +109,11 @@ class JrwiApi(private val config: JrwiConfig) {
     /** One show, with its tabs. */
     suspend fun getShow(showId: String): JrwiShow = decode(get("api/shows/$showId"))
 
+    /** One tab of a show, or one season of it with [season] (archiver 0.7.0 and newer). */
     suspend fun getShowItems(
         showId: String,
         tab: String,
+        season: Int? = null,
         page: Int = 1,
         order: String = "desc",
         pageSize: Int = PAGE_SIZE,
@@ -119,6 +121,7 @@ class JrwiApi(private val config: JrwiConfig) {
         decode(
             get("api/shows/$showId/items") {
                 addQueryParameter("tab", tab)
+                if (season != null) addQueryParameter("season", season.toString())
                 addQueryParameter("order", order)
                 addQueryParameter("page", page.toString())
                 addQueryParameter("page_size", pageSize.toString())

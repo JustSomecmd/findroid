@@ -457,6 +457,9 @@
     </plurals>
     <string name="jrwi_episode">Episode %1$d</string>
     <string name="jrwi_season_episode">Season %1$d, episode %2$d</string>
+    <string name="jrwi_season">Season %1$d</string>
+    <string name="jrwi_season_named">Season %1$d: %2$s</string>
+    <string name="jrwi_tab_season">%1$s: Season %2$d</string>
     <string name="jrwi_download_audio">Download the audio</string>
     <string name="jrwi_download">Download</string>
     <string name="jrwi_download_video">Download the video</string>
@@ -493,7 +496,10 @@
     <string name="jrwi_pinned">Pinned</string>
     <string name="jrwi_open_comment">Open this comment on jrwishow.com</string>
     <string name="jrwi_nothing_here">Nothing here yet</string>
-    <string name="jrwi_server">Archiver</string>
+    <string name="jrwi_side_archive">Archive</string>
+    <string name="jrwi_picture_save">Save to Pictures</string>
+    <string name="jrwi_picture_close">Close</string>
+    <string name="jrwi_picture_saving">Saving %1$s to Pictures/JRWI</string>
     <string name="jrwi_check_now">Check now</string>
     <string name="jrwi_full_check">Full check</string>
     <string name="jrwi_check_started">The archiver is checking for new posts</string>

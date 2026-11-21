@@ -10,6 +10,11 @@ import android.os.StatFs
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,6 +44,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -73,12 +79,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
@@ -99,8 +107,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import coil3.compose.AsyncImage
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderAction
@@ -113,8 +124,10 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiMessages
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiServerViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiSettingsViewModel
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowPage
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowsViewModel
+import dev.jdtech.jellyfin.film.presentation.jrwi.pages
 import dev.jdtech.jellyfin.jrwi.JrwiBadge
 import dev.jdtech.jellyfin.jrwi.JrwiComment
 import dev.jdtech.jellyfin.jrwi.JrwiItem
@@ -127,8 +140,10 @@ import dev.jdtech.jellyfin.presentation.film.components.CancelDownloadDialog
 import dev.jdtech.jellyfin.presentation.film.components.DeleteDownloadDialog
 import dev.jdtech.jellyfin.presentation.film.components.DownloaderCard
 import dev.jdtech.jellyfin.presentation.film.components.StorageSelectionDialog
+import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.TaSectionTitle
+import dev.jdtech.jellyfin.presentation.tube.TaSideTitle
 import dev.jdtech.jellyfin.presentation.tube.formatBytes
 import dev.jdtech.jellyfin.presentation.tube.formatDuration
 import dev.jdtech.jellyfin.presentation.tube.fullDate
@@ -137,13 +152,16 @@ import dev.jdtech.jellyfin.presentation.tube.rememberSeparateRowScroll
 import dev.jdtech.jellyfin.presentation.tube.startJrwiAudio
 import dev.jdtech.jellyfin.presentation.tube.startTaPlayback
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 
 /** Address of the JRWI archiver, for the images it serves. */
 val LocalJrwiBaseUrl = staticCompositionLocalOf<String?> { null }
 
 /** Full address of a path the archiver gives, such as /files/posts/300/thumbnail.webp. */
 @Composable
-private fun jrwiUrl(path: String?): String? {
+internal fun jrwiUrl(path: String?): String? {
     if (path.isNullOrBlank()) return null
     // Including a picture kept on the phone with a download
     if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("file:")) {
@@ -193,14 +211,19 @@ private fun openUrl(context: Context, url: String?) {
 
 // The JRWI tab
 
-/** The JRWI tab: what's new, then the shows, as the Channels tab lists channels. */
+/**
+ * The JRWI tab: what's new, then the shows, as the Channels tab lists channels. Tapping the title,
+ * or the tab in the bottom bar while it's open ([serverToggles]), slides the archiver's own page
+ * down over the shows in the server colours, as Home and Downloads turn to their server side.
+ * Swipes still only go to the tabs next to it.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JrwiShowsScreen(
     onShowClick: (String) -> Unit,
     onItemClick: (Long) -> Unit,
-    onServerClick: () -> Unit,
     onSetUp: () -> Unit,
+    serverToggles: Flow<Unit> = emptyFlow(),
     viewModel: JrwiShowsViewModel = hiltViewModel(),
 ) {
     // In the archiver's own colours
@@ -211,100 +234,135 @@ fun JrwiShowsScreen(
             onPauseOrDispose {}
         }
         val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+        var onServer by rememberSaveable { mutableStateOf(false) }
+        val configured by rememberUpdatedState(state.configured)
+        LaunchedEffect(serverToggles) {
+            serverToggles.collect { if (configured) onServer = !onServer }
+        }
+        val serverShown = onServer && state.configured
+        // The purple glow belongs to the archive side
+        val glow by
+            animateFloatAsState(
+                targetValue = if (serverShown) 0f else 1f,
+                animationSpec = tween(SERVER_SLIDE_MILLIS),
+                label = "glow",
+            )
 
-        JrwiScaffold(
-            modifier =
-                Modifier.fillMaxSize()
-                    .recalculateWindowInsetsUnlessPaged()
-                    .nestedScroll(scrollBehavior.nestedScrollConnection),
-            topBar = {
-                TopAppBar(
-                    title = { Text(stringResource(CoreR.string.jrwi_tab)) },
-                    actions = {
-                        if (state.configured) {
-                            IconButton(onClick = onServerClick) {
-                                Icon(
-                                    painter = painterResource(CoreR.drawable.ic_server),
-                                    contentDescription = stringResource(CoreR.string.jrwi_server),
+        ServerSideTheme(onServer = serverShown) {
+            JrwiScaffold(
+                modifier =
+                    Modifier.fillMaxSize()
+                        .recalculateWindowInsetsUnlessPaged()
+                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            if (state.configured) {
+                                TaSideTitle(
+                                    title = stringResource(CoreR.string.jrwi_tab),
+                                    onServer = serverShown,
+                                    onToggle = { onServer = !onServer },
+                                    localIcon = CoreR.drawable.ic_dice,
+                                    localLabel = stringResource(CoreR.string.jrwi_side_archive),
                                 )
+                            } else {
+                                Text(stringResource(CoreR.string.jrwi_tab))
                             }
-                        }
-                    },
-                    windowInsets = TOP_BAR_INSETS,
-                    scrollBehavior = scrollBehavior,
-                    colors = jrwiTopBarColors(),
-                )
-            },
-            contentWindowInsets = TOP_BAR_INSETS,
-        ) { innerPadding ->
-            if (!state.configured) {
-                Column(
-                    modifier = Modifier.padding(innerPadding).fillMaxSize().padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text(
-                        text = stringResource(CoreR.string.jrwi_not_set_up),
-                        style = MaterialTheme.typography.bodyLarge,
+                        },
+                        windowInsets = TOP_BAR_INSETS,
+                        scrollBehavior = scrollBehavior,
+                        colors = jrwiTopBarColors(),
                     )
-                    Spacer(Modifier.height(MaterialTheme.spacings.medium))
-                    Button(shape = JrwiShape, onClick = onSetUp) {
-                        Text(stringResource(CoreR.string.jrwi_set_up))
-                    }
-                }
-                return@JrwiScaffold
-            }
-            PullToRefreshBox(
-                isRefreshing = state.loading,
-                onRefresh = { viewModel.load(force = true) },
-                modifier = Modifier.padding(innerPadding).fillMaxSize(),
-            ) {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(160.dp),
-                    contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                    verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    state.error?.let { error ->
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Text(text = error, color = MaterialTheme.colorScheme.error)
+                },
+                contentWindowInsets = TOP_BAR_INSETS,
+                glow = { glow },
+            ) { innerPadding ->
+                if (!state.configured) {
+                    Column(
+                        modifier = Modifier.padding(innerPadding).fillMaxSize().padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(
+                            text = stringResource(CoreR.string.jrwi_not_set_up),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Spacer(Modifier.height(MaterialTheme.spacings.medium))
+                        Button(shape = JrwiShape, onClick = onSetUp) {
+                            Text(stringResource(CoreR.string.jrwi_set_up))
                         }
                     }
-                    if (state.latest.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }, key = "latest") {
-                            Column {
-                                TaSectionTitle(stringResource(CoreR.string.jrwi_latest))
-                                val rowState = rememberLazyListState()
-                                // Scrolls apart from the main pages, as Continue watching does
-                                LazyRow(
-                                    state = rowState,
-                                    userScrollEnabled = false,
-                                    horizontalArrangement =
-                                        Arrangement.spacedBy(MaterialTheme.spacings.medium),
-                                    modifier = rememberSeparateRowScroll(rowState),
-                                ) {
-                                    items(state.latest, key = { it.id }) { item ->
-                                        JrwiItemCard(
-                                            item = item,
-                                            onClick = { onItemClick(item.id) },
-                                            modifier = Modifier.width(240.dp),
-                                        )
+                    return@JrwiScaffold
+                }
+                // The archiver's page slides down from under the title, over the shows
+                Box(modifier = Modifier.padding(innerPadding).fillMaxSize().clipToBounds()) {
+                    PullToRefreshBox(
+                        isRefreshing = state.loading,
+                        onRefresh = { viewModel.load(force = true) },
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(160.dp),
+                            contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                            verticalArrangement =
+                                Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            state.error?.let { error ->
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Text(text = error, color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                            if (state.latest.isNotEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }, key = "latest") {
+                                    Column {
+                                        TaSectionTitle(stringResource(CoreR.string.jrwi_latest))
+                                        val rowState = rememberLazyListState()
+                                        // Scrolls apart from the main pages, as Continue watching
+                                        // does
+                                        LazyRow(
+                                            state = rowState,
+                                            userScrollEnabled = false,
+                                            horizontalArrangement =
+                                                Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                                            modifier = rememberSeparateRowScroll(rowState),
+                                        ) {
+                                            items(state.latest, key = { it.id }) { item ->
+                                                JrwiItemCard(
+                                                    item = item,
+                                                    onClick = { onItemClick(item.id) },
+                                                    modifier = Modifier.width(240.dp),
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
+                            if (state.shows.isNotEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }, key = "shows") {
+                                    TaSectionTitle(stringResource(CoreR.string.jrwi_shows))
+                                }
+                            }
+                            items(state.shows, key = { it.id }) { show ->
+                                JrwiShowCard(
+                                    show = show,
+                                    picture = state.showPictures[show.id],
+                                    onClick = { onShowClick(show.id) },
+                                )
+                            }
                         }
                     }
-                    if (state.shows.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }, key = "shows") {
-                            TaSectionTitle(stringResource(CoreR.string.jrwi_shows))
-                        }
-                    }
-                    items(state.shows, key = { it.id }) { show ->
-                        JrwiShowCard(
-                            show = show,
-                            picture = state.showPictures[show.id],
-                            onClick = { onShowClick(show.id) },
+                    AnimatedVisibility(
+                        visible = serverShown,
+                        enter = slideInVertically(tween(SERVER_SLIDE_MILLIS)) { -it },
+                        exit = slideOutVertically(tween(SERVER_SLIDE_MILLIS)) { -it },
+                    ) {
+                        JrwiServerContent(
+                            modifier =
+                                Modifier.fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.background)
                         )
                     }
                 }
@@ -313,14 +371,36 @@ fun JrwiShowsScreen(
     }
 }
 
-/** A show's tile. [picture] stands in for the show's own art when it has none. */
+// As long as the server colours take to change over
+private const val SERVER_SLIDE_MILLIS = 450
+
+/**
+ * A show's tile, with the show's picture, or the JRWI logo for a show without one of its own.
+ * [picture] stands in on archivers older than 0.6.0, which give neither.
+ */
 @Composable
 private fun JrwiShowCard(show: JrwiShow, picture: String?, onClick: () -> Unit) {
+    val ownPicture = show.poster ?: show.banner
+    // The logo is shown whole, as the web app does
+    val logo = ownPicture == null && show.image != null
     Column(modifier = Modifier.clip(JrwiShape).clickable(onClick = onClick)) {
-        JrwiImage(
-            path = show.poster ?: show.banner ?: picture,
-            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(JrwiShape),
-        )
+        Box(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .clip(JrwiShape)
+                    .background(JrwiColors.Picture)
+        ) {
+            JrwiImage(
+                path = show.image ?: ownPicture ?: picture,
+                contentScale = if (logo) ContentScale.Fit else ContentScale.Crop,
+                modifier =
+                    Modifier.fillMaxSize()
+                        .then(
+                            if (logo) Modifier.padding(MaterialTheme.spacings.medium) else Modifier
+                        ),
+            )
+        }
         Text(
             text = show.name,
             style = MaterialTheme.typography.titleSmall,
@@ -434,8 +514,8 @@ private fun JrwiThumbnail(item: JrwiItem, modifier: Modifier = Modifier, marks: 
 
 /** Such as "Episode 136 · 7 Nov 2026", or "Season 2, episode 1" after the first season. */
 @Composable
-private fun itemDetails(item: JrwiItem): String? {
-    val episode = item.episode?.takeIf { item.tab == "episodes" }
+private fun itemDetails(item: JrwiItem, otherShow: String? = null): String? {
+    val episode = item.episode?.takeIf { "episodes" in item.ownTabs }
     val season = item.season ?: 1
     val number =
         when {
@@ -443,7 +523,7 @@ private fun itemDetails(item: JrwiItem): String? {
             season > 1 -> stringResource(CoreR.string.jrwi_season_episode, season, episode)
             else -> stringResource(CoreR.string.jrwi_episode, episode)
         }
-    val parts = listOfNotNull(number, fullDate(item.date))
+    val parts = listOfNotNull(otherShow, number, fullDate(item.date))
     return parts.joinToString(" · ").takeIf { it.isNotEmpty() }
 }
 
@@ -463,7 +543,8 @@ fun JrwiShowScreen(
         LaunchedEffect(showId) { viewModel.load(showId) }
         val show by viewModel.show.collectAsStateWithLifecycle()
         val error by viewModel.error.collectAsStateWithLifecycle()
-        val tabs = show?.tabs.orEmpty()
+        // A tab of a show with more than one season gets a page per season
+        val tabs = remember(show) { show?.pages().orEmpty() }
         // Swiped between like the main tabs, with the same feel
         val pages = rememberPagerState { tabs.size }
         val swiper = rememberPageSwiper(pages)
@@ -504,7 +585,7 @@ fun JrwiShowScreen(
                             Tab(
                                 selected = index == shownTab,
                                 onClick = { swiper.turnTo(index) },
-                                text = { Text(tab.name, fontWeight = FontWeight.Bold) },
+                                text = { Text(pageTitle(tab), fontWeight = FontWeight.Bold) },
                                 selectedContentColor = JrwiColors.Text,
                                 unselectedContentColor = JrwiColors.Muted,
                             )
@@ -517,9 +598,9 @@ fun JrwiShowScreen(
                             state = pages,
                             modifier = Modifier.fillMaxSize().pageSwipes(swiper),
                             userScrollEnabled = false,
-                            key = { page -> tabs[page].id },
+                            key = { page -> tabs[page].key },
                         ) { page ->
-                            JrwiTabList(viewModel, tabs[page].id, onItemClick)
+                            JrwiTabList(viewModel, showId, tabs[page], onItemClick)
                         }
                     error != null ->
                         Text(
@@ -542,10 +623,31 @@ fun JrwiShowScreen(
     }
 }
 
+/**
+ * A page's name: its tab's, or for one season "Season 2: Empty Graves" and "Just Rolled With It:
+ * Season 2", as on the archiver's web app.
+ */
 @Composable
-private fun JrwiTabList(viewModel: JrwiShowViewModel, tab: String, onItemClick: (Long) -> Unit) {
+private fun pageTitle(page: JrwiShowPage): String {
+    val season = page.season ?: return page.tabName
+    val name = page.seasonName?.takeIf { it.isNotBlank() }
+    return when {
+        page.tab != "episodes" -> stringResource(CoreR.string.jrwi_tab_season, page.tabName, season)
+        name != null -> stringResource(CoreR.string.jrwi_season_named, season, name)
+        else -> stringResource(CoreR.string.jrwi_season, season)
+    }
+}
+
+@Composable
+private fun JrwiTabList(
+    viewModel: JrwiShowViewModel,
+    showId: String,
+    tab: JrwiShowPage,
+    onItemClick: (Long) -> Unit,
+) {
     val flow = remember(tab) { viewModel.items(tab) }
     val list by flow.collectAsStateWithLifecycle()
+    val showNames by viewModel.showNames.collectAsStateWithLifecycle()
     LaunchedEffect(tab) { if (list.page == 0) viewModel.loadMore(tab) }
     LazyColumn(
         contentPadding = PaddingValues(MaterialTheme.spacings.medium),
@@ -553,7 +655,12 @@ private fun JrwiTabList(viewModel: JrwiShowViewModel, tab: String, onItemClick: 
         modifier = Modifier.fillMaxSize(),
     ) {
         items(list.items, key = { it.id }) { item ->
-            JrwiItemRow(item = item, onClick = { onItemClick(item.id) })
+            JrwiItemRow(
+                item = item,
+                // Posts the site's tags place here from another show say which show they're from
+                otherShow = showNames[item.show]?.takeIf { item.show != showId },
+                onClick = { onItemClick(item.id) },
+            )
         }
         list.error?.let { error ->
             item { Text(text = error, color = MaterialTheme.colorScheme.error) }
@@ -574,7 +681,7 @@ private fun JrwiTabList(viewModel: JrwiShowViewModel, tab: String, onItemClick: 
 
 /** An item with its picture at the side, as in a show's list. */
 @Composable
-private fun JrwiItemRow(item: JrwiItem, onClick: () -> Unit) {
+private fun JrwiItemRow(item: JrwiItem, onClick: () -> Unit, otherShow: String? = null) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
         modifier = Modifier.fillMaxWidth().clip(JrwiShape).clickable(onClick = onClick),
@@ -587,7 +694,7 @@ private fun JrwiItemRow(item: JrwiItem, onClick: () -> Unit) {
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
-            itemDetails(item)?.let {
+            itemDetails(item, otherShow)?.let {
                 Text(
                     text = it,
                     style = MaterialTheme.typography.bodySmall,
@@ -659,6 +766,15 @@ fun JrwiItemScreen(
         }
         val item = state.item
         var menuOpen by remember { mutableStateOf(false) }
+        // A post's pictures, full screen, after one is tapped
+        var pictures by remember { mutableStateOf<JrwiPictures?>(null) }
+        pictures?.let { shown ->
+            JrwiPictureViewer(
+                pictures = shown,
+                onClose = { pictures = null },
+                onSave = { path -> saveJrwiPicture(context, viewModel.fileUrl(path), path) },
+            )
+        }
         val playsAudio = state.playsAudio
         // The picked version's own post, or the whole item when there's one version
         val post = state.content.post
@@ -831,6 +947,7 @@ fun JrwiItemScreen(
                         jrwiPostContent(
                             post = post,
                             onOpen = { openUrl(context, it) },
+                            onPicture = { pictures = it },
                             fileUrl = viewModel::fileUrl,
                         )
                 }
@@ -1099,6 +1216,7 @@ private fun JrwiVideoDownloadRow(
 private fun LazyListScope.jrwiPostContent(
     post: JrwiItem,
     onOpen: (String?) -> Unit,
+    onPicture: (JrwiPictures) -> Unit,
     fileUrl: (String?) -> String?,
 ) {
     // Keyed by post, so switching versions never mixes the two
@@ -1122,7 +1240,7 @@ private fun LazyListScope.jrwiPostContent(
                 contentPadding = PaddingValues(MaterialTheme.spacings.medium),
                 horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
             ) {
-                items(post.images) { image ->
+                itemsIndexed(post.images) { index, image ->
                     JrwiImage(
                         path = image.url,
                         contentScale = ContentScale.Fit,
@@ -1130,7 +1248,9 @@ private fun LazyListScope.jrwiPostContent(
                             Modifier.height(220.dp)
                                 .aspectRatio(1f, matchHeightConstraintsFirst = true)
                                 .clip(JrwiShape)
-                                .clickable { onOpen(fileUrl(image.url)) },
+                                .clickable {
+                                    onPicture(JrwiPictures(post.images.map { it.url }, index))
+                                },
                     )
                 }
             }
@@ -1581,181 +1701,166 @@ private val RGB_REGEX =
 
 // The archiver
 
-/** What the archiver is doing, a check now, and the posts it couldn't fully save. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The server side of the JRWI tab: what the archiver is doing, a check now, and the posts it
+ * couldn't fully save. Read again every few seconds while it's shown, so a check can be followed.
+ */
 @Composable
-fun JrwiServerScreen(navigateBack: () -> Unit, viewModel: JrwiServerViewModel = hiltViewModel()) {
-    // In the archiver's own colours
-    JrwiTheme {
-        val context = LocalContext.current
-        val state by viewModel.state.collectAsStateWithLifecycle()
-        LifecycleResumeEffect(Unit) {
-            viewModel.load()
-            onPauseOrDispose {}
+private fun JrwiServerContent(
+    modifier: Modifier = Modifier,
+    viewModel: JrwiServerViewModel = hiltViewModel(),
+) {
+    val context = LocalContext.current
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                viewModel.refresh()
+                delay(SERVER_REFRESH_MILLIS)
+            }
         }
-        ObserveAsEvents(viewModel.messages) { message ->
-            Toast.makeText(context, jrwiMessageText(context, message), Toast.LENGTH_LONG).show()
+    }
+    ObserveAsEvents(viewModel.messages) { message ->
+        Toast.makeText(context, jrwiMessageText(context, message), Toast.LENGTH_LONG).show()
+    }
+    LazyColumn(
+        contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+        modifier = modifier,
+    ) {
+        state.error?.let { error ->
+            item { Text(text = error, color = MaterialTheme.colorScheme.error) }
         }
-        JrwiScaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text(stringResource(CoreR.string.jrwi_server)) },
-                    navigationIcon = {
-                        IconButton(onClick = navigateBack) {
-                            Icon(
-                                painterResource(CoreR.drawable.ic_arrow_left),
-                                contentDescription = null,
-                            )
-                        }
-                    },
-                    windowInsets = TOP_BAR_INSETS,
-                    colors = jrwiTopBarColors(),
-                )
-            },
-            contentWindowInsets = TOP_BAR_INSETS,
-        ) { innerPadding ->
-            LazyColumn(
-                contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-                verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-                modifier = Modifier.padding(innerPadding).fillMaxSize(),
-            ) {
-                state.error?.let { error ->
-                    item { Text(text = error, color = MaterialTheme.colorScheme.error) }
-                }
-                state.status?.let { status ->
-                    item {
-                        val phase = listOfNotNull(status.phase, status.detail).joinToString(": ")
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement =
-                                Arrangement.spacedBy(MaterialTheme.spacings.small),
-                        ) {
-                            // The site's dot: green while it checks
-                            if (status.running) {
-                                Box(Modifier.size(8.dp).clip(CircleShape).background(JrwiColors.Ok))
-                            }
-                            Text(
-                                text =
-                                    if (status.running) {
-                                        stringResource(CoreR.string.jrwi_status_running, phase)
-                                    } else {
-                                        stringResource(CoreR.string.jrwi_status_idle)
-                                    },
-                                style = MaterialTheme.typography.titleMedium,
-                                color = JrwiColors.Text,
-                            )
-                        }
-                        val progress = status.progress
-                        if (status.running && progress?.total != null && progress.total!! > 0) {
-                            LinearProgressIndicator(
-                                trackColor = JrwiBarTrack,
-                                progress = {
-                                    ((progress.done ?: 0).toFloat() / progress.total!!).coerceIn(
-                                        0f,
-                                        1f,
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            )
-                        }
+        state.status?.let { status ->
+            item {
+                val phase = listOfNotNull(status.phase, status.detail).joinToString(": ")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+                ) {
+                    // The site's dot: green while it checks
+                    if (status.running) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(JrwiColors.Ok))
                     }
-                    if (status.loginOk == false) {
-                        item {
-                            Text(
-                                text = stringResource(CoreR.string.jrwi_login_failed),
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
-                    item {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            val finished = fullDate(status.lastCheckFinished)
-                            if (finished != null && status.lastResult != null) {
-                                Text(
-                                    stringResource(
-                                        CoreR.string.jrwi_last_check,
-                                        finished,
-                                        status.lastResult.orEmpty(),
-                                    )
-                                )
-                            }
-                            Text(
-                                text =
-                                    status.nextCheck?.let {
-                                        stringResource(
-                                            CoreR.string.jrwi_next_check,
-                                            fullDate(it) ?: it,
-                                        )
-                                    } ?: stringResource(CoreR.string.jrwi_next_check_manual)
-                            )
-                            Text(
-                                stringResource(
-                                    CoreR.string.jrwi_counts,
-                                    status.counts.items,
-                                    status.counts.archived,
-                                    status.counts.locked,
-                                )
-                            )
-                            val archived = status.disk.archiveBytes
-                            val free = status.disk.freeBytes
-                            if (archived != null && free != null) {
-                                Text(
-                                    stringResource(
-                                        CoreR.string.jrwi_disk,
-                                        formatBytes(archived),
-                                        formatBytes(free),
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-                item {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)
-                    ) {
-                        Button(shape = JrwiShape, onClick = { viewModel.check() }) {
-                            Text(stringResource(CoreR.string.jrwi_check_now))
-                        }
-                        OutlinedButton(
-                            shape = JrwiShape,
-                            border = JrwiGhostBorder,
-                            colors = jrwiGhostButtonColors(),
-                            onClick = { viewModel.check(full = true) },
-                        ) {
-                            Text(stringResource(CoreR.string.jrwi_full_check))
-                        }
-                    }
-                }
-                item {
                     Text(
-                        text = stringResource(CoreR.string.jrwi_problems),
+                        text =
+                            if (status.running) {
+                                stringResource(CoreR.string.jrwi_status_running, phase)
+                            } else {
+                                stringResource(CoreR.string.jrwi_status_idle)
+                            },
                         style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(top = MaterialTheme.spacings.medium),
+                        color = JrwiColors.Text,
                     )
                 }
-                if (state.problems.isEmpty() && state.status != null) {
-                    item { Text(stringResource(CoreR.string.jrwi_no_problems)) }
-                }
-                items(state.problems, key = { it.postId }) { problem ->
-                    Column {
-                        Text(text = problem.title, style = MaterialTheme.typography.bodyLarge)
-                        problem.problems.forEach {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                val progress = status.progress
+                if (status.running && progress?.total != null && progress.total!! > 0) {
+                    LinearProgressIndicator(
+                        trackColor = JrwiBarTrack,
+                        progress = {
+                            ((progress.done ?: 0).toFloat() / progress.total!!).coerceIn(
+                                0f,
+                                1f,
                             )
-                        }
-                        HorizontalDivider(
-                            modifier = Modifier.padding(top = MaterialTheme.spacings.small)
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    )
+                }
+            }
+            if (status.loginOk == false) {
+                item {
+                    Text(
+                        text = stringResource(CoreR.string.jrwi_login_failed),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val finished = fullDate(status.lastCheckFinished)
+                    if (finished != null && status.lastResult != null) {
+                        Text(
+                            stringResource(
+                                CoreR.string.jrwi_last_check,
+                                finished,
+                                status.lastResult.orEmpty(),
+                            )
+                        )
+                    }
+                    Text(
+                        text =
+                            status.nextCheck?.let {
+                                stringResource(
+                                    CoreR.string.jrwi_next_check,
+                                    fullDate(it) ?: it,
+                                )
+                            } ?: stringResource(CoreR.string.jrwi_next_check_manual)
+                    )
+                    Text(
+                        stringResource(
+                            CoreR.string.jrwi_counts,
+                            status.counts.items,
+                            status.counts.archived,
+                            status.counts.locked,
+                        )
+                    )
+                    val archived = status.disk.archiveBytes
+                    val free = status.disk.freeBytes
+                    if (archived != null && free != null) {
+                        Text(
+                            stringResource(
+                                CoreR.string.jrwi_disk,
+                                formatBytes(archived),
+                                formatBytes(free),
+                            )
                         )
                     }
                 }
             }
         }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
+                Button(shape = JrwiShape, onClick = { viewModel.check() }) {
+                    Text(stringResource(CoreR.string.jrwi_check_now))
+                }
+                OutlinedButton(
+                    shape = JrwiShape,
+                    border = JrwiGhostBorder,
+                    colors = jrwiGhostButtonColors(),
+                    onClick = { viewModel.check(full = true) },
+                ) {
+                    Text(stringResource(CoreR.string.jrwi_full_check))
+                }
+            }
+        }
+        item {
+            Text(
+                text = stringResource(CoreR.string.jrwi_problems),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = MaterialTheme.spacings.medium),
+            )
+        }
+        if (state.problems.isEmpty() && state.status != null) {
+            item { Text(stringResource(CoreR.string.jrwi_no_problems)) }
+        }
+        items(state.problems, key = { it.postId }) { problem ->
+            Column {
+                Text(text = problem.title, style = MaterialTheme.typography.bodyLarge)
+                problem.problems.forEach {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                HorizontalDivider(modifier = Modifier.padding(top = MaterialTheme.spacings.small))
+            }
+        }
     }
 }
+
+private const val SERVER_REFRESH_MILLIS = 5_000L
 
 // Settings
 

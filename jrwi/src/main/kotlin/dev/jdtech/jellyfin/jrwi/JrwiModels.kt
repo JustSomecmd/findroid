@@ -26,15 +26,33 @@ data class JrwiShow(
     val id: String,
     val name: String = "",
     val description: String = "",
+    /** The show's own picture; null when it has none (both are the same picture since v0.12). */
     val poster: String? = null,
     val banner: String? = null,
+    /** The picture to show for the show: its own, or the JRWI logo (v0.12). */
+    val image: String? = null,
     @SerialName("item_count") val itemCount: Int = 0,
     val latest: String? = null,
     /** Only in a single show: its tabs with something in them, in the site's order. */
     val tabs: List<JrwiTab> = emptyList(),
+    /** Only in a single show: the seasons of its episodes (v0.13). */
+    val seasons: List<JrwiSeason> = emptyList(),
 )
 
-@Serializable data class JrwiTab(val id: String, val name: String = "", val count: Int = 0)
+@Serializable
+data class JrwiTab(
+    val id: String,
+    val name: String = "",
+    val count: Int = 0,
+    /** The seasons in the episodes and Just Rolled With It tabs (v0.14). */
+    val seasons: List<JrwiSeason> = emptyList(),
+)
+
+/** A season of a show's tab, with its name when all its episodes share one. */
+@Serializable data class JrwiSeason(val season: Int, val name: String? = null, val count: Int = 0)
+
+/** A show and tab an item is listed in (v0.13). */
+@Serializable data class JrwiPlace(val show: String, val tab: String)
 
 /**
  * The video version of an item: an archived file that Jellyfin has, or a YouTube video that only
@@ -79,9 +97,16 @@ data class JrwiItem(
     val date: String? = null,
     val show: String = "other",
     val tab: String = "posts",
+    /** Every tab the item is in within its own show (v0.12); [tab] is the main one. */
+    val tabs: List<String> = emptyList(),
+    /** Every show and tab the item is in, its own show first (v0.13). */
+    val places: List<JrwiPlace> = emptyList(),
     /** episode, video, audio, youtube, art or post */
     val kind: String = "post",
-    /** The season of a numbered episode, in the episodes tab only; null means the first. */
+    /**
+     * The season of a numbered episode in its own show's episodes tab, or since v0.14 of its Just
+     * Rolled With It; null means the first.
+     */
     val season: Int? = null,
     val episode: Int? = null,
     val pinned: Boolean = false,
@@ -109,6 +134,10 @@ data class JrwiItem(
     val versions: List<JrwiVersion> = emptyList(),
     val problems: List<String> = emptyList(),
 ) {
+    /** Every tab the item is in within its own show, also from archivers older than v0.12. */
+    val ownTabs: List<String>
+        get() = tabs.ifEmpty { listOf(tab) }
+
     /** Seconds between the two versions, or none when the archiver doesn't say. */
     val offset: Double
         get() = sync?.offset ?: 0.0

@@ -84,6 +84,4 @@ data class CollectionRoute(val collectionId: String, val collectionName: String)
 
 @Serializable data class JrwiItemRoute(val postId: Long) : NavKey
 
-@Serializable data object JrwiServerRoute : NavKey
-
 @Serializable data object JrwiSettingsRoute : NavKey

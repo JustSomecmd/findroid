@@ -103,7 +103,10 @@ data class JrwiShowsState(
     val configured: Boolean = false,
     val shows: List<JrwiShow> = emptyList(),
     val latest: List<JrwiItem> = emptyList(),
-    /** For shows without art of their own, the picture of their newest item, by show ID. */
+    /**
+     * For shows without a picture from archivers older than 0.6.0, the picture of their newest
+     * item, by show ID.
+     */
     val showPictures: Map<String, String> = emptyMap(),
     val loading: Boolean = false,
     val error: String? = null,
@@ -163,11 +166,16 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
     }
 
     /**
-     * Shows whose page on the site has no art of its own get the picture of their newest item, as
-     * on the archiver's web app: from the Latest row when it has one of theirs, or else asked for.
+     * Shows without any picture, from archivers older than 0.6.0, get the picture of their newest
+     * item, as on the web app of those: from the Latest row when it has one of theirs, or else
+     * asked for. Newer archivers give every show a picture, the JRWI logo when it has none of its
+     * own.
      */
     private suspend fun loadShowPictures(shows: List<JrwiShow>, latest: List<JrwiItem>) {
-        val missing = shows.filter { it.poster == null && it.banner == null }.map { it.id }
+        val missing =
+            shows
+                .filter { it.image == null && it.poster == null && it.banner == null }
+                .map { it.id }
         if (missing.isEmpty()) return
         val pictures = mutableMapOf<String, String>()
         // Newest first, so the first picture of a show is its newest
@@ -200,6 +208,31 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
     }
 }
 
+/** One page of a show: a tab, or one season of a tab that has more than one. */
+data class JrwiShowPage(
+    val tab: String,
+    val tabName: String,
+    val season: Int? = null,
+    val seasonName: String? = null,
+) {
+    val key: String
+        get() = if (season == null) tab else "$tab:$season"
+}
+
+/**
+ * A show's pages: a page for each tab, or a page per season for a tab with more than one, as the
+ * archiver's web app has (v0.13 and v0.14).
+ */
+fun JrwiShow.pages(): List<JrwiShowPage> = tabs.flatMap { tab ->
+    // Archivers on v0.13 only give the seasons of the episodes, on the show
+    val tabSeasons = tab.seasons.ifEmpty { if (tab.id == "episodes") this.seasons else emptyList() }
+    if (tabSeasons.size > 1) {
+        tabSeasons.map { JrwiShowPage(tab.id, tab.name, it.season, it.name) }
+    } else {
+        listOf(JrwiShowPage(tab.id, tab.name))
+    }
+}
+
 /** A show's page: its tabs, and a list for each that loads as it's scrolled. */
 @HiltViewModel
 class JrwiShowViewModel
@@ -211,6 +244,10 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
 
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
+
+    /** The names of the shows, for posts that the site's tags place here from another show. */
+    private val _showNames = MutableStateFlow<Map<String, String>>(emptyMap())
+    val showNames = _showNames.asStateFlow()
 
     private val lists = mutableMapOf<String, MutableStateFlow<TaListState<JrwiItem>>>()
 
@@ -238,20 +275,30 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
                 throw e
             } catch (e: Exception) {
                 _error.value = e.errorText()
+                return@launch
+            }
+            try {
+                _showNames.value = jrwiApi.getShows().associate { it.id to it.name }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Posts from other shows are then shown without their show's name
             }
         }
     }
 
-    /** The list of one tab, such as episodes or aftershow. */
-    fun items(tab: String): MutableStateFlow<TaListState<JrwiItem>> =
-        lists.getOrPut(tab) { MutableStateFlow(TaListState()) }
+    /** The list of one page, such as the episodes or one season of them. */
+    fun items(page: JrwiShowPage): MutableStateFlow<TaListState<JrwiItem>> =
+        lists.getOrPut(page.key) { MutableStateFlow(TaListState()) }
 
-    fun loadMore(tab: String) {
+    fun loadMore(page: JrwiShowPage) {
         val showId = showId ?: return
         viewModelScope.launch {
-            items(tab).loadNextPage(key = { it.id.toString() }) { page ->
+            items(page).loadNextPage(key = { it.id.toString() }) { number ->
                 // Episodes go by number, newest first, as on the site
-                jrwiApi.getShowItems(showId, tab, page = page).asTaPage()
+                jrwiApi
+                    .getShowItems(showId, page.tab, season = page.season, page = number)
+                    .asTaPage()
             }
         }
     }
@@ -654,16 +701,19 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
     val messages = _messages.receiveAsFlow()
 
     fun load() {
-        viewModelScope.launch {
-            try {
-                val status = jrwiApi.getStatus()
-                val problems = jrwiApi.getProblems()
-                _state.update { it.copy(status = status, problems = problems, error = null) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _state.update { it.copy(error = e.errorText()) }
-            }
+        viewModelScope.launch { refresh() }
+    }
+
+    /** Reads the status and the problems again, for a page that keeps them up to date. */
+    suspend fun refresh() {
+        try {
+            val status = jrwiApi.getStatus()
+            val problems = jrwiApi.getProblems()
+            _state.update { it.copy(status = status, problems = problems, error = null) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _state.update { it.copy(error = e.errorText()) }
         }
     }
 

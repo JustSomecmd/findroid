@@ -119,28 +119,38 @@ fun JrwiTheme(content: @Composable () -> Unit) {
     )
 }
 
-/** The site's header: deep purple, white title and icons, also when the page scrolls under it. */
+/**
+ * The site's header: deep purple, white title and icons, also when the page scrolls under it. Taken
+ * from the theme, where the purple is the header colour, so it changes with the server colours.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun jrwiTopBarColors() =
     TopAppBarDefaults.topAppBarColors(
-        containerColor = JrwiColors.Header,
-        scrolledContainerColor = JrwiColors.Header,
-        navigationIconContentColor = JrwiColors.Text,
-        titleContentColor = JrwiColors.Text,
-        actionIconContentColor = JrwiColors.Text,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+        titleContentColor = MaterialTheme.colorScheme.onSurface,
+        actionIconContentColor = MaterialTheme.colorScheme.onSurface,
     )
 
-/** A page on the site's dark navy, with its purple glow at the top. */
+/**
+ * A page on the site's dark navy, with its purple glow at the top. [glow] is how much of the glow
+ * shows, read only while drawing, for a page that fades it out.
+ */
 @Composable
 fun JrwiScaffold(
     modifier: Modifier = Modifier,
     topBar: @Composable () -> Unit = {},
     contentWindowInsets: WindowInsets,
+    glow: () -> Float = { 1f },
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
-        modifier = modifier.background(JrwiColors.Background).drawBehind { drawGlow() },
+        modifier =
+            modifier.background(MaterialTheme.colorScheme.background).drawBehind {
+                drawGlow(glow())
+            },
         topBar = topBar,
         containerColor = Color.Transparent,
         contentColor = JrwiColors.BodyText,
@@ -153,14 +163,15 @@ fun JrwiScaffold(
  * The site's glow: an ellipse twice as wide as it's tall, centred above the top of the page, from
  * purple to nothing at 70% of the way out.
  */
-private fun DrawScope.drawGlow() {
+private fun DrawScope.drawGlow(alpha: Float) {
+    if (alpha <= 0f) return
     val radius = 1200.dp.toPx()
     val center = Offset(size.width / 2, -200.dp.toPx())
     scale(scaleX = 1f, scaleY = 0.5f, pivot = center) {
         drawCircle(
             brush =
                 Brush.radialGradient(
-                    0f to JrwiColors.Glow,
+                    0f to JrwiColors.Glow.copy(alpha = JrwiColors.Glow.alpha * alpha),
                     0.7f to Color.Transparent,
                     center = center,
                     radius = radius,

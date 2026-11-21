@@ -28,6 +28,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -86,7 +87,6 @@ import dev.jdtech.jellyfin.presentation.film.PlaylistsScreen
 import dev.jdtech.jellyfin.presentation.film.SeasonScreen
 import dev.jdtech.jellyfin.presentation.film.ShowScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiItemScreen
-import dev.jdtech.jellyfin.presentation.jrwi.JrwiServerScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiSettingsScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowsScreen
@@ -115,10 +115,15 @@ import dev.jdtech.jellyfin.presentation.tube.TaSearchScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSettingsScreen
 import dev.jdtech.jellyfin.presentation.tube.TaVideoScreen
 import dev.jdtech.jellyfin.presentation.tube.rememberSidePagerState
+import dev.jdtech.jellyfin.presentation.tube.switchSide
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionAction
 import dev.jdtech.jellyfin.setup.presentation.permission.PermissionViewModel
 import java.util.UUID
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 
 private val TOP_LEVEL_ROUTES =
     setOf(
@@ -333,6 +338,7 @@ private fun MainNavigation(
     val swipeTarget = remember { mutableStateOf<NavKey?>(null) }
     val barRoute = swipeTarget.value ?: topLevelRoute
     val mainPagerTurns = remember { MainPagerTurns() }
+    val tabReselects = remember { TabReselects() }
 
     // The search bar belongs to the Media tab: collapse it when the active top level route
     // changes away from Media (e.g. via the home button on a detail screen) so that the bottom
@@ -392,6 +398,10 @@ private fun MainNavigation(
                 item(
                     selected = barRoute == item.route,
                     onClick = {
+                        // A tap on the open tab, once it's at rest, turns it to its other side
+                        if (item.route == topLevelRoute && atTabRoot && swipeTarget.value == null) {
+                            tabReselects.tap(item.route)
+                        }
                         if (item.route == MediaRoute && topLevelRoute == MediaRoute) {
                             searchExpanded.value = true
                         }
@@ -414,32 +424,35 @@ private fun MainNavigation(
         layoutType = customNavSuiteType,
         state = navigationSuiteScaffoldState,
     ) {
-        val navDisplay: @Composable () -> Unit = {
-            NavDisplay(
-                entries = navigationState.toDecoratedEntries(entryDecorators, entryProvider),
-                onBack = { navigator.goBack() },
-                transitionSpec = { GLOBAL_TRANSITION_SPEC },
-                popTransitionSpec = { GLOBAL_TRANSITION_SPEC },
-                predictivePopTransitionSpec = { _ -> GLOBAL_TRANSITION_SPEC },
-            )
-        }
-        if (tubeArchivistMode) {
-            // Home, Channels and Downloads sit side by side in one pager under the other pages, and
-            // their own entries in the navigation are left empty so the pager shows through
-            val mainPages = taMainPages(jrwiShown)
-            Box(modifier = Modifier.fillMaxSize()) {
-                TaMainPager(
-                    navigationState = navigationState,
-                    navigator = navigator,
-                    mainPages = mainPages,
-                    active = atTabRoot && topLevelRoute in mainPages,
-                    swipeTarget = swipeTarget,
-                    turns = mainPagerTurns,
+        CompositionLocalProvider(LocalTabReselects provides tabReselects) {
+            val navDisplay: @Composable () -> Unit = {
+                NavDisplay(
+                    entries = navigationState.toDecoratedEntries(entryDecorators, entryProvider),
+                    onBack = { navigator.goBack() },
+                    transitionSpec = { GLOBAL_TRANSITION_SPEC },
+                    popTransitionSpec = { GLOBAL_TRANSITION_SPEC },
+                    predictivePopTransitionSpec = { _ -> GLOBAL_TRANSITION_SPEC },
                 )
-                CompositionLocalProvider(LocalTaMainPagerShown provides true) { navDisplay() }
             }
-        } else {
-            navDisplay()
+            if (tubeArchivistMode) {
+                // Home, Channels and Downloads sit side by side in one pager under the other
+                // pages, and their own entries in the navigation are left empty so the pager shows
+                // through
+                val mainPages = taMainPages(jrwiShown)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    TaMainPager(
+                        navigationState = navigationState,
+                        navigator = navigator,
+                        mainPages = mainPages,
+                        active = atTabRoot && topLevelRoute in mainPages,
+                        swipeTarget = swipeTarget,
+                        turns = mainPagerTurns,
+                    )
+                    CompositionLocalProvider(LocalTaMainPagerShown provides true) { navDisplay() }
+                }
+            } else {
+                navDisplay()
+            }
         }
     }
 }
@@ -477,6 +490,30 @@ private val OpaquePageDecorator =
 /** Lets the bottom bar turn the main pager straight away, also to the tab that's still open. */
 private class MainPagerTurns {
     var turnTo: ((NavKey) -> Unit)? = null
+}
+
+/**
+ * Taps on the bottom bar's tab that's already open. Home, Downloads and the JRWI tab turn to their
+ * other side on one, as tapping their title does.
+ */
+private class TabReselects {
+    private val taps = MutableSharedFlow<NavKey>(extraBufferCapacity = 1)
+
+    fun tap(route: NavKey) {
+        taps.tryEmit(route)
+    }
+
+    /** The taps on one tab. */
+    fun of(route: NavKey): Flow<Unit> = taps.filter { it == route }.map {}
+}
+
+private val LocalTabReselects = staticCompositionLocalOf { TabReselects() }
+
+/** The taps on the bottom bar's [route] tab while it's open. */
+@Composable
+private fun rememberTabReselects(route: NavKey): Flow<Unit> {
+    val reselects = LocalTabReselects.current
+    return remember(reselects, route) { reselects.of(route) }
 }
 
 /**
@@ -520,6 +557,13 @@ private fun TaMainPager(
         val current = navigationState.topLevelRoute
         if (route != null && current in currentPages && current != route) navigator.navigate(route)
     }
+
+    // A second tap on Home or Downloads in the bottom bar turns it to its other side
+    val sideScope = rememberCoroutineScope()
+    val homeTaps = rememberTabReselects(TaHomeRoute)
+    val downloadTaps = rememberTabReselects(DownloadsRoute)
+    LaunchedEffect(homeTaps) { homeTaps.collect { homeSides.switchSide(sideScope) } }
+    LaunchedEffect(downloadTaps) { downloadTaps.collect { downloadSides.switchSide(sideScope) } }
 
     // The bottom bar turns the pager as it's tapped, and back once it's gone back
     DisposableEffect(turns, swiper) {
@@ -590,8 +634,8 @@ private fun TaMainPager(
                         onShowClick =
                             resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
                         onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
-                        onServerClick = dropUnlessResumed { navigator.navigate(JrwiServerRoute) },
                         onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
+                        serverToggles = rememberTabReselects(JrwiRoute),
                     )
                 else ->
                     TaDownloadsScreen(
@@ -1071,8 +1115,8 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
         JrwiShowsScreen(
             onShowClick = resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
             onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
-            onServerClick = dropUnlessResumed { navigator.navigate(JrwiServerRoute) },
             onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
+            serverToggles = rememberTabReselects(JrwiRoute),
         )
     }
     entry<JrwiShowRoute> { key ->
@@ -1088,9 +1132,6 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
             onOpenYoutube = resumedAction<String> { openVideo(it) },
             navigateBack = dropUnlessResumed { navigator.goBack() },
         )
-    }
-    entry<JrwiServerRoute> {
-        JrwiServerScreen(navigateBack = dropUnlessResumed { navigator.goBack() })
     }
     entry<JrwiSettingsRoute> {
         JrwiSettingsScreen(navigateBack = dropUnlessResumed { navigator.goBack() })
