@@ -215,68 +215,74 @@ fun JrwiHomeScreen(
     }
     val scope = rememberCoroutineScope()
     val onServer = sides.serverSideShown(serverFirst = true)
-    Column(modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged()) {
-        // In the side's colours: the archiver's yellow, or the purple of its server side
-        val topBar =
-            @Composable {
-                TopAppBar(
-                    title = {
-                        Text(
-                            stringResource(
-                                if (onServer) CoreR.string.jrwi_archiver else CoreR.string.jrwi_tab
-                            )
+    // One page with the glow behind its bar, as the other JRWI pages, so the bar is one colour
+    JrwiTheme {
+        JrwiScaffold(
+            modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged(),
+            topBar = {
+                // In the side's colours: the archiver's yellow, or the purple of its server side
+                val topBar =
+                    @Composable {
+                        TopAppBar(
+                            title = {
+                                Text(
+                                    stringResource(
+                                        if (onServer) CoreR.string.jrwi_archiver
+                                        else CoreR.string.jrwi_tab
+                                    )
+                                )
+                            },
+                            actions = {
+                                if (state.configured) {
+                                    TaSideSwitch(
+                                        onServer = onServer,
+                                        onToggle = { sides.switchSide(scope) },
+                                        localIcon = CoreR.drawable.ic_home,
+                                        localLabel = stringResource(CoreR.string.ta_side_home),
+                                        showLabel = false,
+                                        serverFirst = true,
+                                    )
+                                }
+                            },
+                            windowInsets = TOP_BAR_INSETS,
+                            colors = jrwiTopBarColors(),
                         )
-                    },
-                    actions = {
-                        if (state.configured) {
-                            TaSideSwitch(
-                                onServer = onServer,
-                                onToggle = { sides.switchSide(scope) },
-                                localIcon = CoreR.drawable.ic_home,
-                                localLabel = stringResource(CoreR.string.ta_side_home),
-                                showLabel = false,
-                                serverFirst = true,
-                            )
-                        }
-                    },
-                    windowInsets = TOP_BAR_INSETS,
-                    colors = jrwiTopBarColors(),
-                )
+                    }
+                if (onServer) JrwiSheetTheme(topBar) else topBar()
+            },
+            contentWindowInsets = TOP_BAR_INSETS,
+        ) { innerPadding ->
+            if (!state.configured) {
+                JrwiSetUpPrompt(onSetUp, Modifier.padding(innerPadding))
+                return@JrwiScaffold
             }
-        if (onServer) JrwiSheetTheme(topBar) else JrwiTheme(topBar)
-        TaSidePager(
-            state = sides,
-            serverFirst = true,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            phone = {
-                JrwiTheme {
-                    JrwiScaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
-                        if (!state.configured) {
-                            JrwiSetUpPrompt(onSetUp, Modifier.padding(innerPadding))
-                            return@JrwiScaffold
-                        }
-                        PullToRefreshBox(
-                            isRefreshing = state.loading,
-                            onRefresh = { viewModel.load(force = true) },
-                            modifier = Modifier.padding(innerPadding).fillMaxSize(),
-                        ) {
-                            JrwiHomeList(state = state, onItemClick = onItemClick)
-                        }
-                    }
-                }
-            },
-            server = {
-                // Only while it's shown, so the archiver is asked only then
-                JrwiSheetTheme {
-                    Box(
-                        modifier =
-                            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+            TaSidePager(
+                state = sides,
+                serverFirst = true,
+                modifier = Modifier.padding(innerPadding).fillMaxSize(),
+                phone = {
+                    PullToRefreshBox(
+                        isRefreshing = state.loading,
+                        onRefresh = { viewModel.load(force = true) },
+                        modifier = Modifier.fillMaxSize(),
                     ) {
-                        if (state.configured) JrwiServerContent(modifier = Modifier.fillMaxSize())
+                        JrwiHomeList(state = state, onItemClick = onItemClick)
                     }
-                }
-            },
-        )
+                },
+                server = {
+                    // Only while it's shown, so the archiver is asked only then
+                    JrwiSheetTheme {
+                        Box(
+                            modifier =
+                                Modifier.fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.background)
+                        ) {
+                            JrwiServerContent(modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                },
+            )
+        }
     }
 }
 

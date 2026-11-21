@@ -490,15 +490,8 @@ private fun MainNavigation(
                 item(
                     selected = false,
                     onClick = { switchMode(!jrwiMode) },
+                    // Without a label, so the switch has the item's height to itself
                     icon = { ModeSwitch(jrwi = jrwiMode, onSwitch = switchMode) },
-                    label = {
-                        Text(
-                            text =
-                                stringResource(
-                                    if (jrwiMode) CoreR.string.jrwi_tab else CoreR.string.mode_ta
-                                )
-                        )
-                    },
                     colors = if (jrwiMode) jrwiColors else null,
                 )
             }

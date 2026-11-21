@@ -471,7 +471,6 @@
     <string name="jrwi_download_cancel">Cancel</string>
     <string name="jrwi_download_remove">Remove</string>
     <string name="jrwi_download_retry">Try again</string>
-    <string name="mode_ta">TA</string>
     <string name="mode_switch_to_jrwi">Switch to JRWI</string>
     <string name="mode_switch_to_ta">Switch to TubeArchivist</string>
     <string name="jrwi_download_files_title">Download the post\'s files too?</string>
