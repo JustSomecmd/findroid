@@ -156,16 +156,41 @@ data class JrwiVersion(
 @Serializable
 data class JrwiComment(
     val id: String,
+    /** The post it was made on, for an item's comments from more than one version. */
+    @SerialName("post_id") val postId: Long? = null,
     val author: JrwiAuthor = JrwiAuthor(),
     val date: String? = null,
     @SerialName("date_text") val dateText: String? = null,
     @SerialName("body_html") val bodyHtml: String? = null,
     @SerialName("body_text") val bodyText: String = "",
     @SerialName("like_count") val likeCount: Int? = null,
+    /** Pinned on the site, which lists it first. */
+    val pinned: Boolean = false,
+    /** The comment's own address on the site. */
+    val link: String? = null,
     val replies: List<JrwiComment> = emptyList(),
 )
 
-@Serializable data class JrwiAuthor(val name: String = "", val avatar: String? = null)
+/** Who wrote a comment: their name, picture and the badges next to the name. */
+@Serializable
+data class JrwiAuthor(
+    val name: String = "",
+    /** Null without a profile picture, where the site shows the name's first letter. */
+    val avatar: String? = null,
+    /** In the site's order: the membership tier, months as a member, and Verified. */
+    val badges: List<JrwiBadge> = emptyList(),
+    /**
+     * The CSS colour the site shows the name in, which follows the tier, such as "rgb(1, 2, 3)".
+     */
+    val color: String? = null,
+)
+
+/**
+ * A badge next to a commenter's name: the tier as a picture with its name, or months as a member as
+ * an emoji and text. Any of the three can be missing.
+ */
+@Serializable
+data class JrwiBadge(val name: String? = null, val icon: String? = null, val image: String? = null)
 
 /**
  * How far an episode was played, in seconds in the timeline of the post [postId]: its video or its

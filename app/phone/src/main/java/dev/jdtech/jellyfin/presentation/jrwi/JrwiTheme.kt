@@ -41,6 +41,9 @@ object JrwiColors {
     val Text = Color(0xFFFFFFFF)
     val BodyText = Color(0xFFE9E9EE)
     val Muted = Color(0xFF8E9096)
+    // A post's tags, as the web app's .chip
+    val Chip = Color(0xFF262835)
+    val ChipText = Color(0xFFC8C9D0)
     val Accent = Color(0xFFF4E434)
     val AccentInk = Color(0xFF1B0833)
     val Ok = Color(0xFF4CD18F)

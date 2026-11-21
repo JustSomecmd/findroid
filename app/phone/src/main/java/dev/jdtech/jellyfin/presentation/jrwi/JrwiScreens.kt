@@ -4,10 +4,12 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,6 +36,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -100,6 +103,7 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiServerViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiSettingsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowsViewModel
+import dev.jdtech.jellyfin.jrwi.JrwiBadge
 import dev.jdtech.jellyfin.jrwi.JrwiComment
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiShow
@@ -730,7 +734,8 @@ fun JrwiItemScreen(
                         },
                     )
                 }
-                if (item.audio != null) {
+                // Only with the audio picked, as that's what it downloads
+                if (item.audio != null && playsAudio) {
                     item(key = "download") {
                         JrwiDownloadRow(
                             entry = download,
@@ -784,7 +789,11 @@ fun JrwiItemScreen(
                     )
                 }
                 items(flatComments, key = { "comment:" + it.comment.id }) { flat ->
-                    JrwiCommentRow(comment = flat.comment, depth = flat.depth)
+                    JrwiCommentRow(
+                        comment = flat.comment,
+                        depth = flat.depth,
+                        onOpen = { openUrl(context, it) },
+                    )
                 }
                 when {
                     comments.error != null ->
@@ -924,6 +933,9 @@ private fun LazyListScope.jrwiPostContent(
                 modifier = Modifier.padding(horizontal = MaterialTheme.spacings.medium),
             )
         }
+    }
+    if (post.tags.isNotEmpty()) {
+        item(key = "tags:$id") { JrwiTags(post.tags) }
     }
     if (post.images.isNotEmpty()) {
         item(key = "images:$id") {
@@ -1178,8 +1190,40 @@ private fun List<JrwiComment>.flattenReplies(depth: Int = 0): List<FlatComment> 
     listOf(FlatComment(it, depth)) + it.replies.flattenReplies(depth + 1)
 }
 
+/** A post's tags under its description, as the web app shows them. */
 @Composable
-private fun JrwiCommentRow(comment: JrwiComment, depth: Int) {
+private fun JrwiTags(tags: List<String>) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+        modifier =
+            Modifier.fillMaxWidth()
+                .padding(
+                    horizontal = MaterialTheme.spacings.medium,
+                    vertical = MaterialTheme.spacings.small,
+                ),
+    ) {
+        tags.forEach { tag ->
+            Text(
+                text = tag,
+                style = MaterialTheme.typography.bodySmall,
+                color = JrwiColors.ChipText,
+                modifier =
+                    Modifier.background(JrwiColors.Chip, JrwiLabelShape)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
+    }
+}
+
+/**
+ * A comment as the site shows it: the name in its tier's colour, its badges, Pinned, how long ago,
+ * and a link to it on the site.
+ */
+@Composable
+private fun JrwiCommentRow(comment: JrwiComment, depth: Int, onOpen: (String) -> Unit) {
+    val author = comment.author
+    val avatarSize = if (depth == 0) 36.dp else 28.dp
     Row(
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
         modifier =
@@ -1191,22 +1235,69 @@ private fun JrwiCommentRow(comment: JrwiComment, depth: Int) {
                     bottom = MaterialTheme.spacings.small,
                 ),
     ) {
-        JrwiImage(
-            path = comment.author.avatar,
-            modifier = Modifier.size(if (depth == 0) 36.dp else 28.dp).clip(CircleShape),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
+        if (author.avatar != null) {
+            JrwiImage(path = author.avatar, modifier = Modifier.size(avatarSize).clip(CircleShape))
+        } else {
+            // The name's first letter, as the site shows members without a picture
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier =
+                    Modifier.size(avatarSize).clip(CircleShape).background(JrwiColors.LineSoft),
+            ) {
                 Text(
-                    text = comment.author.name,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    text = author.name.take(1).uppercase().ifEmpty { "?" },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = JrwiColors.Text,
                 )
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.Top) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        text = author.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = cssColor(author.color) ?: JrwiColors.Text,
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                    )
+                    author.badges.forEach { badge ->
+                        JrwiBadgeLabel(badge, Modifier.align(Alignment.CenterVertically))
+                    }
+                    if (comment.pinned) {
+                        Text(
+                            text = stringResource(CoreR.string.jrwi_pinned),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = JrwiColors.PillText,
+                            modifier =
+                                Modifier.align(Alignment.CenterVertically)
+                                    .background(JrwiColors.Pill, JrwiLabelShape)
+                                    .padding(horizontal = 8.dp, vertical = 1.dp),
+                        )
+                    }
+                }
                 (comment.dateText ?: fullDate(comment.date))?.let {
                     Text(
                         text = it,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = MaterialTheme.spacings.small),
+                    )
+                }
+                comment.link?.let { link ->
+                    Icon(
+                        painter = painterResource(CoreR.drawable.ic_external_link),
+                        contentDescription = stringResource(CoreR.string.jrwi_open_comment),
+                        tint = JrwiColors.Muted,
+                        modifier =
+                            Modifier.padding(start = MaterialTheme.spacings.small)
+                                .size(16.dp)
+                                .clickable { onOpen(link) },
                     )
                 }
             }
@@ -1237,6 +1328,77 @@ private fun JrwiCommentRow(comment: JrwiComment, depth: Int) {
         }
     }
 }
+
+/**
+ * A badge next to a commenter's name, as the site shows it: the tier as its picture alone, others
+ * outlined with their picture or emoji and their text.
+ */
+@Composable
+private fun JrwiBadgeLabel(badge: JrwiBadge, modifier: Modifier = Modifier) {
+    val image = badge.image
+    val icon = badge.icon
+    if (image != null && icon == null) {
+        JrwiBadgeImage(image, badge.name, modifier.height(16.dp))
+        return
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier =
+            modifier
+                .border(1.dp, JrwiColors.Line, JrwiLabelShape)
+                .padding(horizontal = 8.dp, vertical = 1.dp),
+    ) {
+        when {
+            image != null -> JrwiBadgeImage(image, null, Modifier.height(14.dp))
+            icon != null -> Text(icon, style = MaterialTheme.typography.labelSmall)
+        }
+        badge.name?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelSmall,
+                color = JrwiColors.BodyText,
+            )
+        }
+    }
+}
+
+/** A badge's picture, as wide as it is for its height. */
+@Composable
+private fun JrwiBadgeImage(path: String, description: String?, modifier: Modifier) {
+    AsyncImage(
+        model = jrwiUrl(path),
+        contentDescription = description,
+        contentScale = ContentScale.Fit,
+        modifier = modifier,
+    )
+}
+
+// Labels and tags, as the web app's badges and chips
+private val JrwiLabelShape = RoundedCornerShape(6.dp)
+
+/** A CSS colour as the site writes it, such as "rgb(247, 221, 210)" or "#f7ddd2"; else null. */
+private fun cssColor(value: String?): Color? {
+    val text = value?.trim()?.lowercase() ?: return null
+    RGB_REGEX.matchEntire(text)?.let { match ->
+        val channels = (1..3).map { match.groupValues[it].toFloatOrNull() ?: return null }
+        val alpha = match.groupValues[4].toFloatOrNull() ?: 1f
+        return Color(
+            red = (channels[0] / 255f).coerceIn(0f, 1f),
+            green = (channels[1] / 255f).coerceIn(0f, 1f),
+            blue = (channels[2] / 255f).coerceIn(0f, 1f),
+            alpha = alpha.coerceIn(0f, 1f),
+        )
+    }
+    if (!text.startsWith("#")) return null
+    val hex = text.removePrefix("#")
+    val full = if (hex.length == 3) hex.map { "$it$it" }.joinToString("") else hex
+    val rgb = full.takeIf { it.length == 6 }?.toLongOrNull(16) ?: return null
+    return Color(0xFF000000 or rgb)
+}
+
+private val RGB_REGEX =
+    Regex("""rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)""")
 
 // The archiver
 

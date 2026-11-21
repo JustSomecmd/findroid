@@ -488,6 +488,8 @@
     <string name="jrwi_comments">Comments</string>
     <string name="jrwi_no_comments">No comments</string>
     <string name="jrwi_more_comments">More comments</string>
+    <string name="jrwi_pinned">Pinned</string>
+    <string name="jrwi_open_comment">Open this comment on jrwishow.com</string>
     <string name="jrwi_nothing_here">Nothing here yet</string>
     <string name="jrwi_server">Archiver</string>
     <string name="jrwi_check_now">Check now</string>
