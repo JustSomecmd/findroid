@@ -313,8 +313,7 @@ class PageSwiper internal constructor(val pages: PagerState, private val scope: 
 
 private fun PagerState.position(): Float = currentPage + currentPageOffsetFraction
 
-private fun PagerState.pageWidth(): Float =
-    (layoutInfo.pageSize + layoutInfo.pageSpacing).toFloat()
+private fun PagerState.pageWidth(): Float = (layoutInfo.pageSize + layoutInfo.pageSpacing).toFloat()
 
 private fun onPage(pos: Float): Boolean = pos == round(pos)
 

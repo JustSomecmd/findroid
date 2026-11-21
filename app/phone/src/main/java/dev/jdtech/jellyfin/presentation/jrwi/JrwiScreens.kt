@@ -491,7 +491,9 @@ fun JrwiShowScreen(
                             modifier = Modifier.fillMaxSize().pageSwipes(swiper),
                             userScrollEnabled = false,
                             key = { page -> tabs[page].id },
-                        ) { page -> JrwiTabList(viewModel, tabs[page].id, onItemClick) }
+                        ) { page ->
+                            JrwiTabList(viewModel, tabs[page].id, onItemClick)
+                        }
                     error != null ->
                         Text(
                             text = error.orEmpty(),
