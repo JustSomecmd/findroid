@@ -457,6 +457,18 @@
     </plurals>
     <string name="jrwi_episode">Episode %1$d</string>
     <string name="jrwi_season_episode">Season %1$d, episode %2$d</string>
+    <string name="jrwi_download_audio">Download the audio</string>
+    <string name="jrwi_download">Download</string>
+    <string name="jrwi_download_waiting">Waiting to download the audio</string>
+    <string name="jrwi_download_running">Downloading the audio: %1$d%%</string>
+    <string name="jrwi_download_failed">The archiver couldn\'t give the audio</string>
+    <string name="jrwi_download_done">Audio on this phone, %1$s</string>
+    <string name="jrwi_download_cancel">Cancel</string>
+    <string name="jrwi_download_remove">Remove</string>
+    <string name="jrwi_download_retry">Try again</string>
+    <string name="jrwi_offline_copy">The archiver can\'t be reached, so this is the copy kept with the audio.</string>
+    <string name="jrwi_not_saved">Not kept on this phone</string>
+    <string name="jrwi_downloads">JRWI audio</string>
     <string name="jrwi_video">Video</string>
     <string name="jrwi_audio">Audio</string>
     <string name="jrwi_play">Play</string>

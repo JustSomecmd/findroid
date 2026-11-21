@@ -92,6 +92,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemEvent
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiMessages
@@ -122,7 +123,10 @@ val LocalJrwiBaseUrl = staticCompositionLocalOf<String?> { null }
 @Composable
 private fun jrwiUrl(path: String?): String? {
     if (path.isNullOrBlank()) return null
-    if (path.startsWith("http://") || path.startsWith("https://")) return path
+    // Including a picture kept on the phone with a download
+    if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("file:")) {
+        return path
+    }
     val base = LocalJrwiBaseUrl.current ?: return null
     return base + (if (path.startsWith("/")) path else "/$path")
 }
@@ -151,6 +155,7 @@ private fun jrwiMessageText(context: Context, message: String): String =
         JrwiMessages.CHECK_STARTED -> context.getString(CoreR.string.jrwi_check_started)
         JrwiMessages.CHECK_RUNNING -> context.getString(CoreR.string.jrwi_check_running)
         JrwiMessages.NOT_IN_JELLYFIN -> context.getString(CoreR.string.jrwi_not_in_jellyfin)
+        JrwiMessages.NOT_SAVED -> context.getString(CoreR.string.jrwi_not_saved)
         else -> message
     }
 
@@ -596,6 +601,7 @@ fun JrwiItemScreen(
     JrwiTheme {
         val context = LocalContext.current
         val state by viewModel.state.collectAsStateWithLifecycle()
+        val download by viewModel.download.collectAsStateWithLifecycle()
         // Loaded again on coming back from the player, for the new position
         LifecycleResumeEffect(postId) {
             viewModel.load(postId)
@@ -724,12 +730,35 @@ fun JrwiItemScreen(
                         },
                     )
                 }
+                if (item.audio != null) {
+                    item(key = "download") {
+                        JrwiDownloadRow(
+                            entry = download,
+                            onDownload = viewModel::downloadAudio,
+                            onRemove = viewModel::removeDownload,
+                        )
+                    }
+                }
+                if (state.offline) {
+                    item(key = "offline") {
+                        Text(
+                            text = stringResource(CoreR.string.jrwi_offline_copy),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier =
+                                Modifier.padding(
+                                    horizontal = MaterialTheme.spacings.medium,
+                                    vertical = MaterialTheme.spacings.small,
+                                ),
+                        )
+                    }
+                }
                 val error = state.content.error
                 when {
                     post == null && error != null ->
                         item(key = "post_error") {
                             Text(
-                                text = error,
+                                text = jrwiMessageText(context, error),
                                 color = MaterialTheme.colorScheme.error,
                                 modifier =
                                     Modifier.padding(horizontal = MaterialTheme.spacings.medium),
@@ -761,7 +790,7 @@ fun JrwiItemScreen(
                     comments.error != null ->
                         item(key = "comments_error") {
                             Text(
-                                text = comments.error.orEmpty(),
+                                text = jrwiMessageText(context, comments.error.orEmpty()),
                                 color = MaterialTheme.colorScheme.error,
                                 modifier =
                                     Modifier.padding(horizontal = MaterialTheme.spacings.medium),
@@ -788,6 +817,89 @@ fun JrwiItemScreen(
                         }
                 }
             }
+        }
+    }
+}
+
+/** The audio's download: a button to start it, how far it's got, or that it's on the phone. */
+@Composable
+private fun JrwiDownloadRow(
+    entry: JrwiDownloadEntry?,
+    onDownload: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val download = entry?.download
+    val progress = entry?.progress
+    val running = download != null && !download.done && !download.failed
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier.fillMaxWidth()
+                .padding(horizontal = MaterialTheme.spacings.medium, vertical = 4.dp),
+    ) {
+        Icon(
+            painter = painterResource(CoreR.drawable.ic_download),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(MaterialTheme.spacings.small))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text =
+                    when {
+                        download == null -> stringResource(CoreR.string.jrwi_download_audio)
+                        download.done ->
+                            stringResource(
+                                CoreR.string.jrwi_download_done,
+                                formatBytes(download.size ?: 0L),
+                            )
+                        download.failed -> stringResource(CoreR.string.jrwi_download_failed)
+                        progress != null ->
+                            stringResource(
+                                CoreR.string.jrwi_download_running,
+                                (progress * 100).toInt(),
+                            )
+                        else -> stringResource(CoreR.string.jrwi_download_waiting)
+                    },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (running) {
+                val bar = Modifier.fillMaxWidth().padding(top = 4.dp)
+                if (progress != null) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        color = JrwiColors.Accent,
+                        trackColor = JrwiBarTrack,
+                        modifier = bar,
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        color = JrwiColors.Accent,
+                        trackColor = JrwiBarTrack,
+                        modifier = bar,
+                    )
+                }
+            }
+        }
+        when {
+            download == null ->
+                TextButton(onClick = onDownload) {
+                    Text(stringResource(CoreR.string.jrwi_download))
+                }
+            download.failed ->
+                TextButton(onClick = onDownload) {
+                    Text(stringResource(CoreR.string.jrwi_download_retry))
+                }
+            else ->
+                TextButton(onClick = onRemove) {
+                    Text(
+                        stringResource(
+                            if (download.done) CoreR.string.jrwi_download_remove
+                            else CoreR.string.jrwi_download_cancel
+                        )
+                    )
+                }
         }
     }
 }

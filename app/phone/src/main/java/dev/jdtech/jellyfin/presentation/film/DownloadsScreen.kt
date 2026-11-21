@@ -42,12 +42,15 @@ import dev.jdtech.jellyfin.film.presentation.collection.CollectionAction
 import dev.jdtech.jellyfin.film.presentation.collection.CollectionState
 import dev.jdtech.jellyfin.film.presentation.downloads.ActiveDownload
 import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsViewModel
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadsViewModel
 import dev.jdtech.jellyfin.models.CollectionSection
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.UiText
 import dev.jdtech.jellyfin.presentation.film.components.ActiveDownloadRow
 import dev.jdtech.jellyfin.presentation.film.components.CollectionGrid
 import dev.jdtech.jellyfin.presentation.film.components.ReorderableDownloadQueue
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiDownloadsSection
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.alwaysShownTopAppBarColors
@@ -57,7 +60,10 @@ import java.util.UUID
 @Composable
 fun DownloadsScreen(
     onItemClick: (item: FindroidItem) -> Unit,
+    /** Opens the page of a JRWI episode whose audio is on the phone. */
+    onJrwiItemClick: (itemId: Long) -> Unit = {},
     viewModel: DownloadsViewModel = hiltViewModel(),
+    jrwiViewModel: JrwiDownloadsViewModel = hiltViewModel(),
     /**
      * Shown inside a page that has the top bar, such as next to the TubeArchivist download queue,
      * so this leaves out its own bar and the space for the status bar.
@@ -66,12 +72,16 @@ fun DownloadsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activeDownloads by viewModel.activeDownloads.collectAsStateWithLifecycle()
+    val jrwiDownloads by jrwiViewModel.entries.collectAsStateWithLifecycle()
 
     LaunchedEffect(true) { viewModel.loadItems() }
 
     DownloadsScreenLayout(
         state = state,
         activeDownloads = activeDownloads,
+        jrwiDownloads = jrwiDownloads,
+        onJrwiItemClick = onJrwiItemClick,
+        onJrwiRemove = jrwiViewModel::remove,
         onActiveDownloadClick = { item -> onItemClick(item) },
         onReorderQueue = { itemIds -> viewModel.reorderQueue(itemIds) },
         embedded = embedded,
@@ -93,6 +103,9 @@ private fun DownloadsScreenLayout(
     onActiveDownloadClick: (FindroidItem) -> Unit = {},
     onReorderQueue: (List<UUID>) -> Unit = {},
     embedded: Boolean = false,
+    jrwiDownloads: List<JrwiDownloadEntry> = emptyList(),
+    onJrwiItemClick: (Long) -> Unit = {},
+    onJrwiRemove: (Long) -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val gridState = rememberLazyGridState()
@@ -120,7 +133,7 @@ private fun DownloadsScreenLayout(
             else WindowInsets.statusBars.union(WindowInsets.displayCutout),
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-            if (state.sections.isEmpty() && activeDownloads.isEmpty()) {
+            if (state.sections.isEmpty() && activeDownloads.isEmpty() && jrwiDownloads.isEmpty()) {
                 Text(
                     text = stringResource(CoreR.string.no_downloads),
                     modifier = Modifier.align(Alignment.Center),
@@ -206,6 +219,15 @@ private fun DownloadsScreenLayout(
                                     )
                                 }
                         }
+                    }
+                }
+                if (jrwiDownloads.isNotEmpty()) {
+                    item(key = "jrwi_downloads", span = { GridItemSpan(maxLineSpan) }) {
+                        JrwiDownloadsSection(
+                            entries = jrwiDownloads,
+                            onClick = onJrwiItemClick,
+                            onRemove = onJrwiRemove,
+                        )
                     }
                 }
             },

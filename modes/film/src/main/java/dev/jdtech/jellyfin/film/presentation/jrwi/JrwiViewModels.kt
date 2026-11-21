@@ -7,7 +7,11 @@ import dev.jdtech.jellyfin.film.presentation.tube.TaListState
 import dev.jdtech.jellyfin.film.presentation.tube.errorText
 import dev.jdtech.jellyfin.film.presentation.tube.loadNextPage
 import dev.jdtech.jellyfin.jrwi.JrwiApi
+import dev.jdtech.jellyfin.jrwi.JrwiApiException
 import dev.jdtech.jellyfin.jrwi.JrwiComment
+import dev.jdtech.jellyfin.jrwi.JrwiDownload
+import dev.jdtech.jellyfin.jrwi.JrwiDownloader
+import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiPage
 import dev.jdtech.jellyfin.jrwi.JrwiProblem
@@ -18,6 +22,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiStatus
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaPage
 import dev.jdtech.jellyfin.tubearchivist.TaPaginate
+import java.io.IOException
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
@@ -27,8 +32,11 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -70,7 +78,17 @@ object JrwiMessages {
     const val CHECK_STARTED = "jrwi:check_started"
     const val CHECK_RUNNING = "jrwi:check_running"
     const val NOT_IN_JELLYFIN = "jrwi:not_in_jellyfin"
+    const val NOT_SAVED = "jrwi:not_saved"
 }
+
+/** An episode's audio on the phone or on its way, with how far its download has got. */
+data class JrwiDownloadEntry(
+    val download: JrwiDownload,
+    /** From 0 to 1 while it downloads, or null while it waits. */
+    val progress: Float?,
+    /** Its picture on the phone. */
+    val picture: String? = null,
+)
 
 /** [this] with the progress just saved for one of its items. */
 private fun List<JrwiItem>.withProgress(change: JrwiProgressChange): List<JrwiItem> {
@@ -105,6 +123,8 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
                 _state.update { it.copy(latest = it.latest.withProgress(change)) }
             }
         }
+        // Progress made without a connection, now that the archiver may be back
+        viewModelScope.launch { jrwiProgress.sendPending() }
     }
 
     /** Loads the shows, unless they're in already. [force] loads them again anyway. */
@@ -250,6 +270,8 @@ data class JrwiItemState(
     val playsAudio: Boolean = false,
     /** What the picked version's post says for itself. */
     val content: JrwiItemContent = JrwiItemContent(),
+    /** The archiver can't be reached, so this is the copy kept with the audio's download. */
+    val offline: Boolean = false,
 )
 
 /**
@@ -288,12 +310,27 @@ class JrwiItemViewModel
 constructor(
     private val jrwiApi: JrwiApi,
     private val jrwiProgress: JrwiProgressSync,
+    private val jrwiDownloads: JrwiDownloads,
+    private val jrwiDownloader: JrwiDownloader,
 ) : ViewModel() {
     private val _state = MutableStateFlow(JrwiItemState())
     val state = _state.asStateFlow()
 
     private val _events = Channel<JrwiItemEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
+
+    /** The episode's audio on the phone, or on its way there. */
+    val download: StateFlow<JrwiDownloadEntry?> =
+        combine(
+                _state.map { it.item?.id }.distinctUntilChanged(),
+                jrwiDownloads.downloads,
+                jrwiDownloads.progress,
+            ) { itemId, downloads, progress ->
+                downloads
+                    .firstOrNull { it.itemId == itemId }
+                    ?.let { JrwiDownloadEntry(it, progress[it.itemId]) }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Each post's own content and comments, kept for switching back, by post ID
     private val contents = mutableMapOf<Long, MutableStateFlow<JrwiItemContent>>()
@@ -313,13 +350,17 @@ constructor(
         }
         viewModelScope.launch {
             try {
-                val loaded = _state.value.item
-                val item = loaded ?: jrwiApi.getItem(postId)
-                if (loaded == null) {
-                    // The video, unless there's only the audio
-                    _state.update {
-                        it.copy(item = item, error = null, playsAudio = item.video == null)
-                    }
+                val shown = _state.value
+                // A saved copy is tried for the archiver again, in case it can be reached now
+                val item = shown.item?.takeIf { !shown.offline } ?: loadItem(postId)
+                val offline = _state.value.offline
+                if (shown.item == null || shown.offline != offline) {
+                    contents.clear()
+                    commentLists.clear()
+                    // The video, unless there's only the audio or the audio is all that's here
+                    val audio =
+                        if (shown.item == null) item.video == null || offline else shown.playsAudio
+                    _state.update { it.copy(item = item, error = null, playsAudio = audio) }
                 }
                 // Also tries again what didn't load before
                 showContent(item, _state.value.playsAudio)
@@ -330,6 +371,30 @@ constructor(
                 _state.update { it.copy(error = e.errorText()) }
             }
         }
+    }
+
+    /** From the archiver, or the copy kept with a download when the archiver can't be reached. */
+    private suspend fun loadItem(postId: Long): JrwiItem =
+        try {
+            jrwiApi.getItem(postId).also { _state.update { it.copy(offline = false) } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            if (e is JrwiApiException) throw e
+            val saved =
+                jrwiDownloads.forPost(postId)?.let { jrwiDownloads.savedItem(it.itemId) } ?: throw e
+            _state.update { it.copy(offline = true) }
+            saved
+        }
+
+    /** Downloads the audio, to listen to without a connection. */
+    fun downloadAudio() {
+        _state.value.item?.let { jrwiDownloader.download(it) }
+    }
+
+    /** Stops the audio's download, or takes it off the phone. */
+    fun removeDownload() {
+        _state.value.item?.let { jrwiDownloader.remove(it.id) }
     }
 
     /** Picks the video or the audio, and shows that version's own text and comments. */
@@ -368,6 +433,12 @@ constructor(
             content.update { it.copy(post = item, error = null) }
             return
         }
+        // Without a connection, what was kept with the audio's download
+        if (_state.value.offline) {
+            val saved = if (postId == item.audio?.postId) jrwiDownloads.savedPost(item.id) else null
+            content.update { it.copy(post = saved ?: item, error = null) }
+            return
+        }
         if (!postsLoading.add(postId)) return
         viewModelScope.launch {
             try {
@@ -404,6 +475,19 @@ constructor(
         val item = _state.value.item ?: return
         val postId = contentPostId(item, _state.value.playsAudio)
         val content = contents[postId] ?: return
+        if (_state.value.offline) {
+            // Only the audio's comments are kept with its download
+            val saved = postId == item.audio?.postId || !item.hasBoth
+            val comments =
+                TaListState(
+                    items = if (saved) jrwiDownloads.savedComments(item.id) else emptyList(),
+                    page = 1,
+                    hasMore = false,
+                    error = if (saved) null else JrwiMessages.NOT_SAVED,
+                )
+            content.update { it.copy(comments = comments) }
+            return
+        }
         val list = commentLists.getOrPut(postId) { MutableStateFlow(TaListState()) }
         viewModelScope.launch {
             list.loadNextPage(key = { it.id }) { page ->
@@ -464,6 +548,23 @@ constructor(
             }
         }
     }
+}
+
+/** The episodes whose audio is on the phone, for the Downloads page. */
+@HiltViewModel
+class JrwiDownloadsViewModel
+@Inject
+constructor(private val downloads: JrwiDownloads, private val downloader: JrwiDownloader) :
+    ViewModel() {
+    val entries: StateFlow<List<JrwiDownloadEntry>> =
+        combine(downloads.downloads, downloads.progress) { list, progress ->
+                list.map {
+                    JrwiDownloadEntry(it, progress[it.itemId], downloads.thumbnailUri(it.itemId))
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun remove(itemId: Long) = downloader.remove(itemId)
 }
 
 data class JrwiServerState(

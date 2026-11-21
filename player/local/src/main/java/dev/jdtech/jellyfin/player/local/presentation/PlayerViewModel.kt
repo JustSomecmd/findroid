@@ -23,6 +23,7 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.jrwi.JrwiApi
+import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.models.FindroidSegment
@@ -83,6 +84,7 @@ constructor(
     private val taPlaylistCache: TaPlaylistCache,
     private val jrwiApi: JrwiApi,
     private val jrwiProgress: JrwiProgressSync,
+    private val jrwiDownloads: JrwiDownloads,
 ) : ViewModel(), Player.Listener {
     val player: Player
 
@@ -417,19 +419,27 @@ constructor(
             // Nothing of a playlist played before it
             taPlaylistId = null
             playlistManager.setTubeArchivistQueue(null)
+            // On the phone, it plays from there, and without a connection from what was kept
+            val download = jrwiDownloads.forAudio(postId)
             val item =
                 try {
                     jrwiApi.getItem(postId)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Timber.e(e)
-                    Toast.makeText(application, e.localizedMessage, Toast.LENGTH_LONG).show()
-                    eventsChannel.trySend(PlayerEvents.NavigateBack)
-                    return@launch
+                    val saved = download?.let { jrwiDownloads.savedItem(it.itemId) }
+                    if (saved == null) {
+                        Timber.e(e)
+                        Toast.makeText(application, e.localizedMessage, Toast.LENGTH_LONG).show()
+                        eventsChannel.trySend(PlayerEvents.NavigateBack)
+                        return@launch
+                    }
+                    saved
                 }
             val audio = item.audio
-            val url = jrwiApi.fileUrlWithToken(audio?.url)
+            val file = download?.let { jrwiDownloads.audioFile(it.itemId) }?.takeIf { it.exists() }
+            val url =
+                file?.let { Uri.fromFile(it).toString() } ?: jrwiApi.fileUrlWithToken(audio?.url)
             if (audio == null || url == null) {
                 eventsChannel.trySend(PlayerEvents.NavigateBack)
                 return@launch
@@ -451,7 +461,7 @@ constructor(
                     // Played as it is, so there's no other quality to pick
                     isLocal = true,
                     isAudioOnly = true,
-                    subtitle = jrwiProgress.showNameOrNull(item.show),
+                    subtitle = jrwiProgress.showNameOrNull(item.show) ?: download?.showName,
                 )
             items = mutableListOf(playerItem)
             currentMediaItemIndex = 0

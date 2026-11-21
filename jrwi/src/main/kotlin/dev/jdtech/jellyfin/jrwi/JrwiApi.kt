@@ -18,6 +18,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 
 /** A request to the archiver that came back with an error status. */
 class JrwiApiException(val code: Int, message: String) : IOException(message)
@@ -179,13 +180,16 @@ class JrwiApi(private val config: JrwiConfig) {
 
     /**
      * Saves how far the episode was played, in seconds in the timeline of the video or audio post
-     * with this ID. The archiver moves it to the other version's timeline itself.
+     * with this ID. The archiver moves it to the other version's timeline itself. [updatedAt] is
+     * when progress sent later was made, such as without a connection: the archiver then keeps
+     * whichever of its own and this is newer (archiver 0.5.0 or newer).
      */
     suspend fun setProgress(
         postId: Long,
         position: Double,
         duration: Double?,
         finished: Boolean,
+        updatedAt: String? = null,
     ): JrwiProgress =
         decode(
             send(
@@ -195,11 +199,31 @@ class JrwiApi(private val config: JrwiConfig) {
                         put("position", position)
                         duration?.let { put("duration", it) }
                         put("finished", finished)
+                        updatedAt?.let { put("updated_at", it) }
                     }
                     .toString()
                     .toRequestBody(JSON_TYPE),
             )
         )
+
+    /**
+     * Opens an archived file, such as an episode's audio, to download it: from byte [from] on when
+     * that's more than 0, to go on with a download where it stopped. Blocks; the caller closes the
+     * response.
+     */
+    fun openFile(path: String, from: Long = 0): Response {
+        val url =
+            fileUrl(path)?.toHttpUrlOrNull() ?: throw IOException("The JRWI archiver is not set up")
+        val request =
+            Request.Builder()
+                .url(url)
+                .apply {
+                    authHeader?.let { header("Authorization", it) }
+                    if (from > 0) header("Range", "bytes=$from-")
+                }
+                .build()
+        return client.newCall(request).execute()
+    }
 
     // The archiver itself
 

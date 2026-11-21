@@ -10,7 +10,10 @@ import dev.jdtech.jellyfin.api.JellyfinApi
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.jrwi.JrwiApi
 import dev.jdtech.jellyfin.jrwi.JrwiConfig
+import dev.jdtech.jellyfin.jrwi.JrwiDownloader
+import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiJellyfinLookup
+import dev.jdtech.jellyfin.jrwi.JrwiProgressStore
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
@@ -21,6 +24,8 @@ import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
+import dev.jdtech.jellyfin.work.JrwiDownloaderImpl
+import dev.jdtech.jellyfin.work.JrwiProgressWorker
 import javax.inject.Provider
 import javax.inject.Singleton
 import kotlinx.coroutines.runBlocking
@@ -101,13 +106,41 @@ object ApiModule {
 
     @Singleton
     @Provides
+    fun provideJrwiProgressStore(@ApplicationContext application: Context): JrwiProgressStore =
+        JrwiProgressStore(application)
+
+    @Singleton
+    @Provides
     fun provideJrwiProgressSync(
+        @ApplicationContext application: Context,
         jrwiApi: JrwiApi,
         lookup: JrwiJellyfinLookup,
         taApi: TaApi,
+        store: JrwiProgressStore,
         // Online or offline, as it is at the time
         repository: Provider<JellyfinRepository>,
-    ): JrwiProgressSync = JrwiProgressSync(jrwiApi, lookup, taApi) { repository.get() }
+    ): JrwiProgressSync =
+        JrwiProgressSync(
+            jrwiApi,
+            lookup,
+            taApi,
+            store,
+            sendLater = { JrwiProgressWorker.enqueue(application) },
+        ) {
+            repository.get()
+        }
+
+    @Singleton
+    @Provides
+    fun provideJrwiDownloads(@ApplicationContext application: Context): JrwiDownloads =
+        JrwiDownloads(application)
+
+    @Singleton
+    @Provides
+    fun provideJrwiDownloader(
+        @ApplicationContext application: Context,
+        downloads: JrwiDownloads,
+    ): JrwiDownloader = JrwiDownloaderImpl(application, downloads)
 
     @Singleton
     @Provides

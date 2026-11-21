@@ -2,6 +2,7 @@ package dev.jdtech.jellyfin.jrwi
 
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.tubearchivist.TaApi
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
@@ -18,11 +19,16 @@ data class JrwiProgressChange(val itemId: Long, val progress: JrwiProgress)
  * reads and saves it through either version's post, each in its own timeline. The video's progress
  * also lives in Jellyfin (or in TubeArchivist, for videos only on YouTube), so playing the audio
  * hands its position on to there, moved by the offset between the two.
+ *
+ * Every save is also kept on the phone. One made without a connection waits there, and [sendLater]
+ * arranges for it to be sent with the time it was made once the archiver can be reached.
  */
 class JrwiProgressSync(
     private val jrwiApi: JrwiApi,
     private val lookup: JrwiJellyfinLookup,
     private val taApi: TaApi,
+    private val store: JrwiProgressStore,
+    private val sendLater: () -> Unit,
     private val repository: () -> JellyfinRepository,
 ) {
     private val showNames = ConcurrentHashMap<String, String>()
@@ -34,18 +40,83 @@ class JrwiProgressSync(
 
     /**
      * How far the episode was played, in the timeline of its video or, with [audio], its audio.
-     * Null without that version, or when the archiver can't be reached.
+     * When the archiver can't be reached, what was last saved from this phone. Null without that
+     * version, or when neither has anything.
      */
     suspend fun progress(item: JrwiItem, audio: Boolean): JrwiProgress? {
         val postId = (if (audio) item.audio?.postId else item.video?.postId) ?: return null
         return try {
+            // A save that's still waiting goes first, so it isn't read over
+            sendWaiting(item.id)
             jrwiApi.getProgress(postId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Timber.w(e, "Could not get the progress of $postId")
-            null
+            savedProgress(item, postId)
         }
+    }
+
+    /** What was last saved from this phone, moved to the timeline of the post [postId]. */
+    private fun savedProgress(item: JrwiItem, postId: Long): JrwiProgress? {
+        val saved = store.last(item.id) ?: return null
+        if (saved.postId == postId) return saved
+        val toAudio = postId == item.audio?.postId
+        val position =
+            when {
+                saved.finished -> 0.0
+                toAudio -> item.audioSeconds(saved.position)
+                else -> item.videoSeconds(saved.position)
+            }
+        val duration = if (toAudio) item.audio?.duration else item.video?.duration
+        return saved.copy(postId = postId, position = position, duration = duration)
+    }
+
+    /**
+     * Sends the saves made without a connection, each with the time it was made, so the archiver
+     * keeps whichever is newer. False when the archiver still can't be reached, to try again later.
+     */
+    suspend fun sendPending(): Boolean {
+        if (!jrwiApi.isConfigured) return true
+        for ((itemId, progress) in store.pending()) {
+            try {
+                send(itemId, progress)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: JrwiApiException) {
+                // The archiver won't take it, which another try won't change
+                Timber.w(e, "The archiver refused saved progress of $itemId")
+                store.clearPending(itemId, progress)
+            } catch (e: IOException) {
+                Timber.w(e, "Could not send saved progress of $itemId")
+                return false
+            }
+        }
+        return true
+    }
+
+    private suspend fun sendWaiting(itemId: Long) {
+        val waiting = store.pending(itemId) ?: return
+        try {
+            send(itemId, waiting)
+        } catch (e: JrwiApiException) {
+            Timber.w(e, "The archiver refused saved progress of $itemId")
+            store.clearPending(itemId, waiting)
+        }
+    }
+
+    private suspend fun send(itemId: Long, progress: JrwiProgress) {
+        val postId = progress.postId ?: return store.clearPending(itemId, progress)
+        val saved =
+            jrwiApi.setProgress(
+                postId,
+                progress.position,
+                progress.duration,
+                progress.finished,
+                updatedAt = progress.updatedAt,
+            )
+        store.clearPending(itemId, progress)
+        _changes.tryEmit(JrwiProgressChange(itemId, saved))
     }
 
     /**
@@ -174,7 +245,10 @@ class JrwiProgressSync(
         else repository().markAsUnplayed(episodeId)
     }
 
-    /** Saves progress on the archiver and tells the lists showing [item]. */
+    /**
+     * Saves progress on the archiver and on the phone, and tells the lists showing [item]. Without
+     * a connection, it waits on the phone to be sent later.
+     */
     private suspend fun save(
         item: JrwiItem,
         postId: Long,
@@ -182,7 +256,23 @@ class JrwiProgressSync(
         duration: Double?,
         finished: Boolean,
     ) {
-        val saved = jrwiApi.setProgress(postId, position, duration, finished)
+        val made = JrwiProgress(postId, position, duration, finished, JrwiProgressStore.now())
+        store.remember(item.id, made)
+        val saved =
+            try {
+                jrwiApi.setProgress(postId, position, duration, finished)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: JrwiApiException) {
+                throw e
+            } catch (e: IOException) {
+                Timber.w(e, "No connection to the archiver, so progress of ${item.id} waits")
+                store.setPending(item.id, made)
+                sendLater()
+                made
+            }
+        // Saved now, so an older one still waiting has nothing more to say
+        if (saved !== made) store.clearPending(item.id)
         _changes.tryEmit(JrwiProgressChange(item.id, saved))
     }
 

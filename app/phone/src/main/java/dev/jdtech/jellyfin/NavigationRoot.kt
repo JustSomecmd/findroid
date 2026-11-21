@@ -599,6 +599,8 @@ private fun TaMainPager(
                             resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) },
                         onChannelClick =
                             resumedAction<String> { navigator.navigateOrReuse(TaChannelRoute(it)) },
+                        onJrwiItemClick =
+                            resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
                         sides = downloadSides,
                     )
             }
@@ -814,6 +816,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
     }
     entry<DownloadsRoute>(metadata = MAIN_PAGE_ENTRY) {
         val onItemClick = resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) }
+        val onJrwiItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) }
         // With TubeArchivist, the downloads on this phone and the download queue on the server are
         // two sides to swipe between, or to switch with the title
         if (LocalTubeArchivistMode.current) {
@@ -822,10 +825,11 @@ private fun EntryProviderScope<NavKey>.mainEntries(
                     onItemClick = onItemClick,
                     onChannelClick =
                         resumedAction<String> { navigator.navigateOrReuse(TaChannelRoute(it)) },
+                    onJrwiItemClick = onJrwiItemClick,
                 )
             }
         } else {
-            DownloadsScreen(onItemClick = onItemClick)
+            DownloadsScreen(onItemClick = onItemClick, onJrwiItemClick = onJrwiItemClick)
         }
     }
     entry<DownloadStorageRoute> {

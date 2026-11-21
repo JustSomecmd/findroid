@@ -38,6 +38,8 @@ fun TaDownloadsScreen(
     onItemClick: (FindroidItem) -> Unit,
     /** Opens the channel of a video in the server's queue. */
     onChannelClick: (channelId: String) -> Unit = {},
+    /** Opens the page of a JRWI episode whose audio is on the phone. */
+    onJrwiItemClick: (itemId: Long) -> Unit = {},
     /** The phone and server sides, when the main pager needs to turn them. */
     sides: PagerState = rememberSidePagerState(),
 ) {
@@ -82,7 +84,13 @@ fun TaDownloadsScreen(
             TaSidePager(
                 state = sides,
                 modifier = Modifier.padding(innerPadding).fillMaxSize(),
-                phone = { DownloadsScreen(onItemClick = onItemClick, embedded = true) },
+                phone = {
+                    DownloadsScreen(
+                        onItemClick = onItemClick,
+                        onJrwiItemClick = onJrwiItemClick,
+                        embedded = true,
+                    )
+                },
                 server = { TaQueueScreen(embedded = true, onChannelClick = onChannelClick) },
             )
         }
