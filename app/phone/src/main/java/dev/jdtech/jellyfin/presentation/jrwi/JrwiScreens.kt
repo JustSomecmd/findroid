@@ -41,8 +41,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -822,7 +820,6 @@ fun JrwiItemScreen(
             }
         }
         val item = state.item
-        var menuOpen by remember { mutableStateOf(false) }
         // Where the audio player is in this episode, to the second, while it has it
         val livePosition by
             remember(item?.id) {
@@ -881,26 +878,16 @@ fun JrwiItemScreen(
                         }
                     },
                     actions = {
+                        // The shown version's post in the archiver's web app, as a TubeArchivist
+                        // video's page opens it in TubeArchivist
                         if (item != null) {
-                            IconButton(onClick = { menuOpen = true }) {
-                                Icon(
-                                    painterResource(CoreR.drawable.ic_more_vertical),
-                                    contentDescription = null,
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = menuOpen,
-                                onDismissRequest = { menuOpen = false },
-                            ) {
-                                (post?.originalUrl ?: item.originalUrl)?.let { url ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(stringResource(CoreR.string.jrwi_open_original))
-                                        },
-                                        onClick = {
-                                            menuOpen = false
-                                            openUrl(context, url)
-                                        },
+                            val archiveUrl = jrwiUrl("/items/${post?.id ?: item.id}")
+                            if (archiveUrl != null) {
+                                IconButton(onClick = { openUrl(context, archiveUrl) }) {
+                                    Icon(
+                                        painterResource(CoreR.drawable.ic_external_link),
+                                        contentDescription =
+                                            stringResource(CoreR.string.jrwi_open_in_archiver),
                                     )
                                 }
                             }
