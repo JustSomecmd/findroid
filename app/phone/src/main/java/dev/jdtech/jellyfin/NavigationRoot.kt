@@ -438,6 +438,8 @@ private fun MainNavigation(
         )
     }
 
+    // The JRWI tab lights up in the archiver sheet's purple
+    val jrwiColors = jrwiItemColors()
     NavigationSuiteScaffold(
         navigationSuiteItems = {
             navigationItems.forEach { item ->
@@ -469,8 +471,7 @@ private fun MainNavigation(
                     enabled = item.enabled,
                     label = { Text(text = stringResource(item.title)) },
                     modifier = Modifier.jrwiSheetSwipe(jrwiSheet, enabled = sheetSwipe),
-                    // The JRWI tab lights up in the archiver sheet's purple
-                    colors = if (item.route == JrwiRoute) jrwiItemColors() else null,
+                    colors = if (item.route == JrwiRoute) jrwiColors else null,
                 )
             }
         },

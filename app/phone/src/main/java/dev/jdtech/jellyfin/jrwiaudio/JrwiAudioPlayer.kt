@@ -469,7 +469,7 @@ constructor(
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 }
         val finished = ended || (duration != null && position >= duration * WATCHED_PART)
         lastSaveMs = SystemClock.elapsedRealtime()
-        val job = scope.launch {
+        lastSave = scope.launch {
             // Saved even when the player is closed meanwhile
             withContext(NonCancellable) {
                 try {
@@ -487,8 +487,7 @@ constructor(
                 }
             }
         }
-        lastSave = job
-        return job
+        return lastSave
     }
 
     private fun savedSpeed(): Float = prefs.getFloat(SPEED, 1f)
