@@ -3,6 +3,8 @@ package dev.jdtech.jellyfin.film.presentation.tube
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.jdtech.jellyfin.jrwi.JrwiDownloads
+import dev.jdtech.jellyfin.jrwi.JrwiJellyfinLookup
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
@@ -22,6 +24,8 @@ constructor(
     private val appPreferences: AppPreferences,
     taApi: TaApi,
     private val taOfflineStore: TaOfflineStore,
+    private val jrwiDownloads: JrwiDownloads,
+    private val jrwiLookup: JrwiJellyfinLookup,
 ) : ViewModel() {
     val configured =
         combine(
@@ -58,4 +62,12 @@ constructor(
 
     /** The TubeArchivist video of a downloaded Jellyfin item, so it opens on that page. */
     fun downloadedVideoId(itemId: UUID): String? = taOfflineStore.videoIdForItem(itemId)
+
+    /**
+     * The JRWI episode of a Jellyfin item, so it opens on the episode's page: kept with the video's
+     * download from the moment it starts, or known from looking it up before.
+     */
+    fun jrwiItemId(itemId: UUID): Long? =
+        jrwiDownloads.savedVideoForEpisode(itemId.toString())?.item?.id
+            ?: jrwiLookup.knownPostId(itemId)
 }

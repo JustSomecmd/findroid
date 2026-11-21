@@ -246,10 +246,12 @@ fun NavigationRoot(
             topLevelRoutes = TOP_LEVEL_ROUTES,
         )
     val navigator = remember(navigationState) { Navigator(navigationState) }
-    // Downloaded TubeArchivist videos open on their TubeArchivist page, also offline
+    // A JRWI episode's video opens on the episode's page, as on the downloads page while it's still
+    // downloading; downloaded TubeArchivist videos open on their TubeArchivist page, also offline
     navigator.episodeRedirect = { itemId ->
-        if (taInterface) taNavViewModel.downloadedVideoId(itemId)?.let { TaVideoRoute(it) }
-        else null
+        taNavViewModel.jrwiItemId(itemId)?.let { JrwiItemRoute(it) }
+            ?: if (taInterface) taNavViewModel.downloadedVideoId(itemId)?.let { TaVideoRoute(it) }
+            else null
     }
 
     // The entry decorators hold the per-entry SavedState and ViewModel stores. They must be
@@ -1285,6 +1287,8 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
         JrwiItemScreen(
             postId = key.postId,
             onOpenYoutube = resumedAction<String> { openVideo(it) },
+            // As a TubeArchivist video's channel: back to the show's page when it's under this one
+            onShowClick = resumedAction<String> { navigator.navigateOrReuse(JrwiShowRoute(it)) },
             onOpenAudioPlayer = { navigator.navigate(AudioPlayerRoute) },
             navigateBack = dropUnlessResumed { navigator.goBack() },
             playVideoOnOpen = key.playVideo,

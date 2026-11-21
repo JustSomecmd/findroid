@@ -749,6 +749,8 @@ private fun JrwiItemRow(item: JrwiItem, onClick: () -> Unit, otherShow: String? 
 fun JrwiItemScreen(
     postId: Long,
     onOpenYoutube: (String) -> Unit,
+    /** Opens the page of the show the episode is from. */
+    onShowClick: (showId: String) -> Unit,
     onOpenAudioPlayer: () -> Unit,
     navigateBack: () -> Unit,
     // Opened from the audio player to watch the video from where the audio was
@@ -922,6 +924,12 @@ fun JrwiItemScreen(
                         playsAudio = playsAudio,
                         onChoose = viewModel::choose,
                     )
+                }
+                // The show it's from, as a TubeArchivist video has its channel
+                state.show?.let { show ->
+                    item(key = "show") {
+                        JrwiShowLink(show = show, onClick = { onShowClick(show.id) })
+                    }
                 }
                 if (item.video != null || item.audio != null) {
                     item(key = "buttons") {
@@ -1275,6 +1283,63 @@ private fun JrwiItemHeader(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/**
+ * The show an episode is from, under its title: the show's picture, name and number of posts. A tap
+ * opens the show.
+ */
+@Composable
+private fun JrwiShowLink(show: JrwiShow, onClick: () -> Unit) {
+    val ownPicture = show.poster ?: show.banner
+    // The logo is shown whole, as on the show's tile
+    val logo = ownPicture == null && show.image != null
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier.fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(
+                    horizontal = MaterialTheme.spacings.medium,
+                    vertical = MaterialTheme.spacings.small,
+                ),
+    ) {
+        Box(
+            modifier =
+                Modifier.width(72.dp)
+                    .aspectRatio(16f / 9f)
+                    .clip(JrwiShape)
+                    .background(JrwiColors.Picture)
+        ) {
+            JrwiImage(
+                path = show.image ?: ownPicture,
+                contentScale = if (logo) ContentScale.Fit else ContentScale.Crop,
+                modifier =
+                    Modifier.fillMaxSize().then(if (logo) Modifier.padding(4.dp) else Modifier),
+            )
+        }
+        Spacer(Modifier.width(MaterialTheme.spacings.medium))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = show.name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (show.itemCount > 0) {
+                Text(
+                    text =
+                        pluralStringResource(
+                            CoreR.plurals.jrwi_item_count,
+                            show.itemCount,
+                            show.itemCount,
+                        ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

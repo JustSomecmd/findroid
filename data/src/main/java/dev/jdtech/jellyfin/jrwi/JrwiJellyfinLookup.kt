@@ -85,6 +85,9 @@ class JrwiJellyfinLookup(private val jellyfinApi: JellyfinApi) {
             null
         }
 
+    /** The post ID of a Jellyfin item when it was looked up or seen before, without asking. */
+    fun knownPostId(itemId: UUID): Long? = postIds[itemId]
+
     /** The post ID of a Jellyfin item, or null if it isn't one of the archiver's videos. */
     suspend fun postIdForItem(itemId: UUID): Long? =
         withContext(Dispatchers.IO) {

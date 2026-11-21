@@ -377,6 +377,11 @@ data class JrwiItemState(
     val offline: Boolean = false,
     /** Jellyfin's episode of the archived video, for downloading it, once looked up. */
     val jellyfinEpisode: FindroidEpisode? = null,
+    /**
+     * The show the episode is from, for its link; without a connection only its name, from the
+     * audio's download, when there is one.
+     */
+    val show: JrwiShow? = null,
 )
 
 /**
@@ -490,6 +495,7 @@ constructor(
                 }
                 // Also tries again what didn't load before
                 showContent(item, _state.value.playsAudio)
+                loadShow(item)
                 // A download from before the post's files were kept with it gets them now
                 if (!_state.value.offline && jrwiDownloads.savedFiles(item.id) == null) {
                     jrwiDownloader.refresh(item.id)
@@ -503,6 +509,31 @@ constructor(
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.errorText()) }
+            }
+        }
+    }
+
+    private var showJob: Job? = null
+
+    /** The show the episode is from, for the link to its page under the episode's title. */
+    private fun loadShow(item: JrwiItem) {
+        val shown = _state.value.show
+        if (shown?.id == item.show && shown.itemCount > 0) return
+        if (showJob?.isActive == true) return
+        showJob = viewModelScope.launch {
+            val show =
+                try {
+                    jrwiApi.getShow(item.show)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Without a connection, the name kept with the audio's download
+                    jrwiDownloads.get(item.id)?.showName?.let {
+                        JrwiShow(id = item.show, name = it)
+                    }
+                }
+            if (show != null && _state.value.item?.id == item.id) {
+                _state.update { it.copy(show = show) }
             }
         }
     }
