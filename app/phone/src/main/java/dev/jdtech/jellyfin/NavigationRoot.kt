@@ -7,12 +7,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -35,12 +33,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.Velocity
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -75,6 +69,8 @@ import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.navigation.navigateOrReuse
 import dev.jdtech.jellyfin.navigation.resumedAction
+import dev.jdtech.jellyfin.presentation.components.pageSwipes
+import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
 import dev.jdtech.jellyfin.presentation.film.CollectionScreen
 import dev.jdtech.jellyfin.presentation.film.DownloadStorageScreen
 import dev.jdtech.jellyfin.presentation.film.DownloadsScreen
@@ -336,6 +332,7 @@ private fun MainNavigation(
     // The main page a swipe is heading to, which the bottom bar shows before it's reached
     val swipeTarget = remember { mutableStateOf<NavKey?>(null) }
     val barRoute = swipeTarget.value ?: topLevelRoute
+    val mainPagerTurns = remember { MainPagerTurns() }
 
     // The search bar belongs to the Media tab: collapse it when the active top level route
     // changes away from Media (e.g. via the home button on a detail screen) so that the bottom
@@ -399,6 +396,8 @@ private fun MainNavigation(
                             searchExpanded.value = true
                         }
 
+                        // Straight away, over a swipe still going
+                        mainPagerTurns.turnTo?.invoke(item.route)
                         navigator.navigate(item.route)
                     },
                     icon = {
@@ -435,6 +434,7 @@ private fun MainNavigation(
                     mainPages = mainPages,
                     active = atTabRoot && topLevelRoute in mainPages,
                     swipeTarget = swipeTarget,
+                    turns = mainPagerTurns,
                 )
                 CompositionLocalProvider(LocalTaMainPagerShown provides true) { navDisplay() }
             }
@@ -474,12 +474,17 @@ private val OpaquePageDecorator =
         }
     }
 
+/** Lets the bottom bar turn the main pager straight away, also to the tab that's still open. */
+private class MainPagerTurns {
+    var turnTo: ((NavKey) -> Unit)? = null
+}
+
 /**
  * Home, Channels and Downloads side by side, to swipe between. The two sides of Home, the Channels
  * tabs and the two sides of Downloads turn first, and the pager moves on once they're at their end,
  * so swiping goes the server's stats, Home, Subscribed, All channels, Playlists, the phone's
  * downloads, then the server's queue. The stats are left of Home, so they don't come between Home
- * and Channels.
+ * and Channels. One [PageSwiper] moves all of them, so every swipe feels the same.
  */
 @Composable
 private fun TaMainPager(
@@ -488,6 +493,7 @@ private fun TaMainPager(
     mainPages: List<NavKey>,
     active: Boolean,
     swipeTarget: MutableState<NavKey?>,
+    turns: MainPagerTurns,
 ) {
     val topLevelRoute = navigationState.topLevelRoute
     // Read in the effects below, which keep running as the JRWI tab comes and goes
@@ -499,117 +505,42 @@ private fun TaMainPager(
     val homeSides = rememberSidePagerState(serverFirst = true)
     val channelTabs = rememberPagerState { TaChannelsTab.entries.size }
     val downloadSides = rememberSidePagerState()
-    // The page the bottom bar or back is turning the pager to, while it turns. The swipe
-    // handling below leaves the pager alone meanwhile, so a tab tapped while the pages still move,
-    // for another tap or a swipe, is where they end up.
-    val turningTo = remember { mutableStateOf<Int?>(null) }
+    val swiper = rememberPageSwiper(pages)
+    swiper.innerPages = { page ->
+        when (currentPages.getOrNull(page)) {
+            TaHomeRoute -> homeSides
+            TaChannelsRoute -> channelTabs
+            DownloadsRoute -> downloadSides
+            else -> null
+        }
+    }
+    // A swipe opens the tab it comes to rest on
+    swiper.onSettled = { page ->
+        val route = currentPages.getOrNull(page)
+        val current = navigationState.topLevelRoute
+        if (route != null && current in currentPages && current != route) navigator.navigate(route)
+    }
 
-    // The bottom bar and back turn the pager, also from between two pages
+    // The bottom bar turns the pager as it's tapped, and back once it's gone back
+    DisposableEffect(turns, swiper) {
+        turns.turnTo = { route ->
+            val page = currentPages.indexOf(route)
+            if (page >= 0) swiper.turnTo(page)
+        }
+        onDispose { turns.turnTo = null }
+    }
     LaunchedEffect(topLevelRoute, mainPages) {
         val page = mainPages.indexOf(topLevelRoute)
-        if (page < 0) return@LaunchedEffect
-        if (page == pages.currentPage && pages.currentPageOffsetFraction == 0f) {
-            return@LaunchedEffect
-        }
-        turningTo.value = page
-        try {
-            pages.animateScrollToPage(page)
-        } finally {
-            // Unless a newer turn has taken over
-            if (turningTo.value == page) turningTo.value = null
-        }
+        if (page >= 0) swiper.turnTo(page)
     }
 
-    // A swipe picks the tab in the bottom bar once it settles
-    LaunchedEffect(pages) {
-        snapshotFlow { pages.settledPage }
-            .collect { page ->
-                if (turningTo.value != null) return@collect
-                val route = currentPages.getOrNull(page) ?: return@collect
-                val current = navigationState.topLevelRoute
-                if (current in currentPages && current != route) navigator.navigate(route)
-            }
-    }
-
-    // The bottom bar lights up the page a swipe is heading to straight away: past halfway while
-    // dragging, or where a flick will land. It goes back to the open tab once that's caught up.
-    LaunchedEffect(pages) {
-        snapshotFlow {
-            val open = navigationState.topLevelRoute
-            val target = currentPages.getOrNull(pages.targetPage)
-            val swiping =
-                when {
-                    turningTo.value != null || open !in currentPages -> false
-                    // Moving away from the open tab, rather than to a tab just tapped
-                    pages.isScrollInProgress -> open == currentPages.getOrNull(pages.settledPage)
-                    // Settled on another page, which is about to be opened
-                    else -> open != target
-                }
-            target.takeIf { swiping }
-        }
+    // The bottom bar lights up the page a swipe is heading to straight away: where it would come
+    // to rest if let go, or where a flick will land. It goes back to the open tab once that's
+    // caught up.
+    LaunchedEffect(swiper) {
+        snapshotFlow { swiper.target?.let { currentPages.getOrNull(it) } }
             .collect { swipeTarget.value = it }
     }
-
-    // Swiping on from the page before or after lands on the nearest side of Home, Channels tab or
-    // side of Downloads
-    LaunchedEffect(pages) {
-        snapshotFlow { pages.isScrollInProgress }
-            .collect { scrolling ->
-                if (!scrolling || turningTo.value != null) return@collect
-                when (currentPages.getOrNull(pages.settledPage)) {
-                    TaHomeRoute -> channelTabs.requestScrollToPage(0)
-                    DownloadsRoute -> channelTabs.requestScrollToPage(channelTabs.pageCount - 1)
-                    TaChannelsRoute -> {
-                        // Home itself, rather than the stats to its left
-                        homeSides.requestScrollToPage(1)
-                        downloadSides.requestScrollToPage(0)
-                    }
-                    JrwiRoute -> {
-                        channelTabs.requestScrollToPage(channelTabs.pageCount - 1)
-                        downloadSides.requestScrollToPage(0)
-                    }
-                    else -> {}
-                }
-            }
-    }
-
-    // A swipe passed on from a page's own tabs can stop between two pages, so it settles
-    LaunchedEffect(pages) {
-        snapshotFlow {
-            Triple(pages.isScrollInProgress, pages.currentPageOffsetFraction, turningTo.value)
-        }
-            .collect { (scrolling, offset, turning) ->
-                if (!scrolling && offset != 0f && turning == null) {
-                    pages.animateScrollToPage(pages.currentPage)
-                }
-            }
-    }
-
-    // A swipe handed on by the sides of Home or Downloads, or the Channels tabs, keeps its speed,
-    // so a quick flick turns the main page as easily as any other swipe
-    val defaultConnection = PagerDefaults.pageNestedScrollConnection(pages, Orientation.Horizontal)
-    val flickSpeed = with(LocalDensity.current) { MAIN_PAGE_FLICK_SPEED.toPx() }
-    val connection =
-        remember(defaultConnection, pages, flickSpeed) {
-            object : NestedScrollConnection by defaultConnection {
-                override suspend fun onPreFling(available: Velocity): Velocity {
-                    // Only when the swipe moved the main pages; otherwise the inner pages fling.
-                    // While the bottom bar turns them, they're on their way already.
-                    if (pages.currentPageOffsetFraction == 0f || turningTo.value != null) {
-                        return Velocity.Zero
-                    }
-                    val from = pages.settledPage
-                    val target =
-                        when {
-                            available.x < -flickSpeed -> from + 1
-                            available.x > flickSpeed -> from - 1
-                            else -> pages.currentPage
-                        }.coerceIn(0, pages.pageCount - 1)
-                    pages.animateScrollToPage(target)
-                    return available
-                }
-            }
-        }
     // Leaves the bottom bar to the open tab when the pager goes, as with the JRWI tab removed
     DisposableEffect(Unit) { onDispose { swipeTarget.value = null } }
 
@@ -621,9 +552,9 @@ private fun TaMainPager(
         HorizontalPager(
             state = pages,
             // Worked out once here, as the pages move while they slide
-            modifier = Modifier.fillMaxSize().recalculateWindowInsets(),
-            userScrollEnabled = active,
-            pageNestedScrollConnection = connection,
+            modifier = Modifier.fillMaxSize().recalculateWindowInsets().pageSwipes(swiper, active),
+            // Swiped by the swiper alone, which also moves the pages' own pages
+            userScrollEnabled = false,
         ) { page ->
             when (mainPages.getOrNull(page)) {
                 TaHomeRoute ->
@@ -674,9 +605,6 @@ private fun TaMainPager(
         }
     }
 }
-
-// How fast a flick has to be to turn to the next main page, as for other pages
-private val MAIN_PAGE_FLICK_SPEED = 400.dp
 
 /** A flag that can be changed without causing anything to draw again. */
 

@@ -352,6 +352,7 @@ constructor(
         return TaContinueItem.Playlist(
             playlistId = saved.playlist.id,
             name = saved.playlist.name.ifBlank { session.playlistName },
+            channelName = saved.playlist.channelName ?: video.channel?.name,
             video = video,
             number = index + 1,
             count = entries.size,
@@ -381,6 +382,7 @@ constructor(
                 TaContinueItem.Playlist(
                     playlistId = playlist.id,
                     name = playlist.name.ifBlank { session.playlistName },
+                    channelName = playlist.channelName ?: video.channel?.name,
                     video = video,
                     number = index + 1,
                     count = entries.size,
@@ -461,6 +463,8 @@ sealed interface TaContinueItem {
     data class Playlist(
         val playlistId: String,
         val name: String,
+        /** The playlist's channel, or the video's for a playlist of TubeArchivist's own. */
+        val channelName: String?,
         val video: TaVideo,
         val number: Int,
         val count: Int,

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -30,6 +31,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -57,7 +60,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -100,6 +102,8 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowsViewModel
 import dev.jdtech.jellyfin.jrwi.JrwiComment
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiShow
+import dev.jdtech.jellyfin.presentation.components.pageSwipes
+import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.TaSectionTitle
 import dev.jdtech.jellyfin.presentation.tube.formatBytes
@@ -401,16 +405,18 @@ private fun JrwiThumbnail(item: JrwiItem, modifier: Modifier = Modifier, marks: 
     }
 }
 
-/** Such as "Episode 136 · 7 Nov 2026". */
+/** Such as "Episode 136 · 7 Nov 2026", or "Season 2, episode 1" after the first season. */
 @Composable
 private fun itemDetails(item: JrwiItem): String? {
-    val parts =
-        listOfNotNull(
-            item.episode
-                ?.takeIf { item.tab == "episodes" }
-                ?.let { stringResource(CoreR.string.jrwi_episode, it) },
-            fullDate(item.date),
-        )
+    val episode = item.episode?.takeIf { item.tab == "episodes" }
+    val season = item.season ?: 1
+    val number =
+        when {
+            episode == null -> null
+            season > 1 -> stringResource(CoreR.string.jrwi_season_episode, season, episode)
+            else -> stringResource(CoreR.string.jrwi_episode, episode)
+        }
+    val parts = listOfNotNull(number, fullDate(item.date))
     return parts.joinToString(" · ").takeIf { it.isNotEmpty() }
 }
 
@@ -430,8 +436,12 @@ fun JrwiShowScreen(
         LaunchedEffect(showId) { viewModel.load(showId) }
         val show by viewModel.show.collectAsStateWithLifecycle()
         val error by viewModel.error.collectAsStateWithLifecycle()
-        var tabIndex by rememberSaveable { mutableIntStateOf(0) }
         val tabs = show?.tabs.orEmpty()
+        // Swiped between like the main tabs, with the same feel
+        val pages = rememberPagerState { tabs.size }
+        val swiper = rememberPageSwiper(pages)
+        val shownTab =
+            (swiper.target ?: pages.currentPage).coerceIn(0, tabs.lastIndex.coerceAtLeast(0))
 
         JrwiScaffold(
             topBar = {
@@ -457,7 +467,7 @@ fun JrwiShowScreen(
                 if (tabs.size > 1) {
                     // Under the header in its purple, as the site's menu, with the yellow line
                     PrimaryScrollableTabRow(
-                        selectedTabIndex = tabIndex.coerceIn(0, tabs.lastIndex),
+                        selectedTabIndex = shownTab,
                         edgePadding = MaterialTheme.spacings.medium,
                         containerColor = JrwiColors.Header,
                         contentColor = JrwiColors.Text,
@@ -465,8 +475,8 @@ fun JrwiShowScreen(
                     ) {
                         tabs.forEachIndexed { index, tab ->
                             Tab(
-                                selected = index == tabIndex,
-                                onClick = { tabIndex = index },
+                                selected = index == shownTab,
+                                onClick = { swiper.turnTo(index) },
                                 text = { Text(tab.name, fontWeight = FontWeight.Bold) },
                                 selectedContentColor = JrwiColors.Text,
                                 unselectedContentColor = JrwiColors.Muted,
@@ -474,9 +484,14 @@ fun JrwiShowScreen(
                         }
                     }
                 }
-                val tab = tabs.getOrNull(tabIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0)))
                 when {
-                    tab != null -> JrwiTabList(viewModel, tab.id, onItemClick)
+                    tabs.isNotEmpty() ->
+                        HorizontalPager(
+                            state = pages,
+                            modifier = Modifier.fillMaxSize().pageSwipes(swiper),
+                            userScrollEnabled = false,
+                            key = { page -> tabs[page].id },
+                        ) { page -> JrwiTabList(viewModel, tabs[page].id, onItemClick) }
                     error != null ->
                         Text(
                             text = error.orEmpty(),
@@ -602,9 +617,9 @@ fun JrwiItemScreen(
         }
         val item = state.item
         var menuOpen by remember { mutableStateOf(false) }
-        // The video, unless there's only the audio
-        var audioChosen by rememberSaveable(postId) { mutableStateOf<Boolean?>(null) }
-        val playsAudio = audioChosen ?: (item?.video == null)
+        val playsAudio = state.playsAudio
+        // The picked version's own post, or the whole item when there's one version
+        val post = state.content.post
 
         JrwiScaffold(
             topBar = {
@@ -657,7 +672,7 @@ fun JrwiItemScreen(
                                         },
                                     )
                                 }
-                                item.originalUrl?.let { url ->
+                                (post?.originalUrl ?: item.originalUrl)?.let { url ->
                                     DropdownMenuItem(
                                         text = {
                                             Text(stringResource(CoreR.string.jrwi_open_original))
@@ -688,7 +703,7 @@ fun JrwiItemScreen(
                 }
                 return@JrwiScaffold
             }
-            val comments = state.comments
+            val comments = state.content.comments
             val flatComments = remember(comments.items) { comments.items.flattenReplies() }
             LazyColumn(
                 contentPadding = PaddingValues(bottom = MaterialTheme.spacings.large),
@@ -701,71 +716,35 @@ fun JrwiItemScreen(
                         finished = state.finished,
                         playsAudio = playsAudio,
                         lookingUp = state.lookingUp,
-                        onChoose = { audioChosen = it },
+                        onChoose = viewModel::choose,
                         onPlay = {
                             if (playsAudio) viewModel.playAudio() else viewModel.playVideo()
                         },
                     )
                 }
-                val body = item.bodyHtml?.takeIf { it.isNotBlank() }
-                if (body != null || !item.bodyText.isNullOrBlank()) {
-                    item(key = "body") {
-                        JrwiHtmlText(
-                            html = body,
-                            text = item.bodyText.orEmpty(),
-                            modifier = Modifier.padding(horizontal = MaterialTheme.spacings.medium),
-                        )
-                    }
-                }
-                if (item.images.isNotEmpty()) {
-                    item(key = "images") {
-                        LazyRow(
-                            contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-                            horizontalArrangement =
-                                Arrangement.spacedBy(MaterialTheme.spacings.small),
-                        ) {
-                            items(item.images) { image ->
-                                JrwiImage(
-                                    path = image.url,
-                                    contentScale = ContentScale.Fit,
-                                    modifier =
-                                        Modifier.height(220.dp)
-                                            .aspectRatio(1f, matchHeightConstraintsFirst = true)
-                                            .clip(JrwiShape)
-                                            .clickable {
-                                                openUrl(context, viewModel.fileUrl(image.url))
-                                            },
-                                )
+                val error = state.content.error
+                when {
+                    post == null && error != null ->
+                        item(key = "post_error") {
+                            Text(
+                                text = error,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier =
+                                    Modifier.padding(horizontal = MaterialTheme.spacings.medium),
+                            )
+                        }
+                    post == null ->
+                        item(key = "post_loading") {
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
                             }
                         }
-                    }
-                }
-                val files = (item.attachments + item.documents).distinctBy { it.url }
-                if (files.isNotEmpty()) {
-                    item(key = "files_title") {
-                        JrwiSectionTitle(stringResource(CoreR.string.jrwi_files))
-                    }
-                    items(files, key = { "file:" + it.url }) { file ->
-                        JrwiLinkRow(
-                            icon = CoreR.drawable.ic_download,
-                            text = file.name,
-                            detail = file.size?.let { formatBytes(it) },
-                            onClick = { openUrl(context, viewModel.fileUrl(file.url)) },
+                    else ->
+                        jrwiPostContent(
+                            post = post,
+                            onOpen = { openUrl(context, it) },
+                            fileUrl = viewModel::fileUrl,
                         )
-                    }
-                }
-                if (item.links.isNotEmpty()) {
-                    item(key = "links_title") {
-                        JrwiSectionTitle(stringResource(CoreR.string.jrwi_links))
-                    }
-                    items(item.links.distinctBy { it.url }, key = { "link:" + it.url }) { link ->
-                        JrwiLinkRow(
-                            icon = CoreR.drawable.ic_external_link,
-                            text = link.text.ifBlank { link.url },
-                            detail = link.url.takeIf { link.text.isNotBlank() },
-                            onClick = { openUrl(context, link.url) },
-                        )
-                    }
                 }
                 item(key = "comments_title") {
                     JrwiSectionTitle(
@@ -807,6 +786,72 @@ fun JrwiItemScreen(
                         }
                 }
             }
+        }
+    }
+}
+
+/**
+ * A post's own text, pictures, files and links. [onOpen] opens an address in the browser, and
+ * [fileUrl] gives an archived file's full address.
+ */
+private fun LazyListScope.jrwiPostContent(
+    post: JrwiItem,
+    onOpen: (String?) -> Unit,
+    fileUrl: (String?) -> String?,
+) {
+    // Keyed by post, so switching versions never mixes the two
+    val id = post.id
+    val body = post.bodyHtml?.takeIf { it.isNotBlank() }
+    if (body != null || !post.bodyText.isNullOrBlank()) {
+        item(key = "body:$id") {
+            JrwiHtmlText(
+                html = body,
+                text = post.bodyText.orEmpty(),
+                modifier = Modifier.padding(horizontal = MaterialTheme.spacings.medium),
+            )
+        }
+    }
+    if (post.images.isNotEmpty()) {
+        item(key = "images:$id") {
+            LazyRow(
+                contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+            ) {
+                items(post.images) { image ->
+                    JrwiImage(
+                        path = image.url,
+                        contentScale = ContentScale.Fit,
+                        modifier =
+                            Modifier.height(220.dp)
+                                .aspectRatio(1f, matchHeightConstraintsFirst = true)
+                                .clip(JrwiShape)
+                                .clickable { onOpen(fileUrl(image.url)) },
+                    )
+                }
+            }
+        }
+    }
+    val files = (post.attachments + post.documents).distinctBy { it.url }
+    if (files.isNotEmpty()) {
+        item(key = "files_title:$id") { JrwiSectionTitle(stringResource(CoreR.string.jrwi_files)) }
+        items(files, key = { "file:$id:" + it.url }) { file ->
+            JrwiLinkRow(
+                icon = CoreR.drawable.ic_download,
+                text = file.name,
+                detail = file.size?.let { formatBytes(it) },
+                onClick = { onOpen(fileUrl(file.url)) },
+            )
+        }
+    }
+    if (post.links.isNotEmpty()) {
+        item(key = "links_title:$id") { JrwiSectionTitle(stringResource(CoreR.string.jrwi_links)) }
+        items(post.links.distinctBy { it.url }, key = { "link:$id:" + it.url }) { link ->
+            JrwiLinkRow(
+                icon = CoreR.drawable.ic_external_link,
+                text = link.text.ifBlank { link.url },
+                detail = link.url.takeIf { link.text.isNotBlank() },
+                onClick = { onOpen(link.url) },
+            )
         }
     }
 }

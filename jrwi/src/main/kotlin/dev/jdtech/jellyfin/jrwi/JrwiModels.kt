@@ -81,6 +81,8 @@ data class JrwiItem(
     val tab: String = "posts",
     /** episode, video, audio, youtube, art or post */
     val kind: String = "post",
+    /** The season of a numbered episode, in the episodes tab only; null means the first. */
+    val season: Int? = null,
     val episode: Int? = null,
     val pinned: Boolean = false,
     val thumbnail: String? = null,

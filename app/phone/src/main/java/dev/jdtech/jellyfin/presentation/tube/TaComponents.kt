@@ -735,6 +735,8 @@ fun TaSidePager(
         state = state,
         modifier = modifier,
         beyondViewportPageCount = if (keepBothSides) 1 else 0,
+        // In the main pager, its swiper moves the sides with the main pages
+        userScrollEnabled = !LocalInMainPager.current,
         pageNestedScrollConnection = connection,
         // Turns over after a shorter drag than the default of half the screen
         flingBehavior =

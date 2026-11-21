@@ -162,6 +162,13 @@ class JrwiApi(private val config: JrwiConfig) {
     suspend fun getComments(postId: Long, page: Int = 1): JrwiPage<JrwiComment> =
         decode(get("api/items/$postId/comments") { addQueryParameter("page", page.toString()) })
 
+    /** One version of an episode on its own: only its own text, likes, files and media. */
+    suspend fun getPost(postId: Long): JrwiItem = decode(get("api/posts/$postId"))
+
+    /** Only the comments made on this one post, not on the episode's other versions. */
+    suspend fun getPostComments(postId: Long, page: Int = 1): JrwiPage<JrwiComment> =
+        decode(get("api/posts/$postId/comments") { addQueryParameter("page", page.toString()) })
+
     // Watching and listening progress, one record per episode for its video and audio
 
     /**

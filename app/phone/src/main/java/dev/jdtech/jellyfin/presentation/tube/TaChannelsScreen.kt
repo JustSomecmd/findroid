@@ -166,6 +166,8 @@ fun TaChannelsScreen(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.padding(innerPadding).fillMaxSize(),
+            // With the main pager's tabs, its swiper moves them with the main pages
+            userScrollEnabled = tabsPagerState == null,
             key = { page -> TaChannelsTab.entries[page].name },
         ) { page ->
             TaChannelsPage(

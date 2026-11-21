@@ -608,17 +608,24 @@ private fun TaPlaylistResumeCard(
                 )
             }
         }
-        // As tall as the video cards beside it, whatever the length of the name
+        // As tall as the video cards beside it: the playlist and the video where their title's two
+        // lines are, and the channel under them, as on a video card
         Column(modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 10.dp)) {
             Text(
                 text = item.name,
                 style = MaterialTheme.typography.bodyMedium,
-                minLines = 2,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = item.video.title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = item.channelName.orEmpty(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

@@ -246,6 +246,19 @@ data class JrwiItemState(
     /** Jellyfin's copy of the video, once looked up. */
     val episodeId: java.util.UUID? = null,
     val lookingUp: Boolean = false,
+    /** The audio is picked, rather than the video. */
+    val playsAudio: Boolean = false,
+    /** What the picked version's post says for itself. */
+    val content: JrwiItemContent = JrwiItemContent(),
+)
+
+/**
+ * One post's own text, pictures, files and comments. For an episode with both a video and an audio
+ * version, each version's post has its own; otherwise it's the whole item.
+ */
+data class JrwiItemContent(
+    val post: JrwiItem? = null,
+    val error: String? = null,
     val comments: TaListState<JrwiComment> = TaListState(),
 )
 
@@ -282,7 +295,11 @@ constructor(
     private val _events = Channel<JrwiItemEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
 
-    private val comments = MutableStateFlow(TaListState<JrwiComment>())
+    // Each post's own content and comments, kept for switching back, by post ID
+    private val contents = mutableMapOf<Long, MutableStateFlow<JrwiItemContent>>()
+    private val commentLists = mutableMapOf<Long, MutableStateFlow<TaListState<JrwiComment>>>()
+    private val postsLoading = mutableSetOf<Long>()
+    private var contentJob: Job? = null
 
     private var postId: Long? = null
 
@@ -291,18 +308,77 @@ constructor(
         if (this.postId != postId) {
             this.postId = postId
             _state.value = JrwiItemState()
-            comments.value = TaListState()
+            contents.clear()
+            commentLists.clear()
         }
         viewModelScope.launch {
             try {
-                val item = _state.value.item ?: jrwiApi.getItem(postId)
-                _state.update { it.copy(item = item, error = null) }
+                val loaded = _state.value.item
+                val item = loaded ?: jrwiApi.getItem(postId)
+                if (loaded == null) {
+                    // The video, unless there's only the audio
+                    _state.update {
+                        it.copy(item = item, error = null, playsAudio = item.video == null)
+                    }
+                }
+                // Also tries again what didn't load before
+                showContent(item, _state.value.playsAudio)
                 refreshProgress(item)
-                if (comments.value.page == 0) loadMoreComments()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.errorText()) }
+            }
+        }
+    }
+
+    /** Picks the video or the audio, and shows that version's own text and comments. */
+    fun choose(audio: Boolean) {
+        val item = _state.value.item ?: return
+        if (_state.value.playsAudio == audio) return
+        showContent(item, audio)
+    }
+
+    /** The post whose content shows: the picked version's, when there are both. */
+    private fun contentPostId(item: JrwiItem, audio: Boolean): Long {
+        if (!item.hasBoth) return item.id
+        return (if (audio) item.audio?.postId else item.video?.postId) ?: item.id
+    }
+
+    private fun showContent(item: JrwiItem, audio: Boolean) {
+        val postId = contentPostId(item, audio)
+        val content = contents.getOrPut(postId) { MutableStateFlow(JrwiItemContent()) }
+        // In one go, so the page never shows one version's comments under the other's switch
+        _state.update { it.copy(playsAudio = audio, content = content.value) }
+        contentJob?.cancel()
+        contentJob = viewModelScope.launch {
+            content.collect { loaded -> _state.update { it.copy(content = loaded) } }
+        }
+        if (content.value.post == null) loadPost(item, postId, content)
+        if (content.value.comments.page == 0) loadMoreComments()
+    }
+
+    private fun loadPost(
+        item: JrwiItem,
+        postId: Long,
+        content: MutableStateFlow<JrwiItemContent>,
+    ) {
+        // With one version, the whole item is that post, with anything else that belongs to it
+        if (!item.hasBoth) {
+            content.update { it.copy(post = item, error = null) }
+            return
+        }
+        if (!postsLoading.add(postId)) return
+        viewModelScope.launch {
+            try {
+                val post = jrwiApi.getPost(postId)
+                content.update { it.copy(post = post, error = null) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                content.update { it.copy(error = e.errorText()) }
+            } finally {
+                postsLoading.remove(postId)
             }
         }
     }
@@ -323,13 +399,18 @@ constructor(
         }
     }
 
+    /** The next page of the picked version's comments, or the whole item's with one version. */
     fun loadMoreComments() {
-        val postId = postId ?: return
+        val item = _state.value.item ?: return
+        val postId = contentPostId(item, _state.value.playsAudio)
+        val content = contents[postId] ?: return
+        val list = commentLists.getOrPut(postId) { MutableStateFlow(TaListState()) }
         viewModelScope.launch {
-            comments.loadNextPage(key = { it.id }) { page ->
-                jrwiApi.getComments(postId, page).asTaPage()
+            list.loadNextPage(key = { it.id }) { page ->
+                if (item.hasBoth) jrwiApi.getPostComments(postId, page).asTaPage()
+                else jrwiApi.getComments(postId, page).asTaPage()
             }
-            _state.update { it.copy(comments = comments.value) }
+            content.update { it.copy(comments = list.value) }
         }
     }
 
