@@ -17,6 +17,8 @@ import dev.jdtech.jellyfin.api.JellyfinApi
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 import kotlin.coroutines.cancellation.CancellationException
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
@@ -30,7 +32,9 @@ import timber.log.Timber
  * interval Android allows for background work.
  *
  * The first check only remembers what is on the server, so turning this on doesn't announce the
- * whole library.
+ * whole library. Items that came out more than two weeks before they turned up aren't announced
+ * either: a channel's older videos that TubeArchivist downloads now, the JRWI archiver filling in
+ * its past episodes, or files that moved and came back as new items.
  */
 @HiltWorker
 class NewItemsWorker
@@ -92,7 +96,12 @@ constructor(
         // First check for this account: only remember what is there
         if (seen == null) return Result.success()
 
-        val added = newest.filter { it.id.toString() !in seen }
+        // Only what came out lately, going by its release date (a video's upload date, an
+        // archived episode's air date); one without a date counts as new
+        val cutoff = LocalDateTime.now(ZoneOffset.UTC).minusDays(RECENT_DAYS)
+        val added = newest.filter { item ->
+            item.id.toString() !in seen && item.premiereDate?.isBefore(cutoff) != true
+        }
         if (added.isNotEmpty() && appPreferences.getValue(appPreferences.newItemNotifications)) {
             showNotification(added)
         }
@@ -220,5 +229,7 @@ constructor(
         private const val MAX_SEEN = 500
         // Lines shown in the expanded notification
         private const val MAX_LINES = 6
+        // How long after its release an item still counts as new
+        private const val RECENT_DAYS = 14L
     }
 }
