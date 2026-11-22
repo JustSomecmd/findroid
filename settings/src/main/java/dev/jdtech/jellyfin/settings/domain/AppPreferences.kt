@@ -62,8 +62,9 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val playerTunneling = Preference("pref_player_tunneling_on", true)
     // Watches sound and picture staying in step while a video plays, and corrects what it measures
     val playerSyncGuard = Preference("pref_player_sync_guard", true)
-    // Skips to where it already is a moment after each video starts, whether it needs it or not
-    val playerResyncAfterStart = Preference("pref_player_resync_after_start", true)
+    // Skips to where it already is a moment after each video starts, whether it needs it or not.
+    // Off unless asked for: the guard resyncs when it measures that a video needs it
+    val playerResyncAfterStart = Preference("pref_player_resync_after_start", false)
 
     // Player - gestures
     val playerGestures = Preference("pref_player_gestures", true)

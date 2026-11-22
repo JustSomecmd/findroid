@@ -160,7 +160,7 @@
     <string name="pref_player_sync_guard">Keep sound and picture in step</string>
     <string name="pref_player_sync_guard_summary">Measures the sound\'s clock and how late the picture is shown while a video plays, and corrects them when they come apart. What it found is in the player\'s Playback info.</string>
     <string name="pref_player_resync_after_start">Resync after a video starts</string>
-    <string name="pref_player_resync_after_start_summary">Skips to where it already is a second after every video starts, which puts sound and picture in step if they started apart. Off, a video is only resynced when a measurement says so.</string>
+    <string name="pref_player_resync_after_start_summary">Skips to where it already is a second after every video starts, with a short pause, which puts sound and picture in step if they started apart. Off, a video is only resynced when a measurement says it needs it.</string>
     <string name="pref_player_buttons_summary">Choose which buttons the player shows and where</string>
     <string name="player_buttons_hint">Hold a button and drag it to change its place. Buttons keep this order inside each bar and in the menu behind the cogwheel. In a bar, subtitles turn captions on and off; the menu picks the track.</string>
     <string name="player_buttons_reset">Reset</string>

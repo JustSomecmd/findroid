@@ -177,7 +177,7 @@ constructor(
     private val syncGuard = AvSyncGuard(appPreferences.getValue(appPreferences.playerSyncGuard))
     private var syncWatchJob: Job? = null
 
-    // Whether each video is put back in step once it has played for a moment, measured or not
+    // Whether each video is put back in step once it has played for a moment, needed or not
     private val resyncAfterStart = appPreferences.getValue(appPreferences.playerResyncAfterStart)
 
     // Whether playback was tunneled when the picture was last turned off, as it will be again
@@ -322,15 +322,14 @@ constructor(
                 .renderersFactory(application)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         val seekBackMs = appPreferences.getValue(appPreferences.playerSeekBackInc)
-        // What was just played is kept for a little while, back to a frame the picture can start
-        // from. Skipping back, the picture coming back after the background, and putting sound and
-        // picture back in step then play from what's loaded, rather than loading the stream again
+        // What was just played stays loaded for a few seconds, back to a frame the picture can
+        // start from. A skip back, the picture coming back after the background, and a resync then
+        // play from what's loaded, rather than loading the stream again. Kept short, as it comes
+        // out of the same memory as what's loaded ahead
         val loadControl =
             DefaultLoadControl.Builder()
                 .setBackBuffer(
-                    (seekBackMs + BACK_BUFFER_MARGIN_MS)
-                        .coerceIn(BACK_BUFFER_MIN_MS, BACK_BUFFER_MAX_MS)
-                        .toInt(),
+                    seekBackMs.coerceIn(0L, BACK_BUFFER_MAX_MS).toInt(),
                     /* retainBackBufferFromKeyframe= */ true,
                 )
                 .build()
@@ -1801,9 +1800,10 @@ constructor(
 
     /**
      * Videos, streamed and downloaded alike, can start with sound and picture out of step, which a
-     * seek puts right. So once each video has played for a moment, it does that seek, to where it
-     * already is. Waits until it's actually playing, so a video that starts paused is still done.
-     * Turned off in settings, a video is only resynced when the guard measures that it needs it.
+     * seek puts right. With this turned on in settings, each video gets that seek once it has
+     * played for a moment, to where it already is, whether it needs it or not. Waits until it's
+     * actually playing, so a video that starts paused is still done. Off, as it is unless turned
+     * on, a video is only resynced when the guard measures that it needs it.
      */
     private fun resyncOnce() {
         if (!resyncAfterStart) return
@@ -1837,12 +1837,14 @@ constructor(
     }
 
     /**
-     * Puts sound and picture back in step right now. The seek is to where it already is, which
-     * starts both afresh from what's already loaded.
+     * Puts sound and picture back in step right now, with a seek that starts both afresh from
+     * what's already loaded. It goes a millisecond back from where it is: a seek to the very
+     * millisecond the player is at is one the player takes as done already and drops, which is what
+     * became of most of these before.
      */
     private fun resyncNow(reason: String) {
         syncGuard.resynced(reason)
-        player.seekTo(player.currentPosition)
+        player.seekTo((player.currentPosition - RESYNC_BACK_MS).coerceAtLeast(0L))
     }
 
     /**
@@ -1894,11 +1896,11 @@ private const val RESYNC_DELAY_MS = 1_000L
 private const val RESYNC_WAIT_MS = 15_000L
 private const val RESYNC_POLL_MS = 250L
 
-// How much of what was just played stays loaded: as far as the back button goes and a little more,
-// within reason
-private const val BACK_BUFFER_MARGIN_MS = 5_000L
-private const val BACK_BUFFER_MIN_MS = 10_000L
-private const val BACK_BUFFER_MAX_MS = 30_000L
+// How far back from where it is a resync seeks, so the player doesn't take it as already there
+private const val RESYNC_BACK_MS = 1L
+
+// How much of what was just played stays loaded at most: as far as the back button goes
+private const val BACK_BUFFER_MAX_MS = 5_000L
 
 // How long before the end the next video is shown
 private const val UP_NEXT_MS = 10_000L

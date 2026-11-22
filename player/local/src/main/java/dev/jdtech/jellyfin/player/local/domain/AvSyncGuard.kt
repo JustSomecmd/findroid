@@ -407,7 +407,7 @@ class AvSyncGuard(val enabled: Boolean) {
 
         // A picture this far behind the sound shows; this long behind, it isn't catching up
         const val LATE_MS = 100L
-        const val LATE_FOR_MS = 3_000L
+        const val LATE_FOR_MS = 2_000L
 
         // More than this isn't a late picture but a stream that counts its time differently
         const val IMPLAUSIBLE_MS = 30_000L
@@ -698,9 +698,8 @@ private class WatchedOutput(
         const val CHECK_EVERY_NS = 250_000_000L
         const val OUTPUT_EVERY_NS = 10_000_000_000L
 
-        // After it starts playing, the player takes a moment to find the sound's place, and may
-        // close a first gap for a second or two
-        const val SETTLE_NS = 2_000_000_000L
+        // After it starts playing, the player takes a moment to find the sound's place
+        const val SETTLE_NS = 1_500_000_000L
 
         // The phone renews its answer every few hundredths of a second while sound comes out
         const val MAX_TIMESTAMP_AGE_NS = 500_000_000L
@@ -708,7 +707,7 @@ private class WatchedOutput(
         // A gap this big shows as sound and picture out of step; this long, and it isn't a blip.
         // Smaller ones are left alone: asking afresh makes the clock hop, which is worse than them
         const val OFF_US = 60_000L
-        const val OFF_FOR_NS = 1_500_000_000L
+        const val OFF_FOR_NS = 1_000_000_000L
 
         const val CORRECT_GAP_NS = 5_000_000_000L
         const val MAX_CORRECTIONS = 3
