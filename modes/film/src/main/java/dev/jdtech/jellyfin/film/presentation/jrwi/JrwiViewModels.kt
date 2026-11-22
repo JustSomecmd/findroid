@@ -14,9 +14,11 @@ import dev.jdtech.jellyfin.jrwi.JrwiContinue
 import dev.jdtech.jellyfin.jrwi.JrwiDownload
 import dev.jdtech.jellyfin.jrwi.JrwiDownloader
 import dev.jdtech.jellyfin.jrwi.JrwiDownloads
+import dev.jdtech.jellyfin.jrwi.JrwiEvent
 import dev.jdtech.jellyfin.jrwi.JrwiFeature
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiPage
+import dev.jdtech.jellyfin.jrwi.JrwiPodcast
 import dev.jdtech.jellyfin.jrwi.JrwiPostFile
 import dev.jdtech.jellyfin.jrwi.JrwiPreview
 import dev.jdtech.jellyfin.jrwi.JrwiProblem
@@ -36,6 +38,9 @@ import dev.jdtech.jellyfin.tubearchivist.TaPaginate
 import dev.jdtech.jellyfin.utils.Downloader
 import java.io.File
 import java.io.IOException
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -47,6 +52,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -103,6 +109,8 @@ object JrwiMessages {
     const val NOT_SAVED = "jrwi:not_saved"
     const val STOPPING = "jrwi:stopping"
     const val NOTHING_RUNNING = "jrwi:nothing_running"
+    const val REREAD_STARTED = "jrwi:reread_started"
+    const val PODCAST_READING = "jrwi:podcast_reading"
 }
 
 /** An episode's audio on the phone or on its way, with how far its download has got. */
@@ -991,9 +999,11 @@ constructor(
     private suspend fun episodeIdOf(item: JrwiItem): UUID? =
         _state.value.episodeId
             ?: jrwiProgress.episodeId(item)
-            ?: jrwiDownloads.savedVideo(item.id)?.episodeId?.let {
-                runCatching { UUID.fromString(it) }.getOrNull()
-            }
+            ?: jrwiDownloads
+                .savedVideo(item.id)
+                ?.takeIf { it.youtubeId == null }
+                ?.episodeId
+                ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
     /** Looks at the episode again, once its download has finished or been removed. */
     fun reloadEpisode() {
@@ -1283,6 +1293,7 @@ constructor(
     private val downloads: JrwiDownloads,
     private val downloader: JrwiDownloader,
     private val jrwiProgress: JrwiProgressSync,
+    private val handOvers: JrwiHandOvers,
 ) : ViewModel() {
     // Each episode's number, read once from the item kept with its audio
     private val numbers = ConcurrentHashMap<Long, Optional<JrwiEpisodeNumber>>()
@@ -1296,6 +1307,14 @@ constructor(
     val videoWatch: StateFlow<Map<String, JrwiProgress>> = _videoWatch.asStateFlow()
 
     private var watchJob: Job? = null
+
+    private val _tubeArchivist = MutableStateFlow<Map<String, JrwiTaVideo>>(emptyMap())
+
+    /**
+     * TubeArchivist's downloads that are JRWI episodes' YouTube videos, by Jellyfin episode ID, so
+     * they're listed under their show and open on the episode's page.
+     */
+    val tubeArchivist: StateFlow<Map<String, JrwiTaVideo>> = _tubeArchivist.asStateFlow()
 
     val entries: StateFlow<List<JrwiDownloadEntry>> =
         combine(downloads.downloads, downloads.progress, audioWatch) { list, progress, watch ->
@@ -1315,6 +1334,32 @@ constructor(
     init {
         // Played since, in the app's players: read again for that episode
         viewModelScope.launch { jrwiProgress.changes.collect { loadWatch(it.itemId) } }
+        // TubeArchivist's downloads of JRWI episodes, and hand-overs, as of now
+        viewModelScope.launch {
+            loadTubeArchivist()
+            handOvers.check()
+            loadTubeArchivist()
+        }
+    }
+
+    private suspend fun loadTubeArchivist() {
+        _tubeArchivist.value =
+            withContext(Dispatchers.IO) {
+                downloads
+                    .savedVideos()
+                    .filter { it.youtubeId != null }
+                    .associate { saved ->
+                        val item = saved.item
+                        val episode = item.episode?.takeIf { "episodes" in item.ownTabs }
+                        saved.episodeId to
+                            JrwiTaVideo(
+                                itemId = item.id,
+                                showName = saved.showName,
+                                title = item.title,
+                                number = episode?.let { JrwiEpisodeNumber(item.season ?: 1, it) },
+                            )
+                    }
+            }
     }
 
     /**
@@ -1326,6 +1371,7 @@ constructor(
         if (itemId == null) watchJob?.cancel()
         val job =
             viewModelScope.launch(Dispatchers.IO) {
+                if (itemId == null) loadTubeArchivist()
                 val videos =
                     downloads.savedVideos().filter { itemId == null || it.item.id == itemId }
                 val audio =
@@ -1387,11 +1433,26 @@ constructor(
     }
 }
 
+/** A TubeArchivist download that's a JRWI episode's YouTube video, as JRWI's Downloads list it. */
+data class JrwiTaVideo(
+    val itemId: Long,
+    val showName: String?,
+    val title: String,
+    val number: JrwiEpisodeNumber?,
+)
+
 data class JrwiServerState(
     val status: JrwiStatus? = null,
     val problems: List<JrwiProblem> = emptyList(),
     /** The archiver can stop a running check (0.9.7), so Stop shows while one runs. */
     val canStop: Boolean = false,
+    /** What happened on the archiver lately, newest first; null until read. */
+    val events: List<JrwiEvent>? = null,
+    /** The archiver can re-read its saved pages for the app, as its admin page does. */
+    val canReread: Boolean = false,
+    /** The archiver tells the app about the podcast feed it reads. */
+    val hasPodcast: Boolean = false,
+    val podcast: JrwiPodcast? = null,
     val error: String? = null,
 )
 
@@ -1412,11 +1473,16 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
     private var problemsRead = false
     private var problemsCheck: String? = null
 
+    // Likewise the events and the podcast feed, which the Downloads server side shows
+    private var detailsRead = false
+    private var detailsCheck: String? = null
+
     /**
      * Reads the status again, for a page that keeps it up to date, and the problems the first time,
-     * after a check has finished since, or with [force].
+     * after a check has finished since, or with [force]. With [details], the recent events and the
+     * podcast feed too, on the same terms.
      */
-    suspend fun refresh(force: Boolean = false) {
+    suspend fun refresh(force: Boolean = false, details: Boolean = false) {
         try {
             val status = jrwiApi.getStatus()
             val finished = status.lastCheckFinished
@@ -1430,8 +1496,22 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
                     _state.value.problems
                 }
             val canStop = jrwiApi.has(JrwiFeature.STOP) == true
+            val canReread = jrwiApi.has(JrwiFeature.REPARSE) == true
+            val hasPodcast = jrwiApi.has(JrwiFeature.PODCAST) == true
             _state.update {
-                it.copy(status = status, problems = problems, canStop = canStop, error = null)
+                it.copy(
+                    status = status,
+                    problems = problems,
+                    canStop = canStop,
+                    canReread = canReread,
+                    hasPodcast = hasPodcast,
+                    error = null,
+                )
+            }
+            if (details && (force || !detailsRead || finished != detailsCheck)) {
+                detailsRead = true
+                detailsCheck = finished
+                loadDetails(hasPodcast)
             }
         } catch (e: CancellationException) {
             throw e
@@ -1449,6 +1529,72 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
                     if (started) JrwiMessages.CHECK_STARTED else JrwiMessages.CHECK_RUNNING
                 )
                 load()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
+    /** The events of the last week, newest first, and the podcast feed when the archiver has it. */
+    private suspend fun loadDetails(hasPodcast: Boolean) {
+        val since =
+            OffsetDateTime.now(ZoneOffset.UTC)
+                .minusDays(EVENT_DAYS)
+                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        val events =
+            try {
+                jrwiApi.getEvents(since = since).sortedByDescending { it.at }.take(MAX_EVENTS)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.d(e, "No events from the archiver")
+                null
+            }
+        val podcast =
+            if (!hasPodcast) null
+            else
+                try {
+                    jrwiApi.getPodcast()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.d(e, "No podcast feed from the archiver")
+                    null
+                }
+        _state.update { it.copy(events = events ?: it.events, podcast = podcast ?: it.podcast) }
+    }
+
+    /**
+     * Has the archiver re-read its saved pages with its current rules, as its admin page's Re-read
+     * saved pages does.
+     */
+    fun reread() {
+        viewModelScope.launch {
+            try {
+                val started = jrwiApi.startReparse()
+                _messages.send(
+                    if (started) JrwiMessages.REREAD_STARTED else JrwiMessages.CHECK_RUNNING
+                )
+                load()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
+    /** Has the archiver read the podcast feed now, then shows what it found. */
+    fun readPodcast() {
+        viewModelScope.launch {
+            try {
+                jrwiApi.readPodcast()
+                _messages.send(JrwiMessages.PODCAST_READING)
+                // It reads the feed in the background; what it found shows a moment later
+                delay(PODCAST_READ_WAIT_MILLIS)
+                refresh(force = true, details = true)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1475,6 +1621,13 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
                 _messages.send(e.errorText())
             }
         }
+    }
+
+    private companion object {
+        // The events shown: those of the last week, at most this many
+        const val EVENT_DAYS = 7L
+        const val MAX_EVENTS = 30
+        const val PODCAST_READ_WAIT_MILLIS = 3_000L
     }
 }
 

@@ -122,7 +122,11 @@ constructor(
 
             try {
                 val downloadedEpisodes = repository.getDownloadedEpisodes()
-                val jrwiIds = jrwiDownloads.savedVideoEpisodeIds()
+                // TubeArchivist's downloads of JRWI episodes show in both Downloads
+                val jrwiIds =
+                    jrwiDownloads.savedVideoEpisodeIds(
+                        withTubeArchivist = scope == DownloadsScope.JRWI
+                    )
                 val jrwiEpisodes =
                     downloadedEpisodes.filter { it.id.toString() in jrwiIds }.map { it.id }.toSet()
                 val jrwiShows =

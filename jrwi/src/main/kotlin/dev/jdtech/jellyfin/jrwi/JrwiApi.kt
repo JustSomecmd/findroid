@@ -408,6 +408,26 @@ class JrwiApi(private val config: JrwiConfig) {
             if (e.code == 409) false else throw e
         }
 
+    /**
+     * Re-reads the saved pages with the archiver's current rules, as its admin page's Re-read saved
+     * pages does (feature `reparse`): false when a check or a re-read is running already.
+     */
+    suspend fun startReparse(): Boolean =
+        try {
+            send("POST", url("api/reparse") {}, "".toRequestBody(JSON_TYPE))
+            true
+        } catch (e: JrwiApiException) {
+            if (e.code == 409) false else throw e
+        }
+
+    /** The site's private podcast feed, as the archiver last read it (feature `podcast`). */
+    suspend fun getPodcast(): JrwiPodcast = decode(get("api/podcast"))
+
+    /** Has the archiver read the podcast feed now, as its admin page's Read it now does. */
+    suspend fun readPodcast() {
+        send("POST", url("api/podcast/read") {}, "".toRequestBody(JSON_TYPE))
+    }
+
     suspend fun getEvents(since: String? = null): List<JrwiEvent> =
         json.decodeFromString(
             ListSerializer(JrwiEvent.serializer()),

@@ -47,6 +47,7 @@ import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsScope
 import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadsViewModel
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiTaVideo
 import dev.jdtech.jellyfin.jrwi.JrwiProgress
 import dev.jdtech.jellyfin.models.CollectionSection
 import dev.jdtech.jellyfin.models.FindroidItem
@@ -88,6 +89,7 @@ fun DownloadsScreen(
     val activeDownloads by viewModel.activeDownloads.collectAsStateWithLifecycle()
     val jrwiDownloads by jrwiViewModel.entries.collectAsStateWithLifecycle()
     val jrwiVideoWatch by jrwiViewModel.videoWatch.collectAsStateWithLifecycle()
+    val jrwiFromTa by jrwiViewModel.tubeArchivist.collectAsStateWithLifecycle()
 
     LaunchedEffect(scope) {
         viewModel.setScope(scope)
@@ -104,6 +106,7 @@ fun DownloadsScreen(
         activeDownloads = activeDownloads,
         jrwiDownloads = if (scope == DownloadsScope.NOT_JRWI) emptyList() else jrwiDownloads,
         jrwiVideoWatch = jrwiVideoWatch,
+        jrwiFromTa = if (scope == DownloadsScope.JRWI) jrwiFromTa else emptyMap(),
         onJrwiItemClick = onJrwiItemClick,
         onJrwiRemove = jrwiViewModel::remove,
         onActiveDownloadClick = { item -> onItemClick(item) },
@@ -138,6 +141,11 @@ private fun DownloadsScreenLayout(
     jrwiDownloads: List<JrwiDownloadEntry> = emptyList(),
     /** How far JRWI's downloaded videos were played, as the archive has it, by episode ID. */
     jrwiVideoWatch: Map<String, JrwiProgress> = emptyMap(),
+    /**
+     * TubeArchivist's downloads that are JRWI episodes, by episode ID, listed with JRWI's and
+     * opening on the episode's page.
+     */
+    jrwiFromTa: Map<String, JrwiTaVideo> = emptyMap(),
     onJrwiItemClick: (Long) -> Unit = {},
     onJrwiRemove: (Long) -> Unit = {},
 ) {
@@ -180,9 +188,15 @@ private fun DownloadsScreenLayout(
 
         val other = stringResource(CoreR.string.jrwi_downloads_other)
         val shows =
-            remember(byShow, state.sections, jrwiDownloads, jrwiVideoWatch, other) {
+            remember(byShow, state.sections, jrwiDownloads, jrwiVideoWatch, jrwiFromTa, other) {
                 if (byShow) {
-                    jrwiDownloadsByShow(state.sections, jrwiDownloads, other, jrwiVideoWatch)
+                    jrwiDownloadsByShow(
+                        state.sections,
+                        jrwiDownloads,
+                        other,
+                        jrwiVideoWatch,
+                        jrwiFromTa,
+                    )
                 } else {
                     emptyList()
                 }
@@ -269,7 +283,11 @@ private fun DownloadsScreenLayout(
                 if (byShow) {
                     jrwiShowSections(
                         shows = shows,
-                        onVideoClick = { item -> onAction(CollectionAction.OnItemClick(item)) },
+                        onVideoClick = { item ->
+                            val fromTa = jrwiFromTa[item.id.toString()]
+                            if (fromTa != null) onJrwiItemClick(fromTa.itemId)
+                            else onAction(CollectionAction.OnItemClick(item))
+                        },
                         onAudioClick = onJrwiItemClick,
                         onAudioRemove = onJrwiRemove,
                     )

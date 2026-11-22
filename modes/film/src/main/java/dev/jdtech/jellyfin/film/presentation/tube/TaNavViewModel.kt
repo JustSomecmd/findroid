@@ -59,9 +59,14 @@ constructor(
 
     /**
      * The JRWI episode of a Jellyfin item, so it opens on the episode's page: kept with the video's
-     * download from the moment it starts, or known from looking it up before.
+     * download from the moment it starts, or known from looking it up before. TubeArchivist's
+     * copies of YouTube videos open on their TubeArchivist page, though they're kept with their
+     * episode too.
      */
     fun jrwiItemId(itemId: UUID): Long? =
-        jrwiDownloads.savedVideoForEpisode(itemId.toString())?.item?.id
-            ?: jrwiLookup.knownPostId(itemId)
+        jrwiDownloads
+            .savedVideoForEpisode(itemId.toString())
+            ?.takeIf { it.youtubeId == null }
+            ?.item
+            ?.id ?: jrwiLookup.knownPostId(itemId)
 }

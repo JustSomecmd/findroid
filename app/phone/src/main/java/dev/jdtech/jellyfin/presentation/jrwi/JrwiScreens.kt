@@ -209,7 +209,7 @@ internal val TOP_BAR_INSETS
     @Composable get() = WindowInsets.statusBars.union(WindowInsets.displayCutout)
 
 /** Turns a message from a JRWI page into text. */
-private fun jrwiMessageText(context: Context, message: String): String =
+internal fun jrwiMessageText(context: Context, message: String): String =
     when (message) {
         JrwiMessages.SAVED -> context.getString(CoreR.string.jrwi_saved)
         JrwiMessages.CHECK_STARTED -> context.getString(CoreR.string.jrwi_check_started)
@@ -218,6 +218,8 @@ private fun jrwiMessageText(context: Context, message: String): String =
         JrwiMessages.NOT_SAVED -> context.getString(CoreR.string.jrwi_not_saved)
         JrwiMessages.STOPPING -> context.getString(CoreR.string.jrwi_stopping)
         JrwiMessages.NOTHING_RUNNING -> context.getString(CoreR.string.jrwi_nothing_running)
+        JrwiMessages.REREAD_STARTED -> context.getString(CoreR.string.jrwi_reread_started)
+        JrwiMessages.PODCAST_READING -> context.getString(CoreR.string.jrwi_podcast_reading)
         else -> message
     }
 
@@ -2869,10 +2871,11 @@ private val RGB_REGEX =
 
 /**
  * The server side of JRWI Home: the archive's numbers, as TubeArchivist's stats on its Home's
- * server side, what the archiver is doing, a check now, and the posts it couldn't fully save. While
- * it's shown, the status is read every few seconds during a check, so it can be followed, and once
- * a minute otherwise. The numbers are loaded once while the app runs, and again on a pull or once a
- * check has finished; the problems likewise.
+ * server side, and the posts it couldn't fully save. What the archiver is doing, and its controls,
+ * are on the server side of JRWI's Downloads. While it's shown, the status is read every few
+ * seconds during a check, and once a minute otherwise, for the numbers to follow it. The numbers
+ * are loaded once while the app runs, and again on a pull or once a check has finished; the
+ * problems likewise.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2933,17 +2936,6 @@ internal fun JrwiServerContent(
                 }
             }
             jrwiWideItem("hero") { JrwiStatsHero(stats = stats.stats, status = state.status) }
-            state.status?.let { status ->
-                item(key = "status") {
-                    JrwiStatusCard(
-                        status = status,
-                        canStop = state.canStop,
-                        onCheck = { viewModel.check() },
-                        onFullCheck = { viewModel.check(full = true) },
-                        onStop = { viewModel.stop() },
-                    )
-                }
-            }
             val numbers = stats.stats
             when {
                 numbers != null ->
@@ -2984,17 +2976,10 @@ internal fun JrwiServerContent(
 
 /**
  * What the archiver is doing: checking, on which post and how far, or waiting for the next check,
- * with Check now and Full check. While a check runs, an archiver that can stop one has Stop in
- * their place, as its admin page does.
+ * and how the last one went.
  */
 @Composable
-private fun JrwiStatusCard(
-    status: JrwiStatus,
-    canStop: Boolean,
-    onCheck: () -> Unit,
-    onFullCheck: () -> Unit,
-    onStop: () -> Unit,
-) {
+internal fun JrwiStatusCard(status: JrwiStatus) {
     JrwiStatsCard(title = stringResource(CoreR.string.jrwi_stats_status)) {
         // Archivers since 0.9.3 word the detail to stand on its own line
         val phase =
@@ -3088,38 +3073,6 @@ private fun JrwiStatusCard(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        if (status.running && canStop) {
-            // The admin page's Stop: a ghost button with its square in red
-            OutlinedButton(
-                shape = JrwiShape,
-                border = JrwiGhostBorder,
-                colors = jrwiGhostButtonColors(),
-                onClick = onStop,
-            ) {
-                Icon(
-                    painter = painterResource(CoreR.drawable.ic_stop),
-                    contentDescription = null,
-                    tint = JrwiColors.Bad,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(MaterialTheme.spacings.small))
-                Text(stringResource(CoreR.string.jrwi_stop))
-            }
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
-                Button(shape = JrwiShape, onClick = onCheck) {
-                    Text(stringResource(CoreR.string.jrwi_check_now))
-                }
-                OutlinedButton(
-                    shape = JrwiShape,
-                    border = JrwiGhostBorder,
-                    colors = jrwiGhostButtonColors(),
-                    onClick = onFullCheck,
-                ) {
-                    Text(stringResource(CoreR.string.jrwi_full_check))
-                }
-            }
-        }
     }
 }
 
@@ -3153,8 +3106,8 @@ private fun JrwiProblemsCard(problems: List<JrwiProblem>) {
     }
 }
 
-private const val SERVER_REFRESH_MILLIS = 5_000L
-private const val SERVER_IDLE_REFRESH_MILLIS = 60_000L
+internal const val SERVER_REFRESH_MILLIS = 5_000L
+internal const val SERVER_IDLE_REFRESH_MILLIS = 60_000L
 
 // Settings
 

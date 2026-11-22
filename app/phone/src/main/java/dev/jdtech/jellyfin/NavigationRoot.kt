@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -114,8 +115,8 @@ import dev.jdtech.jellyfin.presentation.film.PlaylistScreen
 import dev.jdtech.jellyfin.presentation.film.PlaylistsScreen
 import dev.jdtech.jellyfin.presentation.film.SeasonScreen
 import dev.jdtech.jellyfin.presentation.film.ShowScreen
-import dev.jdtech.jellyfin.presentation.jrwi.JRWI_BAR_HEIGHT
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiColors
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiDownloadsScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiHomeScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiItemScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiPurple
@@ -123,7 +124,6 @@ import dev.jdtech.jellyfin.presentation.jrwi.JrwiSearchScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiSettingsScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowsScreen
-import dev.jdtech.jellyfin.presentation.jrwi.JrwiTheme
 import dev.jdtech.jellyfin.presentation.jrwi.LocalJrwiBaseUrl
 import dev.jdtech.jellyfin.presentation.settings.AboutScreen
 import dev.jdtech.jellyfin.presentation.settings.PlayerButtonsScreen
@@ -148,6 +148,7 @@ import dev.jdtech.jellyfin.presentation.tube.TaQueueScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSearchScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSettingsScreen
 import dev.jdtech.jellyfin.presentation.tube.TaVideoScreen
+import dev.jdtech.jellyfin.presentation.tube.onServerSide
 import dev.jdtech.jellyfin.presentation.tube.rememberSidePagerState
 import dev.jdtech.jellyfin.presentation.tube.requestOwnSide
 import dev.jdtech.jellyfin.presentation.tube.serverSideShown
@@ -486,15 +487,16 @@ private fun MainNavigation(
 
     // Flips between the modes, to the open tab's match there: Home to Home, Channels to Shows,
     // Downloads to Downloads. From a tab with no match, the last one that had one is taken as open.
-    // Home stays on its server side when it's on it.
+    // Home and Downloads stay on their server side when they're on it.
     val switchMode: (Boolean) -> Unit = { toJrwi ->
         val from = if (toJrwi) tabRoutesFor(tubeArchivistMode) else JRWI_TABS
         val to = if (toJrwi) JRWI_TABS else tabRoutesFor(tubeArchivistMode)
         val open =
             topLevelRoute.takeIf { it in from } ?: if (toJrwi) lastTabs.other else lastTabs.jrwi
         val route = to.getOrNull(from.indexOf(open)) ?: to.first()
-        mainPagerTurns.startHomeOnServer =
-            route == to.first() && mainPagerTurns.homeOnServerSide?.invoke() == true
+        mainPagerTurns.startOnServer = route.takeIf {
+            mainPagerTurns.serverSideShown?.invoke() == true
+        }
         navigator.navigate(route)
     }
     // In JRWI mode the bar is in the archiver's colours, and lights up in its purple
@@ -711,11 +713,11 @@ private val OpaquePageDecorator =
 private class MainPagerTurns {
     var turnTo: ((NavKey) -> Unit)? = null
 
-    /** Whether the pager shows Home's server side, read when switching modes. */
-    var homeOnServerSide: (() -> Boolean)? = null
+    /** Whether the open tab shows its server side, read when switching modes. */
+    var serverSideShown: (() -> Boolean)? = null
 
-    /** The next mode's pager opens its Home on the server side, as the last one was. */
-    var startHomeOnServer = false
+    /** The tab the next mode's pager opens on its server side, as the last one was. */
+    var startOnServer: NavKey? = null
 }
 
 /**
@@ -782,12 +784,15 @@ private fun TaMainPager(
         rememberPagerState(initialPage = mainPages.indexOf(topLevelRoute).coerceAtLeast(0)) {
             mainPages.size
         }
-    // Home on the side the other mode's Home was on, when the pager comes in with a switch of modes
-    val homeOnServer = remember { turns.startHomeOnServer.also { turns.startHomeOnServer = false } }
-    val homeSides = rememberSidePagerState(serverFirst = true, onServer = homeOnServer)
+    // The tab on the side the other mode's was on, when the pager comes in with a switch of modes
+    val startOnServer = remember { turns.startOnServer.also { turns.startOnServer = null } }
+    val homeSides =
+        rememberSidePagerState(serverFirst = true, onServer = startOnServer == TaHomeRoute)
     val channelTabs = rememberPagerState { TaChannelsTab.entries.size }
-    val downloadSides = rememberSidePagerState()
-    val jrwiHomeSides = rememberSidePagerState(serverFirst = true, onServer = homeOnServer)
+    val downloadSides = rememberSidePagerState(onServer = startOnServer == DownloadsRoute)
+    val jrwiHomeSides =
+        rememberSidePagerState(serverFirst = true, onServer = startOnServer == JrwiRoute)
+    val jrwiDownloadSides = rememberSidePagerState(onServer = startOnServer == JrwiDownloadsRoute)
     val swiper = rememberPageSwiper(pages)
     swiper.innerPages = { page ->
         when (currentPages.getOrNull(page)) {
@@ -795,6 +800,7 @@ private fun TaMainPager(
             TaChannelsRoute -> channelTabs
             DownloadsRoute -> downloadSides
             JrwiRoute -> jrwiHomeSides
+            JrwiDownloadsRoute -> jrwiDownloadSides
             else -> null
         }
     }
@@ -824,6 +830,11 @@ private fun TaMainPager(
                 jrwiHomeSides.showSide(sideScope, server = it, serverFirst = true)
             }
         }
+        launch {
+            tabSides.requestsFor(JrwiDownloadsRoute).collect {
+                jrwiDownloadSides.showSide(sideScope, server = it)
+            }
+        }
     }
     // A tab that's been left is on its own side when it's next opened, out of sight meanwhile.
     // Swipes already bring a tab in on its near side, which is its own side.
@@ -833,6 +844,7 @@ private fun TaMainPager(
                 if (route != TaHomeRoute) homeSides.requestOwnSide(serverFirst = true)
                 if (route != DownloadsRoute) downloadSides.requestOwnSide()
                 if (route != JrwiRoute) jrwiHomeSides.requestOwnSide(serverFirst = true)
+                if (route != JrwiDownloadsRoute) jrwiDownloadSides.requestOwnSide()
             }
     }
 
@@ -843,18 +855,20 @@ private fun TaMainPager(
             if (page >= 0) swiper.turnTo(page)
         }
         turns.turnTo = turnTo
-        val homeOnServerSide = {
+        val serverSideShown = {
             when (currentPages.getOrNull(pages.currentPage)) {
                 TaHomeRoute -> homeSides.serverSideShown(serverFirst = true)
                 JrwiRoute -> jrwiHomeSides.serverSideShown(serverFirst = true)
+                DownloadsRoute -> downloadSides.onServerSide
+                JrwiDownloadsRoute -> jrwiDownloadSides.onServerSide
                 else -> false
             }
         }
-        turns.homeOnServerSide = homeOnServerSide
+        turns.serverSideShown = serverSideShown
         // Left to the next mode's pager when that one's already in
         onDispose {
             if (turns.turnTo === turnTo) turns.turnTo = null
-            if (turns.homeOnServerSide === homeOnServerSide) turns.homeOnServerSide = null
+            if (turns.serverSideShown === serverSideShown) turns.serverSideShown = null
         }
     }
     LaunchedEffect(topLevelRoute, mainPages) {
@@ -934,6 +948,7 @@ private fun TaMainPager(
                             resumedAction<FindroidItem> { item -> navigateToItem(navigator, item) },
                         onJrwiItemClick =
                             resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
+                        sides = jrwiDownloadSides,
                     )
                 else ->
                     TaDownloadsScreen(
@@ -1336,17 +1351,24 @@ private fun EntryProviderScope<NavKey>.mainEntries(
     entry<AboutRoute> { AboutScreen(navigateBack = dropUnlessResumed { navigator.goBack() }) }
 }
 
-/** JRWI mode's Downloads: the JRWI episodes' audio and videos on the phone, in its colours. */
+/**
+ * JRWI mode's Downloads: the JRWI episodes' audio and videos on the phone, in its colours, and on
+ * its server side the archiver at work.
+ */
 @Composable
-private fun JrwiDownloads(onItemClick: (FindroidItem) -> Unit, onJrwiItemClick: (Long) -> Unit) {
-    JrwiTheme {
+private fun JrwiDownloads(
+    onItemClick: (FindroidItem) -> Unit,
+    onJrwiItemClick: (Long) -> Unit,
+    sides: PagerState = rememberSidePagerState(),
+) {
+    JrwiDownloadsScreen(sides = sides, onItemClick = onJrwiItemClick) {
         DownloadsScreen(
             onItemClick = onItemClick,
             onJrwiItemClick = onJrwiItemClick,
             // Apart from TubeArchivist's Downloads, which lists the others
             viewModel = hiltViewModel(key = JRWI_DOWNLOADS_KEY),
+            embedded = true,
             scope = DownloadsScope.JRWI,
-            topBarHeight = JRWI_BAR_HEIGHT,
         )
     }
 }

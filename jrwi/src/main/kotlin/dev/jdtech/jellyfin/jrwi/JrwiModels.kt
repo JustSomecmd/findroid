@@ -30,6 +30,10 @@ object JrwiFeature {
     const val POST_PROGRESS = "post_progress"
     /** `POST /api/stop` */
     const val STOP = "stop"
+    /** `POST /api/reparse`, asked of the archiver for the app's Downloads server side */
+    const val REPARSE = "reparse"
+    /** `GET /api/podcast` and `POST /api/podcast/read`, asked of the archiver likewise */
+    const val PODCAST = "podcast"
 }
 
 /** A post in the feed (v0.17): the whole post, its first comments as the web feed picks them. */
@@ -365,6 +369,42 @@ data class JrwiEvent(
     @SerialName("post_id") val postId: Long? = null,
     val title: String? = null,
     val message: String? = null,
+)
+
+/**
+ * The site's private podcast feed as the archiver reads it, as its admin page shows it: whether
+ * it's set up, when it was last read and what it had, and the last check a new episode in it
+ * started.
+ */
+@Serializable
+data class JrwiPodcast(
+    @SerialName("set_up") val setUp: Boolean = false,
+    @SerialName("last_read") val lastRead: String? = null,
+    val ok: Boolean = true,
+    val error: String? = null,
+    val title: String? = null,
+    /** Episodes in the feed. */
+    val count: Int = 0,
+    /** Of those, the ones that are posts in the archive. */
+    val matched: Int = 0,
+    /** Of those, the ones that say the time of day they came out. */
+    @SerialName("with_time") val withTime: Int = 0,
+    /** How often it's read between checks, or null when reading it is off. */
+    @SerialName("every_minutes") val everyMinutes: Int? = null,
+    @SerialName("last_trigger") val lastTrigger: JrwiPodcastTrigger? = null,
+    /** The newest episodes in it. */
+    val latest: List<JrwiPodcastEpisode> = emptyList(),
+)
+
+/** The last check a new episode in the podcast feed started, and for which episodes. */
+@Serializable data class JrwiPodcastTrigger(val at: String, val titles: List<String> = emptyList())
+
+@Serializable
+data class JrwiPodcastEpisode(
+    val title: String,
+    val published: String? = null,
+    @SerialName("post_id") val postId: Long? = null,
+    val duration: Double? = null,
 )
 
 /** A post that couldn't be fully saved, and why. */

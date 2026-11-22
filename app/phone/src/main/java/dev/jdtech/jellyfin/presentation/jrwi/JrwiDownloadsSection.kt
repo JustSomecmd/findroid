@@ -43,6 +43,7 @@ import coil3.compose.AsyncImage
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiEpisodeNumber
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiTaVideo
 import dev.jdtech.jellyfin.jrwi.JrwiProgress
 import dev.jdtech.jellyfin.models.CollectionSection
 import dev.jdtech.jellyfin.models.FindroidEpisode
@@ -193,13 +194,16 @@ data class JrwiShowDownloads(val name: String, val cards: List<JrwiDownloadCard>
  * its numbered episodes first, season by season with an episode's video before its audio, then the
  * rest by title. [other] names the audio of posts without a show. A video's watched mark and bar
  * show how far the archive has it played ([videoWatch], by episode ID), as its page does, in place
- * of the position kept with its Jellyfin download.
+ * of the position kept with its Jellyfin download. TubeArchivist's downloads of JRWI episodes
+ * ([tubeArchivist], by episode ID) go under their show with their number, which Jellyfin doesn't
+ * know them by, as it files them under the channel.
  */
 fun jrwiDownloadsByShow(
     videos: List<CollectionSection>,
     audio: List<JrwiDownloadEntry>,
     other: String,
     videoWatch: Map<String, JrwiProgress> = emptyMap(),
+    tubeArchivist: Map<String, JrwiTaVideo> = emptyMap(),
 ): List<JrwiShowDownloads> {
     data class Sorted(val number: JrwiEpisodeNumber?, val audio: Boolean, val title: String)
     val byShow = mutableMapOf<String, MutableList<Pair<Sorted, JrwiDownloadCard>>>()
@@ -207,16 +211,25 @@ fun jrwiDownloadsByShow(
         .flatMap { it.items }
         .forEach { item ->
             val episode = item as? FindroidEpisode
+            val fromTa = episode?.let { tubeArchivist[it.id.toString()] }
             // Season 0 holds the specials, which the archiver doesn't number as episodes
             val number =
-                episode
-                    ?.takeIf { it.parentIndexNumber > 0 }
-                    ?.let { JrwiEpisodeNumber(it.parentIndexNumber, it.indexNumber) }
+                if (fromTa != null) fromTa.number
+                else
+                    episode
+                        ?.takeIf { it.parentIndexNumber > 0 }
+                        ?.let { JrwiEpisodeNumber(it.parentIndexNumber, it.indexNumber) }
             val watch = episode?.let { videoWatch[it.id.toString()] }
             val shown = if (episode != null && watch != null) episode.playedAs(watch) else item
+            val show =
+                if (fromTa != null) fromTa.showName?.takeIf { it.isNotBlank() } ?: other
+                else episode?.seriesName ?: other
             byShow
-                .getOrPut(episode?.seriesName ?: other) { mutableListOf() }
-                .add(Sorted(number, false, item.name) to JrwiDownloadCard.Video(shown))
+                .getOrPut(show) { mutableListOf() }
+                .add(
+                    Sorted(number, false, fromTa?.title ?: item.name) to
+                        JrwiDownloadCard.Video(shown)
+                )
         }
     audio.forEach { entry ->
         byShow

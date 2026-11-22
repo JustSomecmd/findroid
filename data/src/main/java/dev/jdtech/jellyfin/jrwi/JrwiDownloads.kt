@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -46,6 +47,16 @@ data class JrwiSavedVideo(
     val episodeId: String,
     val item: JrwiItem,
     val withFiles: Boolean = false,
+    /**
+     * Set when the Jellyfin episode is TubeArchivist's copy of the episode's YouTube video, a
+     * TubeArchivist download that's listed with JRWI's too, rather than the archived video.
+     */
+    @SerialName("youtube_id") val youtubeId: String? = null,
+    /**
+     * The episode's show, for TubeArchivist's copy, which Jellyfin files under its channel rather
+     * than under the show as it does the archived videos.
+     */
+    @SerialName("show_name") val showName: String? = null,
 )
 
 /** Starts and removes downloads of episodes' audio, which run in the background. */
@@ -259,17 +270,24 @@ class JrwiDownloads(context: Context) {
 
     /**
      * Keeps the episode with its Jellyfin episode, for a video downloaded through Jellyfin, with
-     * the post's files when [withFiles] is true; null keeps what was asked for before.
+     * the post's files when [withFiles] is true; null keeps what was asked for before. [youtubeId]
+     * marks TubeArchivist's copy of the YouTube video, with its show's [showName].
      */
     @Synchronized
-    fun saveVideo(item: JrwiItem, episodeId: String, withFiles: Boolean? = null) {
+    fun saveVideo(
+        item: JrwiItem,
+        episodeId: String,
+        withFiles: Boolean? = null,
+        youtubeId: String? = null,
+        showName: String? = null,
+    ) {
         videoDir.mkdirs()
         val file = File(videoDir, "${item.id}.json")
         val files = withFiles ?: readVideo(file)?.withFiles ?: false
         val text =
             json.encodeToString(
                 JrwiSavedVideo.serializer(),
-                JrwiSavedVideo(episodeId, item, files),
+                JrwiSavedVideo(episodeId, item, files, youtubeId, showName),
             )
         file.writeText(text)
     }
@@ -279,8 +297,15 @@ class JrwiDownloads(context: Context) {
         readVideo(File(videoDir, "$postId.json"))
             ?: savedVideos().firstOrNull { it.item.video?.postId == postId }
 
-    /** The Jellyfin episodes whose video was downloaded with its JRWI episode kept. */
-    fun savedVideoEpisodeIds(): Set<String> = savedVideos().map { it.episodeId }.toSet()
+    /**
+     * The Jellyfin episodes whose video was downloaded with its JRWI episode kept, with or without
+     * TubeArchivist's copies of YouTube videos.
+     */
+    fun savedVideoEpisodeIds(withTubeArchivist: Boolean = true): Set<String> =
+        savedVideos()
+            .filter { withTubeArchivist || it.youtubeId == null }
+            .map { it.episodeId }
+            .toSet()
 
     /** The kept episode of the Jellyfin episode [episodeId], when its video was downloaded. */
     fun savedVideoForEpisode(episodeId: String): JrwiSavedVideo? =
