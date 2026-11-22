@@ -553,6 +553,9 @@
     <string name="jrwi_full_check">Full check</string>
     <string name="jrwi_check_started">The archiver is checking for new posts</string>
     <string name="jrwi_check_running">A check is already running</string>
+    <string name="jrwi_stop">Stop</string>
+    <string name="jrwi_stopping">The check is stopping. The next check carries on from there.</string>
+    <string name="jrwi_nothing_running">No check is running</string>
     <string name="jrwi_status_running">Checking: %1$s</string>
     <string name="jrwi_status_idle">Waiting for the next check</string>
     <string name="jrwi_count_post">Post %1$d of %2$d</string>
@@ -593,6 +596,7 @@
     <string name="jrwi_tab_posts">Posts</string>
     <string name="jrwi_search">Search the archive</string>
     <string name="jrwi_search_hint">Search titles and text</string>
+    <string name="jrwi_search_hint_tags">Search titles, text and tags</string>
     <string name="jrwi_search_clear">Clear the search</string>
     <string name="jrwi_search_all_shows">All shows</string>
     <string name="jrwi_search_all_tabs">Every tab</string>
@@ -600,7 +604,7 @@
     <string name="jrwi_search_newest">Newest first</string>
     <string name="jrwi_search_oldest">Oldest first</string>
     <string name="jrwi_search_clear_filters">Clear filters</string>
-    <string name="jrwi_search_intro">Search the archive\'s posts by their title and text, or keep them to a show, a tab or a tag.</string>
+    <string name="jrwi_search_intro">Search the archive\'s posts by their title, text and tags, or keep them to a show, a tab or a tag.</string>
     <string name="jrwi_search_intro_no_tags">Search the archive\'s posts by their title and text, or keep them to a show or a tab. Picking a tag needs an archiver that lists its tags.</string>
     <string name="jrwi_stats_archive">JRWI archive</string>
     <plurals name="jrwi_post_count">

@@ -2,6 +2,7 @@ package dev.jdtech.jellyfin.jrwi
 
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
@@ -87,6 +88,8 @@ class JrwiApi(private val config: JrwiConfig) {
     /** Checks an address and token before they're saved. Returns the archiver's version. */
     suspend fun check(url: String, token: String): String? {
         val base = url.trim().trimEnd('/')
+        // Read again on the next request, as the archiver may have been updated
+        featureCache = null
         // The ping needs no token, so the status checks the token too
         val pingUrl =
             "$base/api/ping".toHttpUrlOrNull() ?: throw IllegalArgumentException("Invalid address")
@@ -196,8 +199,83 @@ class JrwiApi(private val config: JrwiConfig) {
      */
     suspend fun getStats(): JrwiStats = decode(get("api/stats"))
 
-    /** The archiver's name and version. */
-    suspend fun getPing(): JrwiPing = decode(get("api/ping"))
+    /** The archiver's name and version, and since v0.17 its contract and features. */
+    suspend fun getPing(): JrwiPing {
+        val ping = decode<JrwiPing>(get("api/ping"))
+        // Kept for features(), so a page that reads the version doesn't ask twice
+        baseUrl?.let {
+            featureCache = Triple(it, ping.features?.toSet(), System.currentTimeMillis())
+        }
+        return ping
+    }
+
+    // What the archiver has: its address, its features and when they were read
+    @Volatile private var featureCache: Triple<String, Set<String>?, Long>? = null
+
+    /**
+     * The optional parts the archiver has (v0.17), from its ping, as [JrwiFeature] names: read
+     * once, and again after a while or for another address. Null when it doesn't say, as before
+     * 0.9.7, or couldn't be reached; then callers ask anyway and take a 404 to mean no.
+     */
+    suspend fun features(): Set<String>? {
+        val base = baseUrl ?: return null
+        val now = System.currentTimeMillis()
+        featureCache?.let { (url, features, at) ->
+            if (url == base && now - at < FEATURES_KEPT_MS) return features
+        }
+        return try {
+            getPing().features?.toSet()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Not kept, so it's asked again next time
+            null
+        }
+    }
+
+    /**
+     * Whether the archiver has [feature]: true or false when it lists its features, null when it
+     * doesn't say.
+     */
+    suspend fun has(feature: String): Boolean? = features()?.contains(feature)
+
+    /**
+     * A page of the archive's feed as the web app's Home shows it (v0.17): every post whole, with
+     * its progress, its first two comments and whether it has more. [query] and [tag] as on
+     * [getPosts]. Up to 50 a page.
+     */
+    suspend fun getFeed(
+        page: Int = 1,
+        pageSize: Int = 20,
+        order: String = "desc",
+        query: String? = null,
+        tag: String? = null,
+    ): JrwiPage<JrwiFeedEntry> {
+        val raw =
+            decode<JrwiPage<JsonObject>>(
+                get("api/feed") {
+                    query?.takeIf { it.isNotBlank() }?.let { addQueryParameter("q", it) }
+                    tag?.let { addQueryParameter("tag", it) }
+                    addQueryParameter("order", order)
+                    addQueryParameter("page", page.toString())
+                    addQueryParameter("page_size", pageSize.toString())
+                }
+            )
+        return JrwiPage(
+            items =
+                raw.items.map { entry ->
+                    val extras = json.decodeFromJsonElement(JrwiFeedExtras.serializer(), entry)
+                    JrwiFeedEntry(
+                        post = json.decodeFromJsonElement(JrwiItem.serializer(), entry),
+                        topComments = extras.topComments,
+                        moreComments = extras.moreComments,
+                    )
+                },
+            page = raw.page,
+            pageSize = raw.pageSize,
+            total = raw.total,
+        )
+    }
 
     /** The newest items across every show. */
     suspend fun getLatest(limit: Int = 20): List<JrwiItem> =
@@ -318,6 +396,18 @@ class JrwiApi(private val config: JrwiConfig) {
             if (e.code == 409) false else throw e
         }
 
+    /**
+     * Stops the check, or the re-read of saved pages, that's running (v0.17), as the admin page's
+     * Stop does. False when nothing is running.
+     */
+    suspend fun stopCheck(): Boolean =
+        try {
+            send("POST", url("api/stop") {}, "".toRequestBody(JSON_TYPE))
+            true
+        } catch (e: JrwiApiException) {
+            if (e.code == 409) false else throw e
+        }
+
     suspend fun getEvents(since: String? = null): List<JrwiEvent> =
         json.decodeFromString(
             ListSerializer(JrwiEvent.serializer()),
@@ -381,6 +471,8 @@ class JrwiApi(private val config: JrwiConfig) {
 
     companion object {
         const val PAGE_SIZE = 50
+        // How long the archiver's features are kept before its ping is read again
+        private const val FEATURES_KEPT_MS = 15 * 60_000L
         private val JSON_TYPE = "application/json".toMediaType()
 
         // Archived videos are named "<Show> - S01E136 - <Title> [jrwi-<post ID>].mp4"

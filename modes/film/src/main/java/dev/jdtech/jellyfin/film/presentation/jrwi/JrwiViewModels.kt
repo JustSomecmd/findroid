@@ -14,6 +14,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiContinue
 import dev.jdtech.jellyfin.jrwi.JrwiDownload
 import dev.jdtech.jellyfin.jrwi.JrwiDownloader
 import dev.jdtech.jellyfin.jrwi.JrwiDownloads
+import dev.jdtech.jellyfin.jrwi.JrwiFeature
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiPage
 import dev.jdtech.jellyfin.jrwi.JrwiPostFile
@@ -95,6 +96,8 @@ object JrwiMessages {
     const val CHECK_RUNNING = "jrwi:check_running"
     const val NOT_IN_JELLYFIN = "jrwi:not_in_jellyfin"
     const val NOT_SAVED = "jrwi:not_saved"
+    const val STOPPING = "jrwi:stopping"
+    const val NOTHING_RUNNING = "jrwi:nothing_running"
 }
 
 /** An episode's audio on the phone or on its way, with how far its download has got. */
@@ -303,14 +306,31 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
         val page = feedPage + 1
         _state.update { it.copy(feedLoading = true) }
         try {
-            val result = jrwiApi.getPosts(page = page, pageSize = FEED_PAGE_SIZE)
+            // Archivers with the feed (0.9.7) give each post whole with its first comments, so
+            // its card needs nothing more; older ones give the list, and each card asks for the
+            // rest as it shows
+            val (entries, total) =
+                if (jrwiApi.has(JrwiFeature.FEED) == true) {
+                    val result = jrwiApi.getFeed(page = page, pageSize = FEED_PAGE_SIZE)
+                    result.items.map {
+                        JrwiFeedPost(
+                            post = it.post,
+                            full = it.post,
+                            comments = it.topComments,
+                            moreComments = it.moreComments,
+                        )
+                    } to result.total
+                } else {
+                    val result = jrwiApi.getPosts(page = page, pageSize = FEED_PAGE_SIZE)
+                    result.items.map { JrwiFeedPost(it) } to result.total
+                }
             feedPage = page
             _state.update { state ->
                 val shown = if (reset) emptyList() else state.feed
                 val ids = shown.map { it.post.id }.toSet()
                 state.copy(
-                    feed = shown + result.items.filter { it.id !in ids }.map { JrwiFeedPost(it) },
-                    feedTotal = result.total,
+                    feed = shown + entries.filter { it.post.id !in ids },
+                    feedTotal = total,
                     feedLoading = false,
                 )
             }
@@ -343,10 +363,14 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
                             null
                         }
                     }
-                    val progress = async { jrwiApi.postProgress(entry.post) }
+                    // Posts carry their progress since 0.9.7, so it's asked for only of older
+                    // archivers
+                    val progress =
+                        if (jrwiApi.has(JrwiFeature.POST_PROGRESS) == true) null
+                        else async { jrwiApi.postProgress(entry.post) }
                     val post = full.await()
                     val page = comments.await()
-                    val played = progress.await()
+                    val played = progress?.await() ?: post.progress
                     _state.update { state ->
                         state.copy(
                             feed =
@@ -1097,6 +1121,8 @@ constructor(private val downloads: JrwiDownloads, private val downloader: JrwiDo
 data class JrwiServerState(
     val status: JrwiStatus? = null,
     val problems: List<JrwiProblem> = emptyList(),
+    /** The archiver can stop a running check (0.9.7), so Stop shows while one runs. */
+    val canStop: Boolean = false,
     val error: String? = null,
 )
 
@@ -1118,7 +1144,10 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
         try {
             val status = jrwiApi.getStatus()
             val problems = jrwiApi.getProblems()
-            _state.update { it.copy(status = status, problems = problems, error = null) }
+            val canStop = jrwiApi.has(JrwiFeature.STOP) == true
+            _state.update {
+                it.copy(status = status, problems = problems, canStop = canStop, error = null)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1133,6 +1162,26 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
                 val started = jrwiApi.startCheck(full)
                 _messages.send(
                     if (started) JrwiMessages.CHECK_STARTED else JrwiMessages.CHECK_RUNNING
+                )
+                load()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(e.errorText())
+            }
+        }
+    }
+
+    /**
+     * Stops the check that's running, as the admin page's Stop does; the next check carries on from
+     * where it got to.
+     */
+    fun stop() {
+        viewModelScope.launch {
+            try {
+                val stopping = jrwiApi.stopCheck()
+                _messages.send(
+                    if (stopping) JrwiMessages.STOPPING else JrwiMessages.NOTHING_RUNNING
                 )
                 load()
             } catch (e: CancellationException) {

@@ -97,7 +97,15 @@ fun JrwiSearchScreen(
                             onValueChange = viewModel::onQueryChange,
                             placeholder = {
                                 Text(
-                                    text = stringResource(CoreR.string.jrwi_search_hint),
+                                    // Archivers with tags (0.9.7) match their names too
+                                    text =
+                                        stringResource(
+                                            if (state.tagsUnsupported) {
+                                                CoreR.string.jrwi_search_hint
+                                            } else {
+                                                CoreR.string.jrwi_search_hint_tags
+                                            }
+                                        ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )

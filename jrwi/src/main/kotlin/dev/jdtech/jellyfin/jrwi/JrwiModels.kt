@@ -6,7 +6,45 @@ import kotlinx.serialization.Serializable
 // The JRWI archiver's API objects, as described in the project doc "JRWI archiver + Tubedroid
 // integration". Fields the archiver can leave out or set to null have defaults here.
 
-@Serializable data class JrwiPing(val name: String? = null, val version: String? = null)
+@Serializable
+data class JrwiPing(
+    val name: String? = null,
+    val version: String? = null,
+    /** The version of the contract the archiver follows (v0.17). */
+    val contract: String? = null,
+    /** Its optional parts (v0.17), as [JrwiFeature] names; null before 0.9.7. */
+    val features: List<String>? = null,
+)
+
+/** The names of the archiver's optional parts in its ping (v0.17). */
+object JrwiFeature {
+    /** `GET /api/continue` */
+    const val CONTINUE = "continue"
+    /** `GET /api/feed` */
+    const val FEED = "feed"
+    /** `GET /api/tags`, and `tag` on posts and items */
+    const val TAGS = "tags"
+    /** `GET /api/stats` */
+    const val STATS = "stats"
+    /** `progress` on single posts */
+    const val POST_PROGRESS = "post_progress"
+    /** `POST /api/stop` */
+    const val STOP = "stop"
+}
+
+/** A post in the feed (v0.17): the whole post, its first comments as the web feed picks them. */
+data class JrwiFeedEntry(
+    val post: JrwiItem,
+    val topComments: List<JrwiComment> = emptyList(),
+    /** It has more comments than [topComments]. */
+    val moreComments: Boolean = false,
+)
+
+@Serializable
+internal data class JrwiFeedExtras(
+    @SerialName("top_comments") val topComments: List<JrwiComment> = emptyList(),
+    @SerialName("more_comments") val moreComments: Boolean = false,
+)
 
 /** One page of a list. */
 @Serializable
@@ -233,6 +271,11 @@ data class JrwiComment(
 /** Who wrote a comment: their name, picture and the badges next to the name. */
 @Serializable
 data class JrwiAuthor(
+    /**
+     * The member's ID on the site (v0.18), the same on all their comments even after a change of
+     * name; null on the user's own comments and before 0.9.8.
+     */
+    val id: String? = null,
     val name: String = "",
     /** Null without a profile picture, where the site shows the name's first letter. */
     val avatar: String? = null,
@@ -467,6 +510,8 @@ data class JrwiCommentStats(
 
 @Serializable
 data class JrwiCommenter(
+    /** The member's ID on the site (v0.18), or null. */
+    val id: String? = null,
     val name: String = "",
     val avatar: String? = null,
     val color: String? = null,

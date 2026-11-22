@@ -285,10 +285,13 @@ class JrwiProgressSync(
      * first, without those the archive has as finished since.
      */
     suspend fun continueWatching(limit: Int = CONTINUE_LIMIT): List<JrwiContinue> {
-        try {
-            return jrwiApi.getContinue(limit)
-        } catch (e: JrwiApiException) {
-            if (e.code != NOT_FOUND) throw e
+        // Asked of the archiver unless it lists its features without this one
+        if (jrwiApi.has(JrwiFeature.CONTINUE) != false) {
+            try {
+                return jrwiApi.getContinue(limit)
+            } catch (e: JrwiApiException) {
+                if (e.code != NOT_FOUND) throw e
+            }
         }
         val started =
             store

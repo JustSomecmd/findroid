@@ -7,6 +7,7 @@ import dev.jdtech.jellyfin.film.presentation.tube.errorText
 import dev.jdtech.jellyfin.jrwi.JrwiApi
 import dev.jdtech.jellyfin.jrwi.JrwiApiException
 import dev.jdtech.jellyfin.jrwi.JrwiEvent
+import dev.jdtech.jellyfin.jrwi.JrwiFeature
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiPage
 import dev.jdtech.jellyfin.jrwi.JrwiShow
@@ -188,7 +189,8 @@ class JrwiStatsViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vie
         }
         val extra = async {
             try {
-                jrwiApi.getStats()
+                // Not asked of an archiver that lists its features without its own stats
+                if (jrwiApi.has(JrwiFeature.STATS) == false) null else jrwiApi.getStats()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: JrwiApiException) {

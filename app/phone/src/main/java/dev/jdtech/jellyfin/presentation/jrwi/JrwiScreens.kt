@@ -191,6 +191,8 @@ private fun jrwiMessageText(context: Context, message: String): String =
         JrwiMessages.CHECK_RUNNING -> context.getString(CoreR.string.jrwi_check_running)
         JrwiMessages.NOT_IN_JELLYFIN -> context.getString(CoreR.string.jrwi_not_in_jellyfin)
         JrwiMessages.NOT_SAVED -> context.getString(CoreR.string.jrwi_not_saved)
+        JrwiMessages.STOPPING -> context.getString(CoreR.string.jrwi_stopping)
+        JrwiMessages.NOTHING_RUNNING -> context.getString(CoreR.string.jrwi_nothing_running)
         else -> message
     }
 
@@ -2473,8 +2475,10 @@ internal fun JrwiServerContent(
                 item(key = "status") {
                     JrwiStatusCard(
                         status = status,
+                        canStop = state.canStop,
                         onCheck = { viewModel.check() },
                         onFullCheck = { viewModel.check(full = true) },
+                        onStop = { viewModel.stop() },
                     )
                 }
             }
@@ -2518,10 +2522,17 @@ internal fun JrwiServerContent(
 
 /**
  * What the archiver is doing: checking, on which post and how far, or waiting for the next check,
- * with Check now and Full check.
+ * with Check now and Full check. While a check runs, an archiver that can stop one has Stop in
+ * their place, as its admin page does.
  */
 @Composable
-private fun JrwiStatusCard(status: JrwiStatus, onCheck: () -> Unit, onFullCheck: () -> Unit) {
+private fun JrwiStatusCard(
+    status: JrwiStatus,
+    canStop: Boolean,
+    onCheck: () -> Unit,
+    onFullCheck: () -> Unit,
+    onStop: () -> Unit,
+) {
     JrwiStatsCard(title = stringResource(CoreR.string.jrwi_stats_status)) {
         // Archivers since 0.9.3 word the detail to stand on its own line
         val phase =
@@ -2615,17 +2626,36 @@ private fun JrwiStatusCard(status: JrwiStatus, onCheck: () -> Unit, onFullCheck:
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
-            Button(shape = JrwiShape, onClick = onCheck) {
-                Text(stringResource(CoreR.string.jrwi_check_now))
-            }
+        if (status.running && canStop) {
+            // The admin page's Stop: a ghost button with its square in red
             OutlinedButton(
                 shape = JrwiShape,
                 border = JrwiGhostBorder,
                 colors = jrwiGhostButtonColors(),
-                onClick = onFullCheck,
+                onClick = onStop,
             ) {
-                Text(stringResource(CoreR.string.jrwi_full_check))
+                Icon(
+                    painter = painterResource(CoreR.drawable.ic_stop),
+                    contentDescription = null,
+                    tint = JrwiColors.Bad,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(MaterialTheme.spacings.small))
+                Text(stringResource(CoreR.string.jrwi_stop))
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
+                Button(shape = JrwiShape, onClick = onCheck) {
+                    Text(stringResource(CoreR.string.jrwi_check_now))
+                }
+                OutlinedButton(
+                    shape = JrwiShape,
+                    border = JrwiGhostBorder,
+                    colors = jrwiGhostButtonColors(),
+                    onClick = onFullCheck,
+                ) {
+                    Text(stringResource(CoreR.string.jrwi_full_check))
+                }
             }
         }
     }

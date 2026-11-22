@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.film.presentation.tube.errorText
 import dev.jdtech.jellyfin.jrwi.JrwiApi
 import dev.jdtech.jellyfin.jrwi.JrwiApiException
+import dev.jdtech.jellyfin.jrwi.JrwiFeature
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.jrwi.JrwiShow
@@ -90,6 +91,11 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
             throw e
         } catch (e: Exception) {
             Timber.d(e, "The shows could not be loaded for the search")
+        }
+        // An archiver that lists its features and not tags has none to give
+        if (jrwiApi.has(JrwiFeature.TAGS) == false) {
+            _state.update { it.copy(tagsUnsupported = true) }
+            return
         }
         try {
             val tags = jrwiApi.getTags().sortedBy { it.name.lowercase() }
@@ -209,6 +215,8 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
         val post = _state.value.results.firstOrNull { it.id == postId } ?: return
         if (post.progress != null || !progressAsked.add(postId)) return
         viewModelScope.launch {
+            // Posts come with their progress since 0.9.7, so one without has none yet
+            if (jrwiApi.has(JrwiFeature.POST_PROGRESS) == true) return@launch
             val progress = jrwiApi.postProgress(post) ?: return@launch
             _state.update { state ->
                 state.copy(

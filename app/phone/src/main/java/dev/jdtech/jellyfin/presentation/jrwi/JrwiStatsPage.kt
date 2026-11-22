@@ -750,6 +750,7 @@ private fun JrwiCommentersCard(comments: JrwiCommentStats) {
         comments.top.forEachIndexed { index, member ->
             val author =
                 JrwiAuthor(
+                    id = member.id,
                     name = member.name,
                     avatar = member.avatar,
                     badges = member.badges,
