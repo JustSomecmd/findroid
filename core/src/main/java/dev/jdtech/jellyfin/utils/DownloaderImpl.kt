@@ -635,7 +635,8 @@ class DownloaderImpl(
                 )
                 .toInt()
         val byteArrays = mutableListOf<ByteArray>()
-        for (i in 0..maxIndex) {
+        // The sheets are numbered from 0, so the last one is one below their number
+        for (i in 0 until maxIndex) {
             jellyfinRepository.getTrickplayData(itemId, trickplayInfo.width, i)?.let { byteArray ->
                 byteArrays.add(byteArray)
             }

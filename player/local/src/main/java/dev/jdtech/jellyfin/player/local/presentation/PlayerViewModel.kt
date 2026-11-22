@@ -1,8 +1,6 @@
 package dev.jdtech.jellyfin.player.local.presentation
 
 import android.app.Application
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.SystemClock
 import android.widget.Toast
@@ -38,6 +36,7 @@ import dev.jdtech.jellyfin.player.local.domain.AvSyncGuard
 import dev.jdtech.jellyfin.player.local.domain.PlaylistManager
 import dev.jdtech.jellyfin.player.local.domain.SYNC_WATCH_MS
 import dev.jdtech.jellyfin.player.local.domain.TaQueueEntry
+import dev.jdtech.jellyfin.player.local.domain.TrickplaySheets
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
@@ -56,10 +55,12 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.ceil
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
@@ -70,7 +71,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.jellyfin.sdk.model.api.BaseItemKind
 import timber.log.Timber
 
@@ -176,6 +176,11 @@ constructor(
     // Watches sound and picture staying in step while a video plays, and what happened to them
     private val syncGuard = AvSyncGuard(appPreferences.getValue(appPreferences.playerSyncGuard))
     private var syncWatchJob: Job? = null
+
+    // What fetches and reads the scrubbing thumbnails of the video that's playing, and which video
+    // they're of
+    private var trickplayJob: Job? = null
+    private var trickplayMediaId: String? = null
 
     // Whether each video is put back in step once it has played for a moment, needed or not
     private val resyncAfterStart = appPreferences.getValue(appPreferences.playerResyncAfterStart)
@@ -681,7 +686,7 @@ constructor(
             }
         }
 
-        _uiState.update { it.copy(currentTrickplay = null) }
+        clearTrickplay()
         playWhenReady = false
         playbackPosition = 0L
         currentMediaItemIndex = 0
@@ -854,6 +859,8 @@ constructor(
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         Timber.d("Playing MediaItem: ${mediaItem?.mediaId}")
+        // The same video loaded again, as in another quality, has the same thumbnails
+        if (mediaItem?.mediaId != trickplayMediaId) clearTrickplay()
         // A video that plays straight on from the last one doesn't pause in between
         resyncJob?.cancel()
         if (player.isPlaying) resyncOnce()
@@ -1591,46 +1598,37 @@ constructor(
         }
     }
 
-    private suspend fun getTrickplay(item: PlayerItem) {
+    /**
+     * Sets up the scrubbing thumbnails of the video that's now playing. Their sheets are fetched in
+     * the background and read when the scrubber gets to them, so this doesn't wait for any of it.
+     */
+    private fun getTrickplay(item: PlayerItem) {
+        // Another video may have started while this one's details were being fetched
+        val mediaId = item.itemId.toString()
+        if (player.currentMediaItem?.mediaId != mediaId) return
+        if (mediaId == trickplayMediaId && trickplayJob?.isActive == true) return
+        clearTrickplay()
         val trickplayInfo = item.trickplayInfo ?: return
         Timber.d("Trickplay Resolution: ${trickplayInfo.width}")
 
-        withContext(Dispatchers.Default) {
-            val maxIndex =
-                ceil(
-                        trickplayInfo.thumbnailCount
-                            .toDouble()
-                            .div(trickplayInfo.tileWidth * trickplayInfo.tileHeight)
-                    )
-                    .toInt()
-            val bitmaps = mutableListOf<Bitmap>()
+        val job = SupervisorJob(viewModelScope.coroutineContext[Job])
+        val sheets =
+            TrickplaySheets(trickplayInfo, CoroutineScope(viewModelScope.coroutineContext + job)) {
+                sheet ->
+                repository.getTrickplayData(item.itemId, trickplayInfo.width, sheet)
+            }
+        trickplayJob = job
+        trickplayMediaId = mediaId
+        _uiState.update { it.copy(currentTrickplay = sheets) }
+        sheets.fetchAll()
+    }
 
-            for (i in 0..maxIndex) {
-                repository.getTrickplayData(item.itemId, trickplayInfo.width, i)?.let { byteArray ->
-                    val fullBitmap = BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
-                    for (offsetY in
-                        0..<trickplayInfo.height * trickplayInfo.tileHeight step
-                            trickplayInfo.height) {
-                        for (offsetX in
-                            0..<trickplayInfo.width * trickplayInfo.tileWidth step
-                                trickplayInfo.width) {
-                            val bitmap =
-                                Bitmap.createBitmap(
-                                    fullBitmap,
-                                    offsetX,
-                                    offsetY,
-                                    trickplayInfo.width,
-                                    trickplayInfo.height,
-                                )
-                            bitmaps.add(bitmap)
-                        }
-                    }
-                }
-            }
-            _uiState.update {
-                it.copy(currentTrickplay = Trickplay(trickplayInfo.interval, bitmaps))
-            }
-        }
+    /** Drops the scrubbing thumbnails, which are those of the video that played until now. */
+    private fun clearTrickplay() {
+        trickplayJob?.cancel()
+        trickplayJob = null
+        trickplayMediaId = null
+        _uiState.update { it.copy(currentTrickplay = null) }
     }
 
     fun skipSegment(segment: FindroidSegment) {

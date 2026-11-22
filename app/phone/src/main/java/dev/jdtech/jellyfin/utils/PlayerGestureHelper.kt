@@ -72,6 +72,9 @@ class PlayerGestureHelper(
     private val trickplayRoundedCorners = RoundedCornersTransformation(10f)
     private var currentTrickplayBitmap: Bitmap? = null
 
+    // Where the swipe to seek is at, for the thumbnail that goes with it
+    private var trickplayPosition = -1L
+
     private var currentNumberOfPointers: Int = 0
 
     private val tapGestureDetector =
@@ -547,7 +550,23 @@ class PlayerGestureHelper(
     fun updateTrickplayImage(position: Long) {
         try {
             val trickplay = currentTrickplay ?: return
-            val bitmap = trickplay.images[position.div(trickplay.interval).toInt()]
+            trickplayPosition = position
+            // A thumbnail whose sheet is still to be read is shown once it is, if the swipe is
+            // still there
+            val bitmap =
+                trickplay.image(position.div(trickplay.interval).toInt()) {
+                    if (swipeGestureProgressOpen && trickplayPosition == position) {
+                        updateTrickplayImage(position)
+                    }
+                }
+            if (bitmap == null) {
+                // At the start of a swipe, empty rather than what the last swipe left there
+                if (!swipeGestureProgressOpen) {
+                    activity.binding.progressScrubberTrickplay.setImageDrawable(null)
+                    currentTrickplayBitmap = null
+                }
+                return
+            }
 
             if (currentTrickplayBitmap != bitmap) {
                 activity.binding.progressScrubberTrickplay.load(bitmap) {

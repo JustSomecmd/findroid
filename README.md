@@ -58,6 +58,7 @@ Most pages have a phone side and a server side. Swipe or tap the switch in the t
 - Picture-in-picture with play, pause and a button to carry on in the background. Opening the app again brings the picture-in-picture window back.
 - Choice of streaming quality, with Jellyfin converting the video when a lower quality is picked.
 - Playback speed, chapters, trickplay previews, and skip buttons or automatic skipping for media segments and SponsorBlock segments.
+- Trickplay previews are read from their sheets as you scrub, so a long video doesn't keep every preview in memory while it plays.
 - Lock and rotate buttons. Every button can be moved to the top bar or bottom bar, or hidden.
 - Controls in the app's accent colour, if wanted.
 

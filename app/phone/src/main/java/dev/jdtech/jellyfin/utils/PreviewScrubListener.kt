@@ -23,12 +23,19 @@ class PreviewScrubListener(
     private val roundedCorners = RoundedCornersTransformation(10f)
     private var currentBitMap: Bitmap? = null
 
+    // Where the scrubber is while it's being dragged
+    private var scrubbingAt: Long? = null
+
     override fun onScrubStart(timeBar: TimeBar, position: Long) {
         Timber.d("Scrubbing started at $position")
 
         if (currentTrickplay == null) {
             return
         }
+
+        // Empty until its thumbnail is read, rather than showing what the last scrub left there
+        scrubbingPreview.setImageDrawable(null)
+        currentBitMap = null
 
         scrubbingPreview.visibility = View.VISIBLE
         onScrubMove(timeBar, position)
@@ -39,7 +46,13 @@ class PreviewScrubListener(
 
         try {
             val trickplay = currentTrickplay ?: return
-            val image = trickplay.images[position.div(trickplay.interval).toInt()]
+            scrubbingAt = position
+            // A thumbnail whose sheet is still to be read is shown once it is, if the scrubber is
+            // still there. Until then the one before it stays
+            val image =
+                trickplay.image(position.div(trickplay.interval).toInt()) {
+                    if (scrubbingAt == position) onScrubMove(timeBar, position)
+                }
 
             val parent = scrubbingPreview.parent as ViewGroup
 
@@ -61,7 +74,7 @@ class PreviewScrubListener(
 
             scrubbingPreview.x = layoutX
 
-            if (currentBitMap != image) {
+            if (image != null && currentBitMap != image) {
                 scrubbingPreview.load(image) {
                     coroutineContext(Dispatchers.Main.immediate)
                     crossfade(false)
@@ -78,6 +91,7 @@ class PreviewScrubListener(
     override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
         Timber.d("Scrubbing stopped at $position")
 
+        scrubbingAt = null
         scrubbingPreview.visibility = View.GONE
     }
 }
