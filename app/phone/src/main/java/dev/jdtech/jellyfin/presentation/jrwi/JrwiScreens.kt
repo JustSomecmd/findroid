@@ -209,6 +209,21 @@ internal val TOP_BAR_INSETS
     @Composable get() = WindowInsets.statusBars.union(WindowInsets.displayCutout)
 
 /** Turns a message from a JRWI page into text. */
+/**
+ * A comment's date as the site shows it, once: the archive reads replies' dates with the time in
+ * twice ("2d 2d"), so a text that's the same thing twice over is shown halved.
+ */
+private fun shownOnce(text: String): String {
+    val words = text.trim().split(Regex("\\s+"))
+    if (words.size % 2 != 0) return text
+    val half = words.size / 2
+    return if (words.subList(0, half) == words.subList(half, words.size)) {
+        words.subList(0, half).joinToString(" ")
+    } else {
+        text
+    }
+}
+
 internal fun jrwiMessageText(context: Context, message: String): String =
     when (message) {
         JrwiMessages.SAVED -> context.getString(CoreR.string.jrwi_saved)
@@ -2738,7 +2753,7 @@ private fun JrwiCommentHeader(comment: JrwiComment, onOpen: (String) -> Unit) {
             pinned = comment.pinned,
             modifier = Modifier.weight(1f),
         )
-        (comment.dateText ?: fullDate(comment.date))?.let {
+        (comment.dateText?.let(::shownOnce) ?: fullDate(comment.date))?.let {
             Text(
                 text = it,
                 style = MaterialTheme.typography.labelMedium,
