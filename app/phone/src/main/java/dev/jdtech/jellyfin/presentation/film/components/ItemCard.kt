@@ -65,7 +65,6 @@ fun ItemCard(
                 if (direction == Direction.HORIZONTAL) {
                     ProgressBar(
                         item = item,
-                        width = width,
                         modifier =
                             Modifier.align(Alignment.BottomStart)
                                 .padding(MaterialTheme.spacings.small),

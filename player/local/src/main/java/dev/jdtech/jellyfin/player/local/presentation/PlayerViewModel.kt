@@ -1479,6 +1479,8 @@ constructor(
             if (enabled && (!syncGuard.enabled || tunneledBeforeHidden)) {
                 resync("picture back after the background")
             }
+            // The guard has nothing to look at without the picture, so it rests until it's back
+            watchSync(player.isPlaying)
         } catch (e: IllegalStateException) {
             Timber.e(e)
         }
@@ -1847,12 +1849,15 @@ constructor(
 
     /**
      * Has the guard look at sound and picture twice a second while it plays, and resyncs when it
-     * finds they've come apart and stayed apart, which is rare.
+     * finds they've come apart and stayed apart, which is rare. Not while the picture is off, as in
+     * the background, where there's nothing to measure and the phone can sleep in between instead.
      */
     private fun watchSync(isPlaying: Boolean) {
         syncWatchJob?.cancel()
         syncWatchJob = null
-        if (!isPlaying || !syncGuard.enabled) return
+        val pictureOff =
+            player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO)
+        if (!isPlaying || !syncGuard.enabled || pictureOff) return
         syncWatchJob = viewModelScope.launch {
             while (true) {
                 delay(SYNC_WATCH_MS)

@@ -357,19 +357,25 @@ private fun JrwiAudioDownloadCard(
                         LinearProgressIndicator(modifier = bar)
                     }
                 } else {
-                    // How far it was played, as the video cards' bar
+                    // How far it was played, as the video cards' bar: a share of the card's real
+                    // width, which in the grid is its column's rather than its own 260 dp
                     val length = watch?.duration?.takeIf { it > 0 }
                     if (watch != null && !watch.finished && length != null && watch.position > 0) {
-                        val fraction = (watch.position / length).coerceIn(0.0, 1.0).toFloat()
+                        val played = (watch.position / length).coerceIn(0.0, 1.0).toFloat()
                         Box(
                             modifier =
                                 Modifier.align(Alignment.BottomStart)
+                                    .fillMaxWidth()
                                     .padding(MaterialTheme.spacings.small)
-                                    .height(4.dp)
-                                    .width((AUDIO_CARD_WIDTH - 16).dp * fraction)
-                                    .clip(MaterialTheme.shapes.extraSmall)
-                                    .background(MaterialTheme.colorScheme.primary)
-                        )
+                        ) {
+                            Box(
+                                modifier =
+                                    Modifier.height(4.dp)
+                                        .fillMaxWidth(played)
+                                        .clip(MaterialTheme.shapes.extraSmall)
+                                        .background(MaterialTheme.colorScheme.primary)
+                            )
+                        }
                     }
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
