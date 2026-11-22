@@ -105,15 +105,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -878,6 +873,8 @@ private fun JrwiFeedComment(comment: JrwiComment, onOpen: (String) -> Unit) {
                     JrwiHtmlText(
                         html = comment.bodyHtml?.takeIf { it.isNotBlank() },
                         text = comment.bodyText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        gap = JRWI_COMMENT_PARAGRAPH_GAP,
                     )
                 } else {
                     Text(
@@ -2391,7 +2388,8 @@ private fun LazyListScope.jrwiPostContent(
 
 /**
  * The picture, title and details, and the switch between the video and the audio. [position] is in
- * the timeline of the version that's picked.
+ * the timeline of the version that's picked. A post with neither starts with its title, as on the
+ * web app, its pictures being under its text.
  */
 @Composable
 private fun JrwiItemHeader(
@@ -2405,20 +2403,28 @@ private fun JrwiItemHeader(
         modifier = Modifier.padding(MaterialTheme.spacings.medium),
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
     ) {
-        Box {
-            // With its own bar, for the version that's picked
-            JrwiThumbnail(item = item, modifier = Modifier.fillMaxWidth(), marks = false)
-            val length =
-                (if (playsAudio) item.audio?.duration else item.video?.duration) ?: item.duration
-            if (!finished && position > 0 && length != null && length > 0) {
-                LinearProgressIndicator(
-                    progress = { (position / length).toFloat().coerceIn(0f, 1f) },
-                    trackColor = JrwiBarTrack,
-                    modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
-                )
+        if (item.video != null || item.audio != null)
+            Box {
+                // With its own bar, for the version that's picked
+                JrwiThumbnail(item = item, modifier = Modifier.fillMaxWidth(), marks = false)
+                val length =
+                    (if (playsAudio) item.audio?.duration else item.video?.duration)
+                        ?: item.duration
+                if (!finished && position > 0 && length != null && length > 0) {
+                    LinearProgressIndicator(
+                        progress = { (position / length).toFloat().coerceIn(0f, 1f) },
+                        trackColor = JrwiBarTrack,
+                        modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
+                    )
+                }
             }
-        }
-        Text(text = item.title, style = MaterialTheme.typography.titleLarge)
+        // Bold, as in the feed
+        Text(
+            text = item.title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = JrwiColors.Text,
+        )
         itemDetails(item)?.let {
             Text(
                 text = it,
@@ -2556,31 +2562,6 @@ private fun JrwiShowLink(show: JrwiShow, onClick: () -> Unit) {
     }
 }
 
-/** A post's or comment's text, with its links and formatting. */
-@Composable
-private fun JrwiHtmlText(html: String?, text: String, modifier: Modifier = Modifier) {
-    val linkColor = MaterialTheme.colorScheme.primary
-    val content =
-        remember(html, text, linkColor) {
-            if (html == null) {
-                AnnotatedString(text)
-            } else {
-                AnnotatedString.fromHtml(
-                    html,
-                    linkStyles =
-                        TextLinkStyles(
-                            style =
-                                SpanStyle(
-                                    color = linkColor,
-                                    textDecoration = TextDecoration.Underline,
-                                )
-                        ),
-                )
-            }
-        }
-    Text(text = content, style = MaterialTheme.typography.bodyMedium, modifier = modifier)
-}
-
 @Composable
 private fun JrwiSectionTitle(text: String) {
     Text(
@@ -2683,6 +2664,8 @@ private fun JrwiCommentRow(comment: JrwiComment, depth: Int, onOpen: (String) ->
             JrwiHtmlText(
                 html = comment.bodyHtml?.takeIf { it.isNotBlank() },
                 text = comment.bodyText,
+                style = MaterialTheme.typography.bodyMedium,
+                gap = JRWI_COMMENT_PARAGRAPH_GAP,
             )
             comment.likeCount
                 ?.takeIf { it > 0 }

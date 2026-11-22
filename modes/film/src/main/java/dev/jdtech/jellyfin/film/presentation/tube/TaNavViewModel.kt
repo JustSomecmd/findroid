@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin.film.presentation.tube
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiHandOvers
 import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiJellyfinLookup
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
@@ -26,6 +27,7 @@ constructor(
     private val taOfflineStore: TaOfflineStore,
     private val jrwiDownloads: JrwiDownloads,
     private val jrwiLookup: JrwiJellyfinLookup,
+    private val jrwiHandOvers: JrwiHandOvers,
 ) : ViewModel() {
     val configured =
         combine(
@@ -47,6 +49,8 @@ constructor(
         // Progress made offline, and details of earlier downloads
         if (!appPreferences.getValue(appPreferences.offlineMode)) {
             viewModelScope.launch { taOfflineStore.sync() }
+            // Downloaded JRWI videos the archive handed over to TubeArchivist, swapped for its own
+            viewModelScope.launch { jrwiHandOvers.check() }
         }
     }
 
