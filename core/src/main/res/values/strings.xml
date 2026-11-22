@@ -561,6 +561,13 @@
     <string name="jrwi_file_save">Save to the phone</string>
     <string name="jrwi_file_source">Original link</string>
     <string name="jrwi_file_saving">Saving %1$s to %2$s/JRWI</string>
+    <!-- How long ago a comment was posted, written as the site writes it -->
+    <string name="jrwi_age_today">today</string>
+    <string name="jrwi_age_days">%1$dd</string>
+    <string name="jrwi_age_weeks">%1$dw</string>
+    <string name="jrwi_age_months">%1$dmo</string>
+    <string name="jrwi_age_years">%1$dy</string>
+    <string name="jrwi_comment_date_site">%1$s (shown on the site as %2$s)</string>
     <string name="jrwi_file_getting">Getting %1$s from the archive…</string>
     <string name="jrwi_file_no_app">No app on this phone opens this kind of file</string>
     <string name="jrwi_file_no_preview">There\'s no preview for this type of file. Save it or open it in another app.</string>

@@ -69,6 +69,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -77,9 +78,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -181,8 +185,11 @@ import dev.jdtech.jellyfin.presentation.tube.startTaPlayback
 import dev.jdtech.jellyfin.presentation.tube.switchSide
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 import java.time.Instant
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -2888,14 +2895,7 @@ private fun JrwiCommentHeader(comment: JrwiComment, onOpen: (String) -> Unit) {
             pinned = comment.pinned,
             modifier = Modifier.weight(1f),
         )
-        (comment.dateText?.let(::shownOnce) ?: fullDate(comment.date))?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = MaterialTheme.spacings.small),
-            )
-        }
+        JrwiCommentAge(comment, Modifier.padding(start = MaterialTheme.spacings.small))
         comment.link?.let { link ->
             Icon(
                 painter = painterResource(CoreR.drawable.ic_external_link),
@@ -2907,6 +2907,69 @@ private fun JrwiCommentHeader(comment: JrwiComment, onOpen: (String) -> Unit) {
                     },
             )
         }
+    }
+}
+
+/**
+ * How long ago a comment was posted, as the web app shows it: worked out from its `date` ("today",
+ * "4d", "2w", "5mo", "1y"), or else the site's own text. A long press shows the date, and what the
+ * site showed, as the web app's tooltip does.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun JrwiCommentAge(comment: JrwiComment, modifier: Modifier = Modifier) {
+    val siteText = comment.dateText?.takeIf { it.isNotBlank() }?.let(::shownOnce)
+    val age = commentAge(comment.date) ?: siteText ?: fullDate(comment.date) ?: return
+    val date = fullDate(comment.date)
+    val details =
+        when {
+            date != null && siteText != null ->
+                stringResource(CoreR.string.jrwi_comment_date_site, date, siteText)
+            else -> date
+        }
+    val text =
+        @Composable {
+            Text(
+                text = age,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = modifier,
+            )
+        }
+    if (details == null) {
+        text()
+        return
+    }
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(details) } },
+        state = rememberTooltipState(),
+        content = text,
+    )
+}
+
+/**
+ * How long ago [iso] was, in whole days as the web app counts them (by the day in UTC, as the
+ * archive gives its dates): "today", then days, weeks, months of 30 days and years. Null without a
+ * date.
+ */
+@Composable
+private fun commentAge(iso: String?): String? {
+    val day =
+        try {
+            iso?.let {
+                OffsetDateTime.parse(it).withOffsetSameInstant(ZoneOffset.UTC).toLocalDate()
+            }
+        } catch (_: Exception) {
+            null
+        } ?: return null
+    val days = ChronoUnit.DAYS.between(day, LocalDate.now(ZoneOffset.UTC))
+    return when {
+        days < 1 -> stringResource(CoreR.string.jrwi_age_today)
+        days < 7 -> stringResource(CoreR.string.jrwi_age_days, days)
+        days < 30 -> stringResource(CoreR.string.jrwi_age_weeks, days / 7)
+        days < 365 -> stringResource(CoreR.string.jrwi_age_months, days / 30)
+        else -> stringResource(CoreR.string.jrwi_age_years, days / 365)
     }
 }
 
