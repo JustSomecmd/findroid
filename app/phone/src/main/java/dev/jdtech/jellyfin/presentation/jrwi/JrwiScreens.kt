@@ -1351,6 +1351,8 @@ fun JrwiShowScreen(
                                     onItemClick = onItemClick,
                                     queueing = queueing == tabs[page].key,
                                     onDownload = { viewModel.prepareDownload(tabs[page]) },
+                                    topPadding =
+                                        if (tabs.size > 1) 4.dp else MaterialTheme.spacings.medium,
                                 )
                             }
                         error != null ->
@@ -1656,23 +1658,25 @@ private fun JrwiTabList(
     queueing: Boolean,
     /** Downloads every episode of the page, after the pop-up. */
     onDownload: () -> Unit,
+    topPadding: Dp,
 ) {
     val flow = remember(tab) { viewModel.items(tab) }
     val list by flow.collectAsStateWithLifecycle()
     val showNames by viewModel.showNames.collectAsStateWithLifecycle()
     LaunchedEffect(tab) { if (list.page == 0) viewModel.loadMore(tab) }
+    val downloadLabel = pageDownloadLabel(tab)
     LazyColumn(
         contentPadding =
             PaddingValues(
                 start = MaterialTheme.spacings.medium,
                 end = MaterialTheme.spacings.medium,
-                top = MaterialTheme.spacings.medium,
+                top = topPadding,
                 bottom = MaterialTheme.spacings.medium,
             ),
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
         modifier = Modifier.fillMaxSize(),
     ) {
-        pageDownloadLabel(tab)?.let { label ->
+        downloadLabel?.let { label ->
             item(key = "download") {
                 JrwiPageDownloadButton(label = label, busy = queueing, onClick = onDownload)
             }

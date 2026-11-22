@@ -150,6 +150,7 @@ import dev.jdtech.jellyfin.presentation.tube.TaSettingsScreen
 import dev.jdtech.jellyfin.presentation.tube.TaVideoScreen
 import dev.jdtech.jellyfin.presentation.tube.rememberSidePagerState
 import dev.jdtech.jellyfin.presentation.tube.requestOwnSide
+import dev.jdtech.jellyfin.presentation.tube.serverSideShown
 import dev.jdtech.jellyfin.presentation.tube.showSide
 import dev.jdtech.jellyfin.presentation.tube.startTaPlayback
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
@@ -392,11 +393,12 @@ private fun MainNavigation(
             else -> listOf(homeTab, mediaTab, downloadsTab, playlistsTab)
         }
     val tabRoutes = navigationItems.map { it.route }
-    // The tab each mode was left on, to come back to when it's switched to again
+    // Each mode's last tab with a match in the other mode, for switching from one without, such as
+    // Jellyfin's Playlists
     val lastTabs = remember { LastModeTabs() }
     LaunchedEffect(topLevelRoute) {
         if (topLevelRoute in JRWI_TABS) lastTabs.jrwi = topLevelRoute
-        else if (topLevelRoute in tabRoutes) lastTabs.other = topLevelRoute
+        else if (topLevelRoute in tabRoutesFor(tubeArchivistMode)) lastTabs.other = topLevelRoute
     }
     // Out of JRWI mode once the archiver is gone, as when it's removed in Settings
     LaunchedEffect(jrwiShown) {
@@ -482,13 +484,17 @@ private fun MainNavigation(
         )
     }
 
-    // Flips between the modes, to the tab each was left on
+    // Flips between the modes, to the open tab's match there: Home to Home, Channels to Shows,
+    // Downloads to Downloads. From a tab with no match, the last one that had one is taken as open.
+    // Home stays on its server side when it's on it.
     val switchMode: (Boolean) -> Unit = { toJrwi ->
-        val route =
-            if (toJrwi) lastTabs.jrwi ?: JrwiRoute
-            else
-                lastTabs.other?.takeIf { it !in JRWI_TABS }
-                    ?: tabRoutesFor(tubeArchivistMode).first()
+        val from = if (toJrwi) tabRoutesFor(tubeArchivistMode) else JRWI_TABS
+        val to = if (toJrwi) JRWI_TABS else tabRoutesFor(tubeArchivistMode)
+        val open =
+            topLevelRoute.takeIf { it in from } ?: if (toJrwi) lastTabs.other else lastTabs.jrwi
+        val route = to.getOrNull(from.indexOf(open)) ?: to.first()
+        mainPagerTurns.startHomeOnServer =
+            route == to.first() && mainPagerTurns.homeOnServerSide?.invoke() == true
         navigator.navigate(route)
     }
     // In JRWI mode the bar is in the archiver's colours, and lights up in its purple
@@ -628,7 +634,7 @@ private fun MainNavigation(
     }
 }
 
-/** The tab each mode was last on: JRWI's, and TubeArchivist's or Jellyfin's. */
+/** Each mode's last tab with a match in the other: JRWI's, and TubeArchivist's or Jellyfin's. */
 private class LastModeTabs {
     var jrwi: NavKey? = null
     var other: NavKey? = null
@@ -704,6 +710,12 @@ private val OpaquePageDecorator =
 /** Lets the bottom bar turn the main pager straight away, also to the tab that's still open. */
 private class MainPagerTurns {
     var turnTo: ((NavKey) -> Unit)? = null
+
+    /** Whether the pager shows Home's server side, read when switching modes. */
+    var homeOnServerSide: (() -> Boolean)? = null
+
+    /** The next mode's pager opens its Home on the server side, as the last one was. */
+    var startHomeOnServer = false
 }
 
 /**
@@ -770,10 +782,12 @@ private fun TaMainPager(
         rememberPagerState(initialPage = mainPages.indexOf(topLevelRoute).coerceAtLeast(0)) {
             mainPages.size
         }
-    val homeSides = rememberSidePagerState(serverFirst = true)
+    // Home on the side the other mode's Home was on, when the pager comes in with a switch of modes
+    val homeOnServer = remember { turns.startHomeOnServer.also { turns.startHomeOnServer = false } }
+    val homeSides = rememberSidePagerState(serverFirst = true, onServer = homeOnServer)
     val channelTabs = rememberPagerState { TaChannelsTab.entries.size }
     val downloadSides = rememberSidePagerState()
-    val jrwiHomeSides = rememberSidePagerState(serverFirst = true)
+    val jrwiHomeSides = rememberSidePagerState(serverFirst = true, onServer = homeOnServer)
     val swiper = rememberPageSwiper(pages)
     swiper.innerPages = { page ->
         when (currentPages.getOrNull(page)) {
@@ -829,8 +843,19 @@ private fun TaMainPager(
             if (page >= 0) swiper.turnTo(page)
         }
         turns.turnTo = turnTo
+        val homeOnServerSide = {
+            when (currentPages.getOrNull(pages.currentPage)) {
+                TaHomeRoute -> homeSides.serverSideShown(serverFirst = true)
+                JrwiRoute -> jrwiHomeSides.serverSideShown(serverFirst = true)
+                else -> false
+            }
+        }
+        turns.homeOnServerSide = homeOnServerSide
         // Left to the next mode's pager when that one's already in
-        onDispose { if (turns.turnTo === turnTo) turns.turnTo = null }
+        onDispose {
+            if (turns.turnTo === turnTo) turns.turnTo = null
+            if (turns.homeOnServerSide === homeOnServerSide) turns.homeOnServerSide = null
+        }
     }
     LaunchedEffect(topLevelRoute, mainPages) {
         val page = mainPages.indexOf(topLevelRoute)

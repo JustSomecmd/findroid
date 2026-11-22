@@ -689,11 +689,12 @@ fun alwaysShownTopAppBarColors(): TopAppBarColors =
 
 /**
  * Pages of something shown on the phone side and the server side. The phone side is the first page,
- * or with [serverFirst] the second, with the server side to its left.
+ * or with [serverFirst] the second, with the server side to its left. It starts on the phone side,
+ * or with [onServer] on the server side.
  */
 @Composable
-fun rememberSidePagerState(serverFirst: Boolean = false): PagerState =
-    rememberPagerState(initialPage = if (serverFirst) 1 else 0) { 2 }
+fun rememberSidePagerState(serverFirst: Boolean = false, onServer: Boolean = false): PagerState =
+    rememberPagerState(initialPage = if (onServer != serverFirst) 1 else 0) { 2 }
 
 /** Whether the server side is the page mostly in view. */
 val PagerState.onServerSide: Boolean
