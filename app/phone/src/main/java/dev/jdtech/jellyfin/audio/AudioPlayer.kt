@@ -277,10 +277,16 @@ constructor(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
                     save(Save.END)
+                    val jrwi = _state.value.jrwiItem
                     if (_state.value.video != null) {
                         playNext(fromEnd = true)
                     } else if (_state.value.sleep?.atEnd == true) {
                         cancelSleep()
+                    } else if (
+                        jrwi != null && appPreferences.getValue(appPreferences.playerAutoplay)
+                    ) {
+                        // The show's next episode follows, as a video's next one does
+                        playNextJrwi(jrwi)
                     }
                 }
                 publish()
@@ -412,6 +418,76 @@ constructor(
             )
         }
         start(mediaItem, startMs)
+    }
+
+    /**
+     * Plays the audio of the episode after [item] in its show, once [item] has ended, unless
+     * something else was started meanwhile. It stops at the show's end, and before an episode
+     * without audio.
+     */
+    private fun playNextJrwi(item: JrwiItem) {
+        loadJob?.cancel()
+        loadJob = scope.launch {
+            val audio = nextJrwi(item)?.audio ?: return@launch
+            val state = _state.value
+            if (state.jrwiItem?.id != item.id || !state.ended) return@launch
+            loadJrwi(audio.postId, fromStart = false, startAt = null)
+        }
+    }
+
+    /**
+     * The episode after [item] as its show's page lists it: in its own tab, oldest first, so in
+     * Episodes by season and number. Without a connection, the next of the show's downloads.
+     */
+    private suspend fun nextJrwi(item: JrwiItem): JrwiItem? =
+        try {
+            nextOnArchiver(item)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Could not find the episode after ${item.id}, looking in the downloads")
+            withContext(Dispatchers.IO) { nextDownloaded(item) }
+        }
+
+    /** The item after [item] in its show's tab, a page at a time until it's found. */
+    private suspend fun nextOnArchiver(item: JrwiItem): JrwiItem? {
+        var found = false
+        for (page in 1..NEXT_MAX_PAGES) {
+            val result =
+                jrwiApi.getShowItems(
+                    showId = item.show,
+                    tab = item.tab,
+                    page = page,
+                    order = "asc",
+                    pageSize = NEXT_PAGE_SIZE,
+                )
+            for (entry in result.items) {
+                if (found) return entry
+                if (entry.id == item.id) found = true
+            }
+            if (!result.hasMore) break
+        }
+        return null
+    }
+
+    /** The episode after [item] among the show's downloaded audio, in the show's order. */
+    private fun nextDownloaded(item: JrwiItem): JrwiItem? {
+        val order =
+            if (item.tab == "episodes") {
+                compareBy<JrwiItem>(
+                    { it.season ?: 1 },
+                    { it.episode ?: Int.MAX_VALUE },
+                    { it.date.orEmpty() },
+                    { it.id },
+                )
+            } else {
+                compareBy<JrwiItem>({ it.date.orEmpty() }, { it.id })
+            }
+        return jrwiDownloads.downloads.value
+            .filter { it.done }
+            .mapNotNull { jrwiDownloads.savedItem(it.itemId) }
+            .filter { it.show == item.show && it.tab == item.tab && order.compare(it, item) > 0 }
+            .minWithOrNull(order)
     }
 
     /**
@@ -1172,6 +1248,9 @@ constructor(
         private const val MIN_SLEEP_MS = 60_000L
         // A saved place further than this from the player's is taken over
         private const val RESYNC_MS = 3_000L
+        // Looking for the next episode: pages of a show's tab, oldest first
+        private const val NEXT_PAGE_SIZE = 200
+        private const val NEXT_MAX_PAGES = 10
         private const val FADE_STEP_MS = 100L
         // Jellyfin counts time in ticks of 100 nanoseconds
         private const val TICKS_PER_MS = 10_000L

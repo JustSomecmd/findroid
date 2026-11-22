@@ -586,9 +586,7 @@
     <string name="jrwi_player_sleep_off">Turn off</string>
     <string name="jrwi_player_watch_video">Watch the video from here</string>
     <string name="jrwi_read_more">Read more</string>
-    <string name="jrwi_show_less">Show less</string>
     <string name="jrwi_show_newest">newest %1$s</string>
-    <string name="jrwi_page_count">%1$s · %2$d</string>
     <string name="jrwi_open_web_app">Open the archiver\'s web app</string>
     <string name="jrwi_load_replies">Load replies</string>
     <string name="jrwi_hide_replies">Hide replies</string>

@@ -3,7 +3,6 @@ package dev.jdtech.jellyfin.presentation.jrwi
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,10 +53,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -1259,10 +1260,10 @@ private fun itemDetails(item: JrwiItem, otherShow: String? = null): String? {
 // A show
 
 /**
- * A show: its picture across the top with its name, as the web app's show page has it, then a pill
+ * A show: its picture across the top with its name, as the web app's show page has it, then a tab
  * for each kind of post it has, such as episodes and aftershows, or each season of them, and their
  * list. Scrolling a list folds the picture away into the top bar, which then shows the picture
- * small with the name, and keeps the pills under it.
+ * small with the name, and keeps the tabs under it.
  */
 @Composable
 fun JrwiShowScreen(
@@ -1296,18 +1297,16 @@ fun JrwiShowScreen(
                             collapse = collapse,
                             topInset = topInset,
                             barHeight = barHeight,
+                            // The picture fades into the tabs' purple when they follow it
+                            fadeTo =
+                                if (tabs.size > 1) JrwiColors.Header else JrwiColors.Background,
                         )
                     } ?: Spacer(Modifier.height(barHeight))
                     if (tabs.size > 1) {
-                        JrwiShowPills(
+                        JrwiShowTabs(
                             tabs = tabs,
                             selected = shownTab,
                             onSelect = { swiper.turnTo(it) },
-                            // On the bar's purple once the picture is folded away
-                            modifier =
-                                Modifier.drawBehind {
-                                    drawRect(JrwiColors.Header.copy(alpha = collapse.barAlpha))
-                                },
                         )
                     }
                     when {
@@ -1393,20 +1392,24 @@ private class JrwiCollapse {
 }
 
 /**
- * The show's picture across the top, fading into the page, with its name and how many posts it has
- * over it, and its description under it. A show without a picture of its own has the JRWI logo
- * shown whole on the bar's purple. It folds away up to the bar as [collapse] says.
+ * The show's picture across the top, fading into [fadeTo], with its name and how many posts it has
+ * over it. A show without a picture of its own has the JRWI logo shown whole on the bar's purple.
+ * It folds away up to the bar as [collapse] says.
  */
 @Composable
-private fun JrwiShowHeader(show: JrwiShow, collapse: JrwiCollapse, topInset: Dp, barHeight: Dp) {
+private fun JrwiShowHeader(
+    show: JrwiShow,
+    collapse: JrwiCollapse,
+    topInset: Dp,
+    barHeight: Dp,
+    fadeTo: Color,
+) {
     val ownPicture = show.poster ?: show.banner
     val picture = show.image ?: ownPicture
     // The logo is shown whole, as on the show tiles
     val logo = ownPicture == null
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val heroHeight = (JRWI_HERO_HEIGHT + topInset).coerceAtMost(screenHeight * 0.5f)
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    var overflows by remember { mutableStateOf(false) }
     Column(
         modifier =
             Modifier.fillMaxWidth().clipToBounds().layout { measurable, constraints ->
@@ -1464,7 +1467,7 @@ private fun JrwiShowHeader(show: JrwiShow, collapse: JrwiCollapse, topInset: Dp,
                             0f to JrwiColors.Background.copy(alpha = if (logo) 0f else 0.55f),
                             0.24f to Color.Transparent,
                             0.42f to Color.Transparent,
-                            1f to JrwiColors.Background.copy(alpha = 0.96f),
+                            1f to fadeTo.copy(alpha = 0.96f),
                         )
                     )
             )
@@ -1509,103 +1512,31 @@ private fun JrwiShowHeader(show: JrwiShow, collapse: JrwiCollapse, topInset: Dp,
                 )
             }
         }
-        val description = show.description.trim()
-        if (description.isNotEmpty()) {
-            Column(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .padding(
-                            start = MaterialTheme.spacings.medium,
-                            end = MaterialTheme.spacings.medium,
-                            top = 12.dp,
-                        )
-                        .animateContentSize()
-            ) {
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = JrwiColors.BodyText,
-                    maxLines = if (expanded) Int.MAX_VALUE else 2,
-                    overflow = TextOverflow.Ellipsis,
-                    onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
-                )
-                if (overflows || expanded) {
-                    Text(
-                        text =
-                            stringResource(
-                                if (expanded) CoreR.string.jrwi_show_less
-                                else CoreR.string.jrwi_read_more
-                            ),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = JrwiColors.Accent,
-                        modifier =
-                            Modifier.padding(top = 4.dp)
-                                .clip(JrwiShape)
-                                .clickable { expanded = !expanded }
-                                .padding(vertical = 4.dp),
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(MaterialTheme.spacings.small))
     }
 }
 
 /**
- * A show page's pages as the web app's pills, "Season 2 · 40", the shown one in the archiver's
- * yellow, scrolled sideways to keep it in sight.
+ * A show page's pages as tabs under its picture, as they were under the bar before: on the bar's
+ * purple, the shown one in white with the archiver's yellow line under it.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun JrwiShowPills(
-    tabs: List<JrwiShowPage>,
-    selected: Int,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val rowState = rememberLazyListState()
-    LaunchedEffect(selected) {
-        val visible = rowState.layoutInfo.visibleItemsInfo
-        val item = visible.firstOrNull { it.index == selected }
-        val end = rowState.layoutInfo.viewportEndOffset
-        if (item == null || item.offset < 0 || item.offset + item.size > end) {
-            rowState.animateScrollToItem((selected - 1).coerceAtLeast(0))
-        }
-    }
-    LazyRow(
-        state = rowState,
-        contentPadding =
-            PaddingValues(horizontal = MaterialTheme.spacings.medium, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-        modifier = modifier.fillMaxWidth(),
+private fun JrwiShowTabs(tabs: List<JrwiShowPage>, selected: Int, onSelect: (Int) -> Unit) {
+    PrimaryScrollableTabRow(
+        selectedTabIndex = selected,
+        edgePadding = MaterialTheme.spacings.medium,
+        containerColor = JrwiColors.Header,
+        contentColor = JrwiColors.Text,
+        divider = {},
     ) {
-        itemsIndexed(tabs, key = { _, tab -> tab.key }) { index, tab ->
-            val on = index == selected
-            val title = pageTitle(tab)
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier =
-                    Modifier.height(34.dp)
-                        .clip(JrwiPillShape)
-                        .then(
-                            if (on) Modifier.background(JrwiColors.Accent)
-                            else Modifier.border(1.dp, JrwiColors.Line, JrwiPillShape)
-                        )
-                        .clickable { onSelect(index) }
-                        .padding(horizontal = 12.dp),
-            ) {
-                Text(
-                    text =
-                        if (tab.count > 0) {
-                            stringResource(CoreR.string.jrwi_page_count, title, tab.count)
-                        } else {
-                            title
-                        },
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                    color = if (on) JrwiColors.AccentInk else JrwiColors.PillText,
-                    maxLines = 1,
-                )
-            }
+        tabs.forEachIndexed { index, tab ->
+            Tab(
+                selected = index == selected,
+                onClick = { onSelect(index) },
+                text = { Text(pageTitle(tab), fontWeight = FontWeight.Bold) },
+                selectedContentColor = JrwiColors.Text,
+                unselectedContentColor = JrwiColors.Muted,
+            )
         }
     }
 }
