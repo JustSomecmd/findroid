@@ -119,7 +119,7 @@
     <string name="storage_delete_movie_message">This deletes the downloaded movie %1$s and frees %2$s.</string>
     <string name="storage_delete_confirm">Delete</string>
     <string name="new_items_channel">New on your server</string>
-    <string name="new_episode_of">New episode of %1$s</string>
+    <string name="new_episode_of">New video from %1$s</string>
     <string name="new_movie">New movie</string>
     <string name="new_episode_label">S%1$d:E%2$d · %3$s</string>
     <string name="new_items_more">+%1$d more</string>

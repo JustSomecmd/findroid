@@ -13,8 +13,8 @@
         <item quantity="other">This deletes %1$d downloaded episodes of %2$s and frees %3$s.</item>
     </plurals>
     <plurals name="new_items_count">
-        <item quantity="one">%1$d new episode or movie</item>
-        <item quantity="other">%1$d new episodes and movies</item>
+        <item quantity="one">%1$d new video</item>
+        <item quantity="other">%1$d new videos</item>
     </plurals>
     <plurals name="ta_confirm_reindex">
         <item quantity="one">Reindex this video?</item>
