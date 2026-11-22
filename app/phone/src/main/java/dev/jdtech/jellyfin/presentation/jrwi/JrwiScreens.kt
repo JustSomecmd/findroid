@@ -2141,6 +2141,11 @@ fun JrwiItemScreen(
                             onDownloadAudio = viewModel::downloadAudio,
                             onRemoveAudio = viewModel::removeDownload,
                             episode = state.jellyfinEpisode,
+                            // Only then is there a choice to make about the post's files
+                            hasFiles =
+                                item.images.isNotEmpty() ||
+                                    item.attachments.isNotEmpty() ||
+                                    item.documents.isNotEmpty(),
                             videoDownload = videoDownload,
                             onDownloadVideo = { storageIndex, withFiles ->
                                 state.jellyfinEpisode?.let { episode ->
@@ -2339,9 +2344,12 @@ private fun LazyListScope.jrwiPostContent(
             }
         }
     }
-    // Every file of the post, to open in the file inspector (archiver 0.9.0 and newer); the
-    // pictures are in their row above
-    val listed = files?.filter { it.role != "image" && it.role != "thumbnail" }
+    // What the post has in it, to open in the file inspector (archiver 0.9.0 and newer): not the
+    // episode's own video and audio, whose size shows under the title, nor the pictures, which are
+    // in their row above
+    val listed = files?.filter {
+        it.role != "image" && it.role != "thumbnail" && it.role != "video" && it.role != "audio"
+    }
     if (listed != null) {
         if (listed.isNotEmpty()) {
             item(key = "files_title:$id") {
@@ -2425,13 +2433,18 @@ private fun JrwiItemHeader(
             fontWeight = FontWeight.Bold,
             color = JrwiColors.Text,
         )
-        itemDetails(item)?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        // With the size of the version that's picked, which the files no longer list
+        val size = if (playsAudio) item.audio?.size else item.video?.takeIf { !it.isYoutube }?.size
+        listOfNotNull(itemDetails(item), size?.let { formatBytes(it) })
+            .joinToString(" · ")
+            .takeIf { it.isNotEmpty() }
+            ?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         if (item.locked) {
             Text(
                 text = stringResource(CoreR.string.jrwi_locked),

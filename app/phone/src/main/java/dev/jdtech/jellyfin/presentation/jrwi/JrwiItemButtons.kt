@@ -59,7 +59,7 @@ import kotlin.math.ceil
  * Play, with the minutes left once it's started, and Play from the start next to it; then watched
  * or not, and the download of the version picked: the audio from the archiver, or the archived
  * video through Jellyfin like the app's other downloads. Either asks first whether to keep the
- * post's files with it.
+ * post's files with it, when the post has any ([hasFiles]).
  */
 @Composable
 fun JrwiItemButtons(
@@ -74,6 +74,7 @@ fun JrwiItemButtons(
     onDownloadAudio: (withFiles: Boolean) -> Unit,
     onRemoveAudio: () -> Unit,
     episode: FindroidEpisode?,
+    hasFiles: Boolean,
     videoDownload: DownloaderState,
     /** Starts the video's download in the storage picked, with the post's files or not. */
     onDownloadVideo: (storageIndex: Int, withFiles: Boolean) -> Unit,
@@ -142,10 +143,16 @@ fun JrwiItemButtons(
             )
             if (playsAudio) {
                 if (item.audio != null) {
-                    JrwiAudioDownloadButton(audioDownload, onDownloadAudio, onRemoveAudio)
+                    JrwiAudioDownloadButton(audioDownload, hasFiles, onDownloadAudio, onRemoveAudio)
                 }
             } else if (episode != null && (episode.canDownload || episode.isDownloaded())) {
-                JrwiVideoDownloadButton(episode, videoDownload, onDownloadVideo, onVideoAction)
+                JrwiVideoDownloadButton(
+                    episode,
+                    hasFiles,
+                    videoDownload,
+                    onDownloadVideo,
+                    onVideoAction,
+                )
             }
         }
         if (playsAudio) {
@@ -217,6 +224,7 @@ private fun JrwiFilesDialog(onChoose: (withFiles: Boolean) -> Unit, onDismiss: (
 @Composable
 private fun JrwiAudioDownloadButton(
     entry: JrwiDownloadEntry?,
+    hasFiles: Boolean,
     onDownload: (withFiles: Boolean) -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -229,7 +237,7 @@ private fun JrwiAudioDownloadButton(
             JrwiSquareButton(
                 icon = CoreR.drawable.ic_download,
                 contentDescription = stringResource(CoreR.string.jrwi_download_audio),
-                onClick = { filesOpen = true },
+                onClick = { if (hasFiles) filesOpen = true else onDownload(false) },
             )
         download.done ->
             JrwiSquareButton(
@@ -338,6 +346,7 @@ private fun JrwiAudioDownloadProgress(entry: JrwiDownloadEntry?) {
 @Composable
 private fun JrwiVideoDownloadButton(
     episode: FindroidEpisode,
+    hasFiles: Boolean,
     state: DownloaderState,
     onDownload: (storageIndex: Int, withFiles: Boolean) -> Unit,
     onAction: (DownloaderAction) -> Unit,
@@ -347,6 +356,15 @@ private fun JrwiVideoDownloadButton(
     var withFiles by remember { mutableStateOf(false) }
     var storageOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
+    // Where it goes, once it's known whether the files come too
+    val choose: (Boolean) -> Unit = { files ->
+        withFiles = files
+        if (context.getExternalFilesDirs(null).size > 1) {
+            storageOpen = true
+        } else {
+            onDownload(0, files)
+        }
+    }
     // Progress shows in a notification, which needs this permission on Android 13 and newer. The
     // download starts whether or not it's given.
     val notificationPermission =
@@ -370,7 +388,7 @@ private fun JrwiVideoDownloadButton(
                 ) {
                     notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
-                filesOpen = true
+                if (hasFiles) filesOpen = true else choose(false)
             },
         )
     }
@@ -378,12 +396,7 @@ private fun JrwiVideoDownloadButton(
         JrwiFilesDialog(
             onChoose = { files ->
                 filesOpen = false
-                withFiles = files
-                if (context.getExternalFilesDirs(null).size > 1) {
-                    storageOpen = true
-                } else {
-                    onDownload(0, files)
-                }
+                choose(files)
             },
             onDismiss = { filesOpen = false },
         )
