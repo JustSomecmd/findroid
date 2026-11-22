@@ -15,6 +15,7 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.unit.dp
+import dev.jdtech.jellyfin.presentation.theme.LocalPillShape
 
 /**
  * The JRWI archiver's own colours, from its web app's stylesheet, so the JRWI tab looks like the
@@ -142,12 +144,22 @@ fun JrwiSheetTheme(content: @Composable () -> Unit) {
         colorScheme = JrwiSheetColorScheme,
         typography = MaterialTheme.typography,
         shapes = JrwiShapes,
-        content = content,
-    )
+    ) {
+        CompositionLocalProvider(LocalPillShape provides JrwiPillShape, content = content)
+    }
 }
 
 /** The site's corners: 4 dp on cards, buttons and fields. */
 val JrwiShape = RoundedCornerShape(4.dp)
+
+/**
+ * What's a pill or a round button in the app's own look, such as the side switch, badges and the
+ * header's buttons: small corners in proportion to its size, so the JRWI pages stay square.
+ */
+val JrwiPillShape = RoundedCornerShape(percent = 18)
+
+/** The JRWI pages' top bars, as tall as TubeArchivist Home's header on every tab. */
+val JRWI_BAR_HEIGHT = 72.dp
 
 private val JrwiShapes =
     Shapes(
@@ -158,15 +170,16 @@ private val JrwiShapes =
         extraLarge = RoundedCornerShape(8.dp),
     )
 
-/** The JRWI pages in the archiver's colours, whatever the app's own theme. */
+/** The JRWI pages in the archiver's colours and square corners, whatever the app's own theme. */
 @Composable
 fun JrwiTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = JrwiColorScheme,
         typography = MaterialTheme.typography,
         shapes = JrwiShapes,
-        content = content,
-    )
+    ) {
+        CompositionLocalProvider(LocalPillShape provides JrwiPillShape, content = content)
+    }
 }
 
 /**

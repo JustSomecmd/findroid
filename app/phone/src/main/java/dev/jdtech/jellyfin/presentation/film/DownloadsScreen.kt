@@ -27,11 +27,13 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,6 +53,8 @@ import dev.jdtech.jellyfin.presentation.film.components.ActiveDownloadRow
 import dev.jdtech.jellyfin.presentation.film.components.CollectionGrid
 import dev.jdtech.jellyfin.presentation.film.components.ReorderableDownloadQueue
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiDownloadsSection
+import dev.jdtech.jellyfin.presentation.jrwi.jrwiDownloadsByShow
+import dev.jdtech.jellyfin.presentation.jrwi.jrwiShowSections
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.alwaysShownTopAppBarColors
@@ -58,6 +62,7 @@ import dev.jdtech.jellyfin.presentation.tube.recalculateWindowInsetsUnlessPaged
 import dev.jdtech.jellyfin.utils.DownloadStatus
 import java.util.UUID
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DownloadsScreen(
     onItemClick: (item: FindroidItem) -> Unit,
@@ -74,6 +79,8 @@ fun DownloadsScreen(
      * Which downloads it lists, for the TubeArchivist and JRWI modes; JRWI's audio only in JRWI.
      */
     scope: DownloadsScope = DownloadsScope.ALL,
+    /** The top bar's height, such as JRWI mode's, whose tabs share Home's taller header. */
+    topBarHeight: Dp = TopAppBarDefaults.TopAppBarExpandedHeight,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activeDownloads by viewModel.activeDownloads.collectAsStateWithLifecycle()
@@ -93,6 +100,8 @@ fun DownloadsScreen(
         onActiveDownloadClick = { item -> onItemClick(item) },
         onReorderQueue = { itemIds -> viewModel.reorderQueue(itemIds) },
         embedded = embedded,
+        topBarHeight = topBarHeight,
+        byShow = scope == DownloadsScope.JRWI,
         onAction = { action ->
             when (action) {
                 is CollectionAction.OnItemClick -> onItemClick(action.item)
@@ -111,6 +120,12 @@ private fun DownloadsScreenLayout(
     onActiveDownloadClick: (FindroidItem) -> Unit = {},
     onReorderQueue: (List<UUID>) -> Unit = {},
     embedded: Boolean = false,
+    topBarHeight: Dp = TopAppBarDefaults.TopAppBarExpandedHeight,
+    /**
+     * JRWI mode's downloads, by show as TubeArchivist's are by channel, each show's audio with its
+     * videos.
+     */
+    byShow: Boolean = false,
     jrwiDownloads: List<JrwiDownloadEntry> = emptyList(),
     onJrwiItemClick: (Long) -> Unit = {},
     onJrwiRemove: (Long) -> Unit = {},
@@ -131,6 +146,7 @@ private fun DownloadsScreenLayout(
             if (!embedded) {
                 TopAppBar(
                     title = { Text(text = stringResource(CoreR.string.title_download)) },
+                    expandedHeight = topBarHeight,
                     windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
                     scrollBehavior = scrollBehavior,
                     colors = alwaysShownTopAppBarColors(),
@@ -151,8 +167,14 @@ private fun DownloadsScreenLayout(
             }
         }
 
+        val other = stringResource(CoreR.string.jrwi_downloads_other)
+        val shows =
+            remember(byShow, state.sections, jrwiDownloads, other) {
+                if (byShow) jrwiDownloadsByShow(state.sections, jrwiDownloads, other)
+                else emptyList()
+            }
         CollectionGrid(
-            sections = state.sections,
+            sections = if (byShow) emptyList() else state.sections,
             innerPadding = innerPadding,
             onAction = onAction,
             gridState = gridState,
@@ -230,7 +252,14 @@ private fun DownloadsScreenLayout(
                         }
                     }
                 }
-                if (jrwiDownloads.isNotEmpty()) {
+                if (byShow) {
+                    jrwiShowSections(
+                        shows = shows,
+                        onVideoClick = { item -> onAction(CollectionAction.OnItemClick(item)) },
+                        onAudioClick = onJrwiItemClick,
+                        onAudioRemove = onJrwiRemove,
+                    )
+                } else if (jrwiDownloads.isNotEmpty()) {
                     item(key = "jrwi_downloads", span = { GridItemSpan(maxLineSpan) }) {
                         JrwiDownloadsSection(
                             entries = jrwiDownloads,

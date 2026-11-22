@@ -52,24 +52,7 @@ fun CollectionGrid(
         sections.forEachIndexed { index, section ->
             if (plainHeaders) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "header:$index:${section.id}") {
-                    Column(
-                        modifier =
-                            Modifier.padding(
-                                top = if (index == 0) 0.dp else MaterialTheme.spacings.medium
-                            )
-                    ) {
-                        Text(
-                            text = section.name.asString(),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        HorizontalDivider(
-                            modifier = Modifier.padding(top = MaterialTheme.spacings.small)
-                        )
-                    }
+                    CollectionSectionHeader(name = section.name.asString(), first = index == 0)
                 }
             } else
                 stickyHeader {
@@ -96,5 +79,24 @@ fun CollectionGrid(
                 )
             }
         }
+    }
+}
+
+/**
+ * A section's name as a plain heading with a line under it, as the Downloads page has them, with
+ * room above it unless it's the [first].
+ */
+@Composable
+fun CollectionSectionHeader(name: String, first: Boolean) {
+    Column(modifier = Modifier.padding(top = if (first) 0.dp else MaterialTheme.spacings.medium)) {
+        Text(
+            text = name,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        HorizontalDivider(modifier = Modifier.padding(top = MaterialTheme.spacings.small))
     }
 }

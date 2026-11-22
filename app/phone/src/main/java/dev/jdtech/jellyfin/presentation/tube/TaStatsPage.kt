@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaServerStats
+import dev.jdtech.jellyfin.presentation.theme.LocalPillShape
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.utils.isWideLayout
 import dev.jdtech.jellyfin.tubearchivist.TaBiggestChannel
@@ -612,14 +613,14 @@ internal fun TaBar(
             modifier
                 .fillMaxWidth()
                 .height(height)
-                .clip(RoundedCornerShape(50))
+                .clip(LocalPillShape.current)
                 .background(trackColor)
     ) {
         Box(
             modifier =
                 Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f))
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(50))
+                    .clip(LocalPillShape.current)
                     .background(color)
         )
     }

@@ -32,7 +32,9 @@ import dev.jdtech.jellyfin.tubearchivist.TaPage
 import dev.jdtech.jellyfin.tubearchivist.TaPaginate
 import java.io.File
 import java.io.IOException
+import java.util.Optional
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +49,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -101,7 +104,12 @@ data class JrwiDownloadEntry(
     val progress: Float?,
     /** Its picture on the phone. */
     val picture: String? = null,
+    /** Its season and episode number, as its show's Episodes number it; null for the rest. */
+    val number: JrwiEpisodeNumber? = null,
 )
+
+/** An episode's place in its show, to list it in order with the show's other downloads. */
+data class JrwiEpisodeNumber(val season: Int, val episode: Int)
 
 /** [this] with the progress just saved for one of its items. */
 private fun List<JrwiItem>.withProgress(change: JrwiProgressChange): List<JrwiItem> {
@@ -151,6 +159,8 @@ data class JrwiShowsState(
     /** How many posts the feed has in all, to load more of as it's scrolled. */
     val feedTotal: Int = 0,
     val feedLoading: Boolean = false,
+    /** The archiver's version, for its card behind Home's pill. */
+    val version: String? = null,
     val loading: Boolean = false,
     val error: String? = null,
 )
@@ -220,6 +230,14 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
             _state.update { it.copy(loading = true, error = null) }
             try {
                 val shows = jrwiApi.getShows()
+                val version =
+                    try {
+                        jrwiApi.getPing().version
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
                 val latest =
                     try {
                         jrwiApi.getLatest(limit = LATEST_COUNT)
@@ -229,7 +247,13 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
                         emptyList()
                     }
                 _state.update {
-                    it.copy(shows = shows, latest = latest, loading = false, error = null)
+                    it.copy(
+                        shows = shows,
+                        latest = latest,
+                        version = version,
+                        loading = false,
+                        error = null,
+                    )
                 }
                 loadShowPictures(shows, latest)
             } catch (e: CancellationException) {
@@ -1038,13 +1062,34 @@ class JrwiDownloadsViewModel
 @Inject
 constructor(private val downloads: JrwiDownloads, private val downloader: JrwiDownloader) :
     ViewModel() {
+    // Each episode's number, read once from the item kept with its audio
+    private val numbers = ConcurrentHashMap<Long, Optional<JrwiEpisodeNumber>>()
+
     val entries: StateFlow<List<JrwiDownloadEntry>> =
         combine(downloads.downloads, downloads.progress) { list, progress ->
                 list.map {
-                    JrwiDownloadEntry(it, progress[it.itemId], downloads.thumbnailUri(it.itemId))
+                    JrwiDownloadEntry(
+                        download = it,
+                        progress = progress[it.itemId],
+                        picture = downloads.thumbnailUri(it.itemId),
+                        number = numberOf(it.itemId),
+                    )
                 }
             }
+            .flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The kept item's season and number, once it's on the phone; asked again until it is. */
+    private fun numberOf(itemId: Long): JrwiEpisodeNumber? {
+        numbers[itemId]?.let {
+            return it.orElse(null)
+        }
+        val item = downloads.savedItem(itemId) ?: return null
+        val episode = item.episode?.takeIf { "episodes" in item.ownTabs }
+        val number = episode?.let { JrwiEpisodeNumber(item.season ?: 1, it) }
+        numbers[itemId] = Optional.ofNullable(number)
+        return number
+    }
 
     fun remove(itemId: Long) = downloader.remove(itemId)
 }

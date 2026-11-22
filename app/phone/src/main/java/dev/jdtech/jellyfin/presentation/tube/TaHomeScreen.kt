@@ -501,7 +501,7 @@ private fun TaServersSheet(
 }
 
 @Composable
-private fun TaServerCard(
+internal fun TaServerCard(
     logo: @Composable () -> Unit,
     kind: String,
     name: String?,

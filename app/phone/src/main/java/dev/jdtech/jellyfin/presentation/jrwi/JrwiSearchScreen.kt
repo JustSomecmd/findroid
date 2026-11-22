@@ -392,27 +392,3 @@ private fun JrwiSearchNote(text: String) {
         )
     }
 }
-
-/**
- * The search button in JRWI Home's bar: square, on the input grey of the side switch beside it, as
- * the archiver's square buttons.
- */
-@Composable
-internal fun JrwiSearchButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier =
-            modifier
-                .size(32.dp)
-                .clip(JrwiShape)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                .clickable(onClick = onClick),
-    ) {
-        Icon(
-            painter = painterResource(CoreR.drawable.ic_search),
-            contentDescription = stringResource(CoreR.string.jrwi_search),
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.size(18.dp),
-        )
-    }
-}

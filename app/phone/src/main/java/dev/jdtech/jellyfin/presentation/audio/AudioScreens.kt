@@ -94,6 +94,7 @@ import dev.jdtech.jellyfin.audio.AudioSegment
 import dev.jdtech.jellyfin.audio.AudioState
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.player.local.R as PlayerR
+import dev.jdtech.jellyfin.presentation.jrwi.JRWI_BAR_HEIGHT
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiBarTrack
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiColors
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiGhostBorder
@@ -368,6 +369,8 @@ fun AudioPlayerScreen(
                             }
                         }
                     },
+                    // As tall as JRWI Home's header
+                    expandedHeight = JRWI_BAR_HEIGHT,
                     windowInsets = PLAYER_TOP_INSETS,
                     colors =
                         if (look.jrwi) jrwiTopBarColors()
@@ -390,7 +393,8 @@ fun AudioPlayerScreen(
                 }
                 return@PlayerScaffold
             }
-            // In the middle of the space below the top bar, and scrolling when it doesn't fit
+            // Under the top bar with the padding it had before it was centred, the bar taller so
+            // it sits a little lower than then; scrolling when it doesn't fit
             BoxWithConstraints(
                 modifier =
                     Modifier.padding(innerPadding)
@@ -401,7 +405,7 @@ fun AudioPlayerScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
+                    verticalArrangement = Arrangement.Top,
                     modifier =
                         Modifier.fillMaxWidth()
                             .verticalScroll(rememberScrollState())

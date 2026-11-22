@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin
 import android.os.SystemClock
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,11 +47,18 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -106,6 +114,7 @@ import dev.jdtech.jellyfin.presentation.film.PlaylistScreen
 import dev.jdtech.jellyfin.presentation.film.PlaylistsScreen
 import dev.jdtech.jellyfin.presentation.film.SeasonScreen
 import dev.jdtech.jellyfin.presentation.film.ShowScreen
+import dev.jdtech.jellyfin.presentation.jrwi.JRWI_BAR_HEIGHT
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiColors
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiHomeScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiItemScreen
@@ -517,10 +526,23 @@ private fun MainNavigation(
                         navigator.navigate(item.route)
                     },
                     icon = {
-                        Icon(
-                            painter = painterResource(item.icon),
-                            contentDescription = stringResource(item.title),
-                        )
+                        val icon =
+                            @Composable {
+                                Icon(
+                                    painter = painterResource(item.icon),
+                                    contentDescription = stringResource(item.title),
+                                )
+                            }
+                        // JRWI mode's highlight has small corners, as its pages
+                        if (jrwiMode) {
+                            JrwiNavHighlight(
+                                selected = barRoute == item.route,
+                                rail = customNavSuiteType == NavigationSuiteType.NavigationRail,
+                                content = icon,
+                            )
+                        } else {
+                            icon()
+                        }
                     },
                     enabled = item.enabled,
                     label = { Text(text = stringResource(item.title)) },
@@ -618,7 +640,8 @@ private fun tabRoutesFor(tubeArchivistMode: Boolean): List<NavKey> =
 
 /**
  * JRWI mode's tabs in the bottom bar, rail or drawer: on the archiver's dark purple, lighting up in
- * the purple of its server side when open.
+ * the purple of its server side when open. The bar's and rail's own highlight is always fully
+ * round, so it's left out and [JrwiNavHighlight] draws a square-cornered one.
  */
 @Composable
 private fun jrwiItemColors() =
@@ -627,7 +650,7 @@ private fun jrwiItemColors() =
             NavigationBarItemDefaults.colors(
                 selectedIconColor = JrwiPurple.Ink,
                 selectedTextColor = JrwiPurple.Accent,
-                indicatorColor = JrwiPurple.Accent,
+                indicatorColor = Color.Transparent,
                 unselectedIconColor = JrwiPurple.Muted,
                 unselectedTextColor = JrwiPurple.Muted,
             ),
@@ -635,7 +658,7 @@ private fun jrwiItemColors() =
             NavigationRailItemDefaults.colors(
                 selectedIconColor = JrwiPurple.Ink,
                 selectedTextColor = JrwiPurple.Accent,
-                indicatorColor = JrwiPurple.Accent,
+                indicatorColor = Color.Transparent,
                 unselectedIconColor = JrwiPurple.Muted,
                 unselectedTextColor = JrwiPurple.Muted,
             ),
@@ -871,6 +894,12 @@ private fun TaMainPager(
                         onShowClick =
                             resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
                         onSearchClick = dropUnlessResumed { navigator.navigate(JrwiSearchRoute) },
+                        onSettingsClick =
+                            dropUnlessResumed {
+                                navigator.navigate(
+                                    SettingsRoute(indexes = listOf(CoreR.string.title_settings))
+                                )
+                            },
                         onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
                         sides = jrwiHomeSides,
                     )
@@ -1298,6 +1327,7 @@ private fun JrwiDownloads(onItemClick: (FindroidItem) -> Unit, onJrwiItemClick: 
             // Apart from TubeArchivist's Downloads, which lists the others
             viewModel = hiltViewModel(key = JRWI_DOWNLOADS_KEY),
             scope = DownloadsScope.JRWI,
+            topBarHeight = JRWI_BAR_HEIGHT,
         )
     }
 }
@@ -1393,6 +1423,10 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
             onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
             onShowClick = resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
             onSearchClick = dropUnlessResumed { navigator.navigate(JrwiSearchRoute) },
+            onSettingsClick =
+                dropUnlessResumed {
+                    navigator.navigate(SettingsRoute(indexes = listOf(CoreR.string.title_settings)))
+                },
             onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
             sides = rememberSidePagerState(serverFirst = true),
         )
@@ -1515,3 +1549,35 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
         )
     }
 }
+
+/**
+ * The open tab's highlight in JRWI mode: the bar's or rail's own size (64 or 56 by 32), with small
+ * corners, growing from the middle as the bar's own does. Drawn behind the icon, past its edges.
+ */
+@Composable
+private fun JrwiNavHighlight(selected: Boolean, rail: Boolean, content: @Composable () -> Unit) {
+    val shown by animateFloatAsState(if (selected) 1f else 0f, label = "highlight")
+    val width = if (rail) RAIL_HIGHLIGHT_WIDTH else BAR_HIGHLIGHT_WIDTH
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier =
+            Modifier.drawBehind {
+                if (shown <= 0f) return@drawBehind
+                val w = width.toPx() * shown
+                val h = HIGHLIGHT_HEIGHT.toPx()
+                drawRoundRect(
+                    color = JrwiPurple.Accent.copy(alpha = shown),
+                    topLeft = Offset((size.width - w) / 2, (size.height - h) / 2),
+                    size = Size(w, h),
+                    cornerRadius = CornerRadius(HIGHLIGHT_CORNER.toPx()),
+                )
+            },
+    ) {
+        content()
+    }
+}
+
+private val BAR_HIGHLIGHT_WIDTH = 64.dp
+private val RAIL_HIGHLIGHT_WIDTH = 56.dp
+private val HIGHLIGHT_HEIGHT = 32.dp
+private val HIGHLIGHT_CORNER = 6.dp

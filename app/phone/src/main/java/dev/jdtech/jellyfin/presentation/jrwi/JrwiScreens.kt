@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
@@ -48,12 +49,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -128,9 +131,11 @@ import dev.jdtech.jellyfin.jrwi.JrwiStatus
 import dev.jdtech.jellyfin.presentation.audio.AudioViewModel
 import dev.jdtech.jellyfin.presentation.components.pageSwipes
 import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
+import dev.jdtech.jellyfin.presentation.film.components.HomeHeader
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.TA_CARD_MIN_WIDTH
 import dev.jdtech.jellyfin.presentation.tube.TaSectionTitle
+import dev.jdtech.jellyfin.presentation.tube.TaServerCard
 import dev.jdtech.jellyfin.presentation.tube.TaSidePager
 import dev.jdtech.jellyfin.presentation.tube.TaSideSwitch
 import dev.jdtech.jellyfin.presentation.tube.formatBytes
@@ -214,6 +219,7 @@ fun JrwiHomeScreen(
     onItemClick: (Long) -> Unit,
     onShowClick: (String) -> Unit,
     onSearchClick: () -> Unit,
+    onSettingsClick: () -> Unit,
     onSetUp: () -> Unit,
     sides: PagerState,
     viewModel: JrwiShowsViewModel = hiltViewModel(),
@@ -239,45 +245,80 @@ fun JrwiHomeScreen(
     }
     val scope = rememberCoroutineScope()
     val onServer = sides.serverSideShown(serverFirst = true)
+    // The archiver, from the header's pill, as TubeArchivist's servers from its Home
+    var serverSheet by rememberSaveable { mutableStateOf(false) }
     // One page with the glow behind its bar, as the other JRWI pages, so the bar is one colour
     JrwiTheme {
+        if (serverSheet) {
+            val baseUrl = LocalJrwiBaseUrl.current
+            JrwiServerSheet(
+                address = baseUrl,
+                version = state.version,
+                error = state.error,
+                onSettings = {
+                    serverSheet = false
+                    onSetUp()
+                },
+                onOpenWebApp = baseUrl?.let { url -> { openUrl(context, url) } },
+                onDismiss = { serverSheet = false },
+            )
+        }
         JrwiScaffold(
             modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged(),
             topBar = {
-                // In the side's colours: the archiver's yellow, or the purple of its server side
-                val topBar =
+                // As TubeArchivist Home's header: the archiver's pill with the side switch next to
+                // it, and search and settings at the other end, in the side's colours: the
+                // archiver's yellow, or the purple of its server side
+                val header =
                     @Composable {
-                        TopAppBar(
-                            title = {
-                                Text(
-                                    stringResource(
-                                        if (onServer) CoreR.string.jrwi_archiver
-                                        else CoreR.string.jrwi_tab
+                        Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                            HomeHeader(
+                                serverName = stringResource(CoreR.string.jrwi_archiver),
+                                isLoading =
+                                    state.configured &&
+                                        state.loading &&
+                                        state.shows.isEmpty() &&
+                                        state.error == null,
+                                isError = state.error != null,
+                                onServerClick = { serverSheet = true },
+                                onErrorClick = { serverSheet = true },
+                                onRetryClick = { viewModel.load(force = true) },
+                                onSearchClick = onSearchClick,
+                                onUserClick = onSettingsClick,
+                                logo = {
+                                    Icon(
+                                        painter = painterResource(CoreR.drawable.ic_dice),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(32.dp),
                                     )
-                                )
-                            },
-                            actions = {
-                                // The archive's search, on the posts' side
-                                if (state.configured && !onServer) {
-                                    JrwiSearchButton(onClick = onSearchClick)
-                                    Spacer(Modifier.width(MaterialTheme.spacings.small))
-                                }
-                                if (state.configured) {
-                                    TaSideSwitch(
-                                        onServer = onServer,
-                                        onToggle = { sides.switchSide(scope) },
-                                        localIcon = CoreR.drawable.ic_home,
-                                        localLabel = stringResource(CoreR.string.ta_side_home),
-                                        showLabel = false,
-                                        serverFirst = true,
-                                    )
-                                }
-                            },
-                            windowInsets = TOP_BAR_INSETS,
-                            colors = jrwiTopBarColors(),
-                        )
+                                },
+                                actions =
+                                    if (state.configured) {
+                                        {
+                                            TaSideSwitch(
+                                                onServer = onServer,
+                                                onToggle = { sides.switchSide(scope) },
+                                                localIcon = CoreR.drawable.ic_home,
+                                                localLabel =
+                                                    stringResource(CoreR.string.ta_side_home),
+                                                showLabel = false,
+                                                serverFirst = true,
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                modifier =
+                                    Modifier.windowInsetsPadding(TOP_BAR_INSETS)
+                                        .padding(
+                                            horizontal = MaterialTheme.spacings.medium,
+                                            vertical = MaterialTheme.spacings.small,
+                                        ),
+                            )
+                        }
                     }
-                if (onServer) JrwiSheetTheme(topBar) else topBar()
+                if (onServer) JrwiSheetTheme(header) else header()
             },
             contentWindowInsets = TOP_BAR_INSETS,
         ) { innerPadding ->
@@ -331,6 +372,56 @@ fun JrwiHomeScreen(
                     }
                 },
             )
+        }
+    }
+}
+
+/** The archiver JRWI mode is connected to, from its Home's pill: its address and version. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun JrwiServerSheet(
+    address: String?,
+    version: String?,
+    error: String?,
+    onSettings: () -> Unit,
+    onOpenWebApp: (() -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier =
+                Modifier.padding(
+                    start = MaterialTheme.spacings.medium,
+                    end = MaterialTheme.spacings.medium,
+                    bottom = MaterialTheme.spacings.default,
+                ),
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+        ) {
+            TaServerCard(
+                logo = {
+                    Icon(
+                        painter = painterResource(CoreR.drawable.ic_dice),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp),
+                    )
+                },
+                kind = stringResource(CoreR.string.jrwi_archiver),
+                name = address,
+                lines = listOfNotNull(version?.let { "jrwi-archiver $it" }),
+                status =
+                    error
+                        ?: stringResource(
+                            if (version != null) CoreR.string.ta_connected
+                            else CoreR.string.ta_checking
+                        ),
+                isError = error != null,
+                buttonText = stringResource(CoreR.string.title_settings),
+                onButtonClick = onSettings,
+            )
+            onOpenWebApp?.let { open ->
+                TextButton(onClick = open) { Text(stringResource(CoreR.string.jrwi_open_web_app)) }
+            }
         }
     }
 }
@@ -527,7 +618,7 @@ private fun JrwiFeedMedia(
                     contentAlignment = Alignment.Center,
                     modifier =
                         Modifier.size(56.dp)
-                            .clip(CircleShape)
+                            .clip(JrwiPillShape)
                             .background(JrwiColors.Accent)
                             .clickable(onClick = onPlayAudio),
                 ) {
@@ -681,7 +772,7 @@ internal fun JrwiTag(text: String) {
         style = MaterialTheme.typography.labelMedium,
         color = JrwiColors.PillText,
         modifier =
-            Modifier.background(JrwiColors.Pill, CircleShape)
+            Modifier.background(JrwiColors.Pill, JrwiPillShape)
                 .padding(horizontal = 10.dp, vertical = 2.dp),
     )
 }
@@ -769,8 +860,8 @@ private fun JrwiPill(icon: Int, text: String, onClick: (() -> Unit)? = null) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier =
-            Modifier.clip(CircleShape)
-                .border(1.dp, JrwiColors.Line, CircleShape)
+            Modifier.clip(JrwiPillShape)
+                .border(1.dp, JrwiColors.Line, JrwiPillShape)
                 .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
                 .padding(horizontal = 14.dp, vertical = 6.dp),
     ) {
@@ -938,8 +1029,10 @@ fun JrwiShowsScreen(
                     .recalculateWindowInsetsUnlessPaged()
                     .nestedScroll(scrollBehavior.nestedScrollConnection),
             topBar = {
+                // As tall as Home's header, so the bar stays put between the tabs
                 TopAppBar(
                     title = { Text(stringResource(CoreR.string.jrwi_shows)) },
+                    expandedHeight = JRWI_BAR_HEIGHT,
                     windowInsets = TOP_BAR_INSETS,
                     scrollBehavior = scrollBehavior,
                     colors = jrwiTopBarColors(),
@@ -1134,7 +1227,7 @@ private fun JrwiThumbnail(
                 modifier =
                     Modifier.align(Alignment.TopEnd)
                         .padding(6.dp)
-                        .clip(CircleShape)
+                        .clip(JrwiShape)
                         .background(JrwiColors.Accent)
                         .padding(4.dp)
                         .size(14.dp),
@@ -1153,7 +1246,7 @@ private fun JrwiThumbnail(
             modifier =
                 Modifier.align(Alignment.BottomEnd)
                     .padding(6.dp)
-                    .clip(CircleShape)
+                    .clip(JrwiShape)
                     .background(Color.Black.copy(alpha = 0.7f))
                     .padding(horizontal = 4.dp, vertical = 2.dp),
         ) {
@@ -1902,7 +1995,12 @@ private fun JrwiItemHeader(
                 SegmentedButton(
                     selected = !playsAudio,
                     onClick = { onChoose(false) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    shape =
+                        SegmentedButtonDefaults.itemShape(
+                            index = 0,
+                            count = 2,
+                            baseShape = JrwiShape,
+                        ),
                     colors = jrwiSwitchColors(),
                     icon = {
                         Icon(
@@ -1917,7 +2015,12 @@ private fun JrwiItemHeader(
                 SegmentedButton(
                     selected = playsAudio,
                     onClick = { onChoose(true) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    shape =
+                        SegmentedButtonDefaults.itemShape(
+                            index = 1,
+                            count = 2,
+                            baseShape = JrwiShape,
+                        ),
                     colors = jrwiSwitchColors(),
                     icon = {
                         Icon(

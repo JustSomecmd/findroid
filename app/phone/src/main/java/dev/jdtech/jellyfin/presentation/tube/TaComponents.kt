@@ -83,6 +83,7 @@ import coil3.compose.AsyncImage
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaListState
 import dev.jdtech.jellyfin.film.presentation.tube.TaMessages
+import dev.jdtech.jellyfin.presentation.theme.LocalPillShape
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaNowPlaying
@@ -584,7 +585,8 @@ fun TaSideSwitch(
     /** Puts the server on the left, for pages whose server side is to the left. */
     serverFirst: Boolean = false,
 ) {
-    val shape = CircleShape
+    // Round, or square on the JRWI pages
+    val shape = LocalPillShape.current
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -642,7 +644,7 @@ private fun TaSideSegment(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
-            Modifier.clip(CircleShape)
+            Modifier.clip(LocalPillShape.current)
                 .background(background)
                 .padding(horizontal = 8.dp, vertical = 4.dp)
                 .animateContentSize(),

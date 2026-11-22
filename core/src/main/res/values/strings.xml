@@ -485,6 +485,7 @@
     <string name="jrwi_offline_copy">The archiver can\'t be reached, so this is the copy kept with the audio.</string>
     <string name="jrwi_not_saved">Not kept on this phone</string>
     <string name="jrwi_downloads">JRWI audio</string>
+    <string name="jrwi_downloads_other">Other posts</string>
     <string name="jrwi_video">Video</string>
     <string name="jrwi_audio">Audio</string>
     <string name="jrwi_play">Play</string>
@@ -582,6 +583,7 @@
     <string name="jrwi_player_sleep_off">Turn off</string>
     <string name="jrwi_player_watch_video">Watch the video from here</string>
     <string name="jrwi_read_more">Read more</string>
+    <string name="jrwi_open_web_app">Open the archiver\'s web app</string>
     <string name="jrwi_load_replies">Load replies</string>
     <string name="jrwi_hide_replies">Hide replies</string>
     <string name="jrwi_tab_episodes">Episodes</string>

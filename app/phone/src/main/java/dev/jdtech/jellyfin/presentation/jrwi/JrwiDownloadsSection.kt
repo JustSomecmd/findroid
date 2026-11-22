@@ -1,21 +1,30 @@
 package dev.jdtech.jellyfin.presentation.jrwi
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,8 +42,18 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiEpisodeNumber
+import dev.jdtech.jellyfin.models.CollectionSection
+import dev.jdtech.jellyfin.models.FindroidEpisode
+import dev.jdtech.jellyfin.models.FindroidItem
+import dev.jdtech.jellyfin.presentation.film.components.BaseBadge
+import dev.jdtech.jellyfin.presentation.film.components.CollectionSectionHeader
+import dev.jdtech.jellyfin.presentation.film.components.Direction
+import dev.jdtech.jellyfin.presentation.film.components.DownloadedBadge
+import dev.jdtech.jellyfin.presentation.film.components.ItemCard
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.formatBytes
+import dev.jdtech.jellyfin.presentation.utils.LocalEpisodeTitleFirst
 
 /**
  * The JRWI episodes whose audio is on the phone, or on its way, on the Downloads page. Tapping one
@@ -144,5 +163,216 @@ private fun JrwiDownloadListRow(
                 )
             }
         }
+    }
+}
+
+// JRWI mode's Downloads, by show
+
+/** A card on JRWI mode's Downloads: an archived video through Jellyfin, or an episode's audio. */
+sealed interface JrwiDownloadCard {
+    val key: String
+
+    data class Video(val item: FindroidItem) : JrwiDownloadCard {
+        override val key: String
+            get() = item.id.toString()
+    }
+
+    data class Audio(val entry: JrwiDownloadEntry) : JrwiDownloadCard {
+        override val key: String
+            get() = "audio:" + entry.download.itemId
+    }
+}
+
+/** One show's downloads, its archived videos and audio together, in episode order. */
+data class JrwiShowDownloads(val name: String, val cards: List<JrwiDownloadCard>)
+
+/**
+ * JRWI mode's downloads by show, as TubeArchivist's are by channel: the shows by name, each with
+ * its numbered episodes first, season by season with an episode's video before its audio, then the
+ * rest by title. [other] names the audio of posts without a show.
+ */
+fun jrwiDownloadsByShow(
+    videos: List<CollectionSection>,
+    audio: List<JrwiDownloadEntry>,
+    other: String,
+): List<JrwiShowDownloads> {
+    data class Sorted(val number: JrwiEpisodeNumber?, val audio: Boolean, val title: String)
+    val byShow = mutableMapOf<String, MutableList<Pair<Sorted, JrwiDownloadCard>>>()
+    videos
+        .flatMap { it.items }
+        .forEach { item ->
+            val episode = item as? FindroidEpisode
+            // Season 0 holds the specials, which the archiver doesn't number as episodes
+            val number =
+                episode
+                    ?.takeIf { it.parentIndexNumber > 0 }
+                    ?.let { JrwiEpisodeNumber(it.parentIndexNumber, it.indexNumber) }
+            byShow
+                .getOrPut(episode?.seriesName ?: other) { mutableListOf() }
+                .add(Sorted(number, false, item.name) to JrwiDownloadCard.Video(item))
+        }
+    audio.forEach { entry ->
+        byShow
+            .getOrPut(entry.download.showName?.takeIf { it.isNotBlank() } ?: other) {
+                mutableListOf()
+            }
+            .add(Sorted(entry.number, true, entry.download.title) to JrwiDownloadCard.Audio(entry))
+    }
+    val order =
+        compareBy<Pair<Sorted, JrwiDownloadCard>>(
+            { it.first.number == null },
+            { it.first.number?.season ?: 0 },
+            { it.first.number?.episode ?: 0 },
+            { if (it.first.number == null) it.first.title.lowercase() else "" },
+            { it.first.audio },
+        )
+    return byShow.entries
+        .sortedBy { it.key.lowercase() }
+        .map { (name, cards) -> JrwiShowDownloads(name, cards.sortedWith(order).map { it.second }) }
+}
+
+/** The shows' sections on JRWI mode's Downloads: a heading for each, then its cards. */
+fun LazyGridScope.jrwiShowSections(
+    shows: List<JrwiShowDownloads>,
+    onVideoClick: (FindroidItem) -> Unit,
+    onAudioClick: (postId: Long) -> Unit,
+    onAudioRemove: (itemId: Long) -> Unit,
+) {
+    shows.forEachIndexed { index, show ->
+        item(span = { GridItemSpan(maxLineSpan) }, key = "jrwi_show:" + show.name) {
+            CollectionSectionHeader(name = show.name, first = index == 0)
+        }
+        items(show.cards, key = { it.key }) { card ->
+            when (card) {
+                is JrwiDownloadCard.Video ->
+                    ItemCard(
+                        item = card.item,
+                        direction = Direction.HORIZONTAL,
+                        onClick = onVideoClick,
+                        modifier = Modifier.animateItem(),
+                    )
+                is JrwiDownloadCard.Audio ->
+                    JrwiAudioDownloadCard(
+                        entry = card.entry,
+                        // On the audio, which is what's downloaded
+                        onClick = { onAudioClick(card.entry.download.audioPostId) },
+                        onRemove = { onAudioRemove(card.entry.download.itemId) },
+                        modifier = Modifier.animateItem(),
+                    )
+            }
+        }
+    }
+}
+
+/**
+ * An episode's audio on JRWI mode's Downloads, as the video cards beside it: its picture with a
+ * headphones badge, and the downloaded badge once it's all on the phone, or a bar while it comes. A
+ * long press offers to remove or cancel it.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun JrwiAudioDownloadCard(
+    entry: JrwiDownloadEntry,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val download = entry.download
+    val progress = entry.progress
+    var menuOpen by remember { mutableStateOf(false) }
+    Column(
+        modifier =
+            modifier
+                .width(260.dp)
+                .clip(MaterialTheme.shapes.small)
+                .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
+    ) {
+        Surface(shape = MaterialTheme.shapes.small) {
+            Box {
+                AsyncImage(
+                    model = entry.picture,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .aspectRatio(1.77f)
+                            .background(MaterialTheme.colorScheme.surfaceContainer),
+                )
+                Row(
+                    modifier =
+                        Modifier.align(Alignment.TopEnd).padding(MaterialTheme.spacings.small),
+                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+                ) {
+                    if (download.done) DownloadedBadge()
+                    BaseBadge {
+                        Icon(
+                            painter = painterResource(CoreR.drawable.ic_headphones),
+                            contentDescription = stringResource(CoreR.string.jrwi_audio),
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(16.dp).align(Alignment.Center),
+                        )
+                    }
+                }
+                if (!download.done && !download.failed) {
+                    val bar =
+                        Modifier.align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .padding(MaterialTheme.spacings.small)
+                    if (progress != null) {
+                        LinearProgressIndicator(progress = { progress }, modifier = bar)
+                    } else {
+                        LinearProgressIndicator(modifier = bar)
+                    }
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(
+                                    if (download.done) CoreR.string.jrwi_download_remove
+                                    else CoreR.string.jrwi_download_cancel
+                                )
+                            )
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onRemove()
+                        },
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(MaterialTheme.spacings.extraSmall))
+        // Named as the video cards are: the episode's title or its show first, as set
+        val status =
+            when {
+                download.failed -> stringResource(CoreR.string.jrwi_download_failed)
+                download.done -> null
+                progress != null ->
+                    stringResource(CoreR.string.jrwi_download_running, (progress * 100).toInt())
+                else -> stringResource(CoreR.string.jrwi_download_waiting)
+            }
+        val show = download.showName?.takeIf { it.isNotBlank() }
+        val titleFirst = LocalEpisodeTitleFirst.current || show == null
+        Text(
+            text = if (titleFirst) download.title else show.orEmpty(),
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        val subtitle =
+            listOfNotNull(
+                    if (titleFirst) show else download.title,
+                    status ?: stringResource(CoreR.string.jrwi_audio),
+                )
+                .joinToString(" · ")
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(2.dp))
     }
 }

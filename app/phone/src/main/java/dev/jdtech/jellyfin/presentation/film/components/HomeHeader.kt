@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +30,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
+import dev.jdtech.jellyfin.presentation.theme.LocalPillShape
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 
@@ -50,6 +50,8 @@ fun HomeHeader(
     actions: (@Composable () -> Unit)? = null,
 ) {
     val isOfflineMode = LocalOfflineMode.current
+    // Round, or square on the JRWI pages
+    val pill = LocalPillShape.current
 
     Row(
         modifier = modifier.fillMaxWidth().height(56.dp),
@@ -63,7 +65,7 @@ fun HomeHeader(
             Surface(
                 onClick = onServerClick,
                 modifier = Modifier.fillMaxHeight().weight(1f, fill = false),
-                shape = CircleShape,
+                shape = pill,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
             ) {
                 Row(
@@ -94,7 +96,7 @@ fun HomeHeader(
                 Surface(
                     onClick = onErrorClick,
                     modifier = Modifier.fillMaxHeight().aspectRatio(1f),
-                    shape = CircleShape,
+                    shape = pill,
                     color = MaterialTheme.colorScheme.errorContainer,
                 ) {
                     Box {
@@ -113,7 +115,7 @@ fun HomeHeader(
                     onClick = onRetryClick,
                     modifier = Modifier.fillMaxHeight().aspectRatio(1f),
                     enabled = !isLoading,
-                    shape = CircleShape,
+                    shape = pill,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ) {
                     Box {
@@ -139,7 +141,7 @@ fun HomeHeader(
                 Surface(
                     onClick = onSearchClick,
                     modifier = Modifier.fillMaxHeight().aspectRatio(1f),
-                    shape = CircleShape,
+                    shape = pill,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ) {
                     Row(
@@ -158,7 +160,7 @@ fun HomeHeader(
             Surface(
                 onClick = onUserClick,
                 modifier = Modifier.fillMaxHeight().aspectRatio(1f),
-                shape = CircleShape,
+                shape = pill,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
             ) {
                 Row(

@@ -151,7 +151,8 @@ constructor(
                                 sections.add(it)
                             }
                         }
-                    if (showEpisodes) {
+                    // JRWI mode's are always by show, to go with the audio of the same shows
+                    if (showEpisodes || scope == DownloadsScope.JRWI) {
                         sections.addAll(episodeSections(episodes))
                     } else {
                         CollectionSection(

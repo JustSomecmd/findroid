@@ -2,13 +2,14 @@ package dev.jdtech.jellyfin
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -36,9 +37,9 @@ import dev.jdtech.jellyfin.presentation.jrwi.JrwiPurple
  * The switch between the app's TubeArchivist mode and its JRWI mode, at the start of the bottom
  * bar. Bigger than the page switches, and unlike them: its track is split in the two modes'
  * colours, the app's on the left and JRWI's purple on the right, and a wide knob in the open mode's
- * colour sits on that mode's half, carrying its icon (Tubedroid's head or JRWI's dice). The other
- * mode's icon shows faintly in its own half. The bar's item flips it with a tap; a swipe along it
- * to the other end flips it too.
+ * colour sits on that mode's half, carrying its icon (Tubedroid's head or JRWI's d20). The other
+ * mode's icon shows faintly in its own half. Round in TubeArchivist mode, square-cornered in JRWI
+ * mode. The bar's item flips it with a tap; a swipe along it to the other end flips it too.
  */
 @Composable
 fun ModeSwitch(jrwi: Boolean, onSwitch: (jrwi: Boolean) -> Unit, modifier: Modifier = Modifier) {
@@ -47,6 +48,10 @@ fun ModeSwitch(jrwi: Boolean, onSwitch: (jrwi: Boolean) -> Unit, modifier: Modif
     val knobAt by animateDpAsState(if (jrwi) KNOB_TRAVEL else 0.dp, label = "knob")
     val knob by animateColorAsState(if (jrwi) jrwiColour else taColour, label = "knob colour")
     val onKnob = if (jrwi) JrwiPurple.Ink else MaterialTheme.colorScheme.onPrimary
+    // Round in TubeArchivist mode, with small corners in JRWI mode as its pages, turning as it
+    // flips
+    val corners by animateIntAsState(if (jrwi) JRWI_CORNERS else ROUND, label = "corners")
+    val shape = RoundedCornerShape(percent = corners)
     val current by rememberUpdatedState(jrwi)
     val switch by rememberUpdatedState(onSwitch)
     val swipe = with(LocalDensity.current) { SWIPE_DISTANCE.toPx() }
@@ -66,9 +71,9 @@ fun ModeSwitch(jrwi: Boolean, onSwitch: (jrwi: Boolean) -> Unit, modifier: Modif
         modifier =
             modifier
                 .size(TRACK_WIDTH, TRACK_HEIGHT)
-                .clip(CircleShape)
+                .clip(shape)
                 .background(track)
-                .border(1.dp, Color.White.copy(alpha = BORDER_ALPHA), CircleShape)
+                .border(1.dp, Color.White.copy(alpha = BORDER_ALPHA), shape)
                 .semantics {
                     contentDescription = description
                     role = Role.Switch
@@ -107,8 +112,8 @@ fun ModeSwitch(jrwi: Boolean, onSwitch: (jrwi: Boolean) -> Unit, modifier: Modif
                 Modifier.align(Alignment.CenterStart)
                     .offset(x = KNOB_INSET + knobAt)
                     .size(KNOB_WIDTH, KNOB_HEIGHT)
-                    .shadow(2.dp, CircleShape)
-                    .clip(CircleShape)
+                    .shadow(2.dp, shape)
+                    .clip(shape)
                     .background(knob),
         ) {
             Icon(
@@ -135,6 +140,9 @@ private val OTHER_ICON = 20.dp
 // Puts the other icon in the middle of the part of the track the knob leaves free
 private val OTHER_ICON_INSET = (TRACK_WIDTH - KNOB_WIDTH - KNOB_INSET - OTHER_ICON) / 2
 private const val TRACK_ALPHA = 0.22f
+// Corners as a share of the height: a full half for round, less for JRWI's squarer look
+private const val ROUND = 50
+private const val JRWI_CORNERS = 20
 private const val BORDER_ALPHA = 0.12f
 private const val OTHER_ICON_ALPHA = 0.85f
 // How far a swipe along the switch has to go to flip it
