@@ -712,7 +712,7 @@ private fun JrwiFilesCard(files: List<JrwiFileCount>) {
                 .sortedByDescending { it.second }
         byType.forEach { (type, count, bytes) ->
             JrwiStatLine(
-                label = stringResource(jrwiFileTypeName(type)),
+                label = jrwiFileTypeName(type),
                 detail =
                     files
                         .filter { it.type == type && it.ext.isNotBlank() }
@@ -790,22 +790,6 @@ private fun JrwiCommentersCard(comments: JrwiCommentStats) {
         }
     }
 }
-
-/** The name of a file type, as the file inspector says it. */
-internal fun jrwiFileTypeName(type: String): Int =
-    when (type) {
-        "pdf" -> CoreR.string.jrwi_file_pdf
-        "table" -> CoreR.string.jrwi_file_table
-        "document" -> CoreR.string.jrwi_file_document
-        "text" -> CoreR.string.jrwi_file_text
-        "archive" -> CoreR.string.jrwi_file_archive
-        "image" -> CoreR.string.jrwi_file_image
-        "audio" -> CoreR.string.jrwi_file_audio
-        "video" -> CoreR.string.jrwi_file_video
-        "youtube" -> CoreR.string.jrwi_file_youtube
-        "link" -> CoreR.string.jrwi_file_link
-        else -> CoreR.string.jrwi_file_other
-    }
 
 /** A card of numbers with a title, on the server side's purple. */
 @Composable
