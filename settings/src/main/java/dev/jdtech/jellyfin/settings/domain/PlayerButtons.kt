@@ -14,6 +14,8 @@ enum class PlayerButton(val key: String, val defaultPlacement: PlayerButtonPlace
     SPEED("speed", PlayerButtonPlacement.MENU),
     // A switch for captions in a bar; picking the track is in the menu too
     SUBTITLES("subtitles", PlayerButtonPlacement.TOP),
+    // A JRWI episode's transcript beside the video; only there when it has one
+    TRANSCRIPT("transcript", PlayerButtonPlacement.TOP),
     LOCK("lock", PlayerButtonPlacement.MENU),
     SLEEP_TIMER("sleep", PlayerButtonPlacement.MENU),
     PIP("pip", PlayerButtonPlacement.MENU),

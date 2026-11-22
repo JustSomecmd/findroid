@@ -198,6 +198,7 @@ private fun PlayerButton.nameRes(): Int =
         PlayerButton.ROTATE -> SettingsR.string.player_button_rotate
         PlayerButton.PLAYLIST -> SettingsR.string.player_button_playlist
         PlayerButton.LISTEN -> SettingsR.string.player_button_listen
+        PlayerButton.TRANSCRIPT -> SettingsR.string.player_button_transcript
     }
 
 @DrawableRes
@@ -215,16 +216,18 @@ private fun PlayerButton.iconRes(): Int =
         PlayerButton.ROTATE -> CoreR.drawable.ic_rotate_to_portrait
         PlayerButton.PLAYLIST -> CoreR.drawable.ic_list_video
         PlayerButton.LISTEN -> CoreR.drawable.ic_headphones
+        PlayerButton.TRANSCRIPT -> CoreR.drawable.ic_transcript
     }
 
 /**
- * Chapters and subtitles only show for videos that have them, quality only for streams, PiP only if
- * allowed, and the playlist only while one plays.
+ * Chapters and subtitles only show for videos that have them, a transcript for JRWI episodes that
+ * have one, quality only for streams, PiP only if allowed, and the playlist only while one plays.
  */
 private fun PlayerButton.isConditional(): Boolean =
     when (this) {
         PlayerButton.CHAPTERS,
         PlayerButton.SUBTITLES,
+        PlayerButton.TRANSCRIPT,
         PlayerButton.QUALITY,
         PlayerButton.PIP,
         PlayerButton.PLAYLIST -> true

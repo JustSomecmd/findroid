@@ -204,6 +204,19 @@
                 android:src="@drawable/ic_closed_caption"
                 app:tint="@android:color/white" />
 
+            <!-- A JRWI episode's transcript beside the video -->
+            <ImageButton
+                android:id="@+id/btn_transcript"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:background="@drawable/transparent_circle_background"
+                android:contentDescription="@string/jrwi_transcript_show"
+                android:padding="16dp"
+                android:src="@drawable/ic_transcript"
+                android:visibility="gone"
+                app:tint="@android:color/white" />
+
             <!-- Opens the menu with the buttons put there; always last -->
             <ImageButton
                 android:id="@+id/btn_menu"

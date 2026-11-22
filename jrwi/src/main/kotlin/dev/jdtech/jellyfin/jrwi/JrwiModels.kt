@@ -34,6 +34,81 @@ object JrwiFeature {
     const val REPARSE = "reparse"
     /** `GET /api/podcast` and `POST /api/podcast/read`, asked of the archiver likewise */
     const val PODCAST = "podcast"
+    /** `GET /api/transcript/{postId}`: an episode's transcript, timed by the archiver (v0.23) */
+    const val TRANSCRIPT = "transcript"
+}
+
+/**
+ * An episode's transcript as lines (v0.23), timed in the timeline of the post [postId] once the
+ * archiver has heard the episode. Until then, or when it turned out to be another episode's,
+ * [aligned] is false and every line is untimed.
+ */
+@Serializable
+data class JrwiTranscript(
+    @SerialName("post_id") val postId: Long? = null,
+    val aligned: Boolean = false,
+    /** The PDF it was read from. */
+    val document: String? = null,
+    val lines: List<JrwiTranscriptLine> = emptyList(),
+)
+
+/**
+ * A speaker's turn as the transcript writes it, notes in brackets included. [speaker] is null for a
+ * line that's a note of its own ("[laughter]") or a group's. [start] and [end] are seconds, null
+ * for a line that couldn't be placed.
+ */
+@Serializable
+data class JrwiTranscriptLine(
+    val start: Double? = null,
+    val end: Double? = null,
+    val speaker: String? = null,
+    val text: String = "",
+)
+
+/**
+ * Finds the line being said at a moment: the last timed line whose start has passed, as the web app
+ * has it.
+ */
+class JrwiTranscriptTimes(transcript: JrwiTranscript) {
+    // The timed lines' places in the list, and their starts, in order
+    private val timed: IntArray
+    private val starts: DoubleArray
+
+    init {
+        val lines = if (transcript.aligned) transcript.lines else emptyList()
+        val places = lines.indices.filter { lines[it].start != null }
+        timed = places.toIntArray()
+        starts = DoubleArray(places.size) { lines[places[it]].start!! }
+    }
+
+    /** Whether any line follows the sound. */
+    val any: Boolean
+        get() = timed.isNotEmpty()
+
+    /**
+     * The line being said at [seconds], as its place in the transcript's lines, or -1 before any.
+     */
+    fun lineAt(seconds: Double): Int {
+        var low = 0
+        var high = starts.size - 1
+        var found = -1
+        // A moment early, so a line lights up as it starts rather than just after
+        val at = seconds + EARLY_SECONDS
+        while (low <= high) {
+            val middle = (low + high) ushr 1
+            if (starts[middle] <= at) {
+                found = middle
+                low = middle + 1
+            } else {
+                high = middle - 1
+            }
+        }
+        return if (found >= 0) timed[found] else -1
+    }
+
+    private companion object {
+        const val EARLY_SECONDS = 0.15
+    }
 }
 
 /** A post in the feed (v0.17): the whole post, its first comments as the web feed picks them. */
@@ -202,6 +277,8 @@ data class JrwiItem(
     @SerialName("removed_from_site") val removedFromSite: String? = null,
     /** On a single post whose video was handed over to TubeArchivist (v0.15). */
     @SerialName("handed_over") val handedOver: JrwiHandOver? = null,
+    /** The episode has a transcript the archiver reads into lines (v0.23). */
+    val transcript: Boolean = false,
 ) {
     /** Every tab the item is in within its own show, also from archivers older than v0.12. */
     val ownTabs: List<String>
@@ -222,6 +299,13 @@ data class JrwiItem(
     /** The moment in the video that matches [audioSeconds] in the audio. */
     fun videoSeconds(audioSeconds: Double): Double =
         (audioSeconds - offset).coerceIn(0.0, video?.duration ?: Double.MAX_VALUE)
+
+    /**
+     * The post whose transcript lines to ask for, timed in the timeline of what plays: its audio,
+     * or with [audio] false its video. Null when it has no transcript, or not that version.
+     */
+    fun transcriptPost(audio: Boolean): Long? =
+        if (!transcript) null else if (audio) this.audio?.postId else video?.postId
 
     /** How far through the episode [progress] is, from 0 to 1; null unless partly played. */
     val playedFraction: Float?
@@ -332,6 +416,20 @@ data class JrwiStatus(
     @SerialName("login_ok") val loginOk: Boolean? = null,
     val counts: JrwiCounts = JrwiCounts(),
     val disk: JrwiDisk = JrwiDisk(),
+    /**
+     * Work between checks, such as timing transcripts (v0.23), or null. It isn't a check: [running]
+     * stays false, and a check can start meanwhile.
+     */
+    val background: JrwiBackground? = null,
+)
+
+/** What the archiver does between checks (v0.23), worded for people as a check's [JrwiStatus]. */
+@Serializable
+data class JrwiBackground(
+    val step: String? = null,
+    val phase: String? = null,
+    val detail: String? = null,
+    val progress: JrwiCheckProgress? = null,
 )
 
 /**

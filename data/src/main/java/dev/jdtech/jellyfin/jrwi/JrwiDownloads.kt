@@ -73,7 +73,10 @@ interface JrwiDownloader {
     /** Keeps what's new for a whole download, such as the post's files, without the audio again. */
     fun refresh(itemId: Long)
 
-    /** Keeps the post's files on the phone with the video's download, in the background. */
+    /**
+     * Keeps the post's files, when its download asked for them, and the episode's transcript on the
+     * phone with the video's download, in the background.
+     */
     fun keepFilesForVideo(itemId: Long)
 
     /**
@@ -178,6 +181,43 @@ class JrwiDownloads(context: Context) {
         )
     }
 
+    // An episode's transcript, kept by the post whose timeline its lines are in: the audio's with
+    // the audio's download, the video's with the video's
+
+    /** Whether a download on the phone plays the post [postId], so its transcript is kept. */
+    fun keepsTranscript(postId: Long): Boolean =
+        _downloads.value.any { it.audioPostId == postId } ||
+            savedVideos().any { it.item.video?.postId == postId }
+
+    fun savedTranscript(postId: Long): JrwiTranscript? {
+        val file = transcriptFile(postId)
+        if (!file.exists()) return null
+        return try {
+            json.decodeFromString(JrwiTranscript.serializer(), file.readText())
+        } catch (e: Exception) {
+            Timber.w(e, "Could not read the kept transcript of $postId")
+            null
+        }
+    }
+
+    @Synchronized
+    fun saveTranscript(postId: Long, transcript: JrwiTranscript) {
+        val file = transcriptFile(postId)
+        file.parentFile?.mkdirs()
+        val temp = File(file.path + ".tmp")
+        temp.writeText(json.encodeToString(JrwiTranscript.serializer(), transcript))
+        if (!temp.renameTo(file)) {
+            file.writeText(temp.readText())
+            temp.delete()
+        }
+    }
+
+    private fun deleteTranscript(postId: Long?) {
+        postId?.let { transcriptFile(it).delete() }
+    }
+
+    private fun transcriptFile(postId: Long): File = File(File(dir, TRANSCRIPTS), "$postId.json")
+
     /** A file fetched only to be shown, such as a PDF to draw, which Android can clear. */
     fun cacheFileFor(path: String): File = File(File(cacheDir, CACHE_DIR), storedName(path))
 
@@ -238,6 +278,7 @@ class JrwiDownloads(context: Context) {
      */
     @Synchronized
     fun delete(itemId: Long) {
+        deleteTranscript(get(itemId)?.audioPostId)
         if (videoKeepsFiles(itemId)) {
             folder(itemId)
                 .listFiles()
@@ -314,7 +355,9 @@ class JrwiDownloads(context: Context) {
     /** The video's download is gone; its files go too, unless the audio's download keeps them. */
     @Synchronized
     fun deleteVideo(itemId: Long) {
-        File(videoDir, "$itemId.json").delete()
+        val file = File(videoDir, "$itemId.json")
+        deleteTranscript(readVideo(file)?.item?.video?.postId)
+        file.delete()
         dropUnwantedFiles(itemId)
     }
 
@@ -393,6 +436,7 @@ class JrwiDownloads(context: Context) {
         const val AUDIO = "audio"
         const val THUMBNAIL = "thumbnail"
         const val VIDEOS = "videos"
+        const val TRANSCRIPTS = "transcripts"
         // What's kept of the post's files, which a video's download can keep without the audio
         val FILE_PARTS = listOf(FILES, FILE_DIR, PREVIEW_DIR)
     }

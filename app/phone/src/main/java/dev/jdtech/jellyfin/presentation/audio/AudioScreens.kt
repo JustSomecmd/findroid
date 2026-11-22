@@ -5,12 +5,14 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -93,6 +95,7 @@ import dev.jdtech.jellyfin.audio.AudioPlayer
 import dev.jdtech.jellyfin.audio.AudioSegment
 import dev.jdtech.jellyfin.audio.AudioState
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.jrwi.JrwiTranscripts
 import dev.jdtech.jellyfin.player.local.R as PlayerR
 import dev.jdtech.jellyfin.presentation.jrwi.JRWI_BAR_HEIGHT
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiBarTrack
@@ -104,6 +107,7 @@ import dev.jdtech.jellyfin.presentation.jrwi.JrwiScaffold
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShape
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiTheme
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiTonal
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiTranscriptLines
 import dev.jdtech.jellyfin.presentation.jrwi.jrwiGhostButtonColors
 import dev.jdtech.jellyfin.presentation.jrwi.jrwiTopBarColors
 import dev.jdtech.jellyfin.presentation.theme.spacings
@@ -117,7 +121,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** The app's one audio player, for the pages that show or control it. */
-@HiltViewModel class AudioViewModel @Inject constructor(val player: AudioPlayer) : ViewModel()
+@HiltViewModel
+class AudioViewModel
+@Inject
+constructor(val player: AudioPlayer, val transcripts: JrwiTranscripts) : ViewModel()
 
 /**
  * The player's colours and shapes: for JRWI audio the archiver's colours, its yellow buttons with
@@ -366,6 +373,10 @@ fun AudioPlayerScreen(
     var sleepOpen by rememberSaveable { mutableStateOf(false) }
     // The end of the bar shows the time left, or with a tap the whole length
     var showLength by rememberSaveable { mutableStateOf(false) }
+    // The transcript in the picture's place, for an episode that has one
+    var transcriptOpen by rememberSaveable { mutableStateOf(false) }
+    val transcriptPost = state.transcriptPostId
+    val showTranscript = transcriptOpen && transcriptPost != null
     val episode = state.episode
 
     PlayerLookTheme(appLook = state.appLook) {
@@ -421,6 +432,179 @@ fun AudioPlayerScreen(
                 }
                 return@PlayerScaffold
             }
+            // Everything under the picture: the title, the bar to seek along and the buttons,
+            // closer together next to the transcript
+            val controls: @Composable ColumnScope.(compact: Boolean) -> Unit = { compact ->
+                Text(
+                    text = episode?.title.orEmpty(),
+                    style =
+                        if (compact) MaterialTheme.typography.titleMedium
+                        else MaterialTheme.typography.titleLarge,
+                    color = look.text,
+                    textAlign = TextAlign.Center,
+                    maxLines = if (compact) 1 else 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val subtitle =
+                    listOfNotNull(
+                            state.subtitle,
+                            if (state.fromPhone) stringResource(CoreR.string.jrwi_player_from_phone)
+                            else null,
+                        )
+                        .joinToString(" · ")
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = look.muted,
+                        textAlign = TextAlign.Center,
+                        maxLines = if (compact) 1 else Int.MAX_VALUE,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                if (state.error != null) {
+                    Text(
+                        text =
+                            state.error?.takeIf { it.isNotBlank() }
+                                ?: stringResource(CoreR.string.jrwi_player_error),
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+                    )
+                }
+                Spacer(
+                    Modifier.height(
+                        if (compact) MaterialTheme.spacings.small else MaterialTheme.spacings.large
+                    )
+                )
+                SeekBar(
+                    state = state,
+                    showLength = showLength,
+                    onToggleEnd = { showLength = !showLength },
+                    onSeek = player::seekTo,
+                )
+                // A segment, when the video player's settings ask for a button rather than
+                // skipping
+                state.segment?.let { segment ->
+                    Button(
+                        onClick = player::skipSegment,
+                        shape = look.buttonShape,
+                        colors =
+                            ButtonDefaults.buttonColors(
+                                containerColor = look.button,
+                                contentColor = look.onButton,
+                            ),
+                        modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+                    ) {
+                        Text(stringResource(skipLabel(segment)))
+                    }
+                }
+                Spacer(
+                    Modifier.height(
+                        if (compact) MaterialTheme.spacings.small else MaterialTheme.spacings.medium
+                    )
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = player::skipBack, modifier = Modifier.size(56.dp)) {
+                        SeekIcon(
+                            seconds = (player.backMs / 1000).toInt(),
+                            forward = false,
+                            size = 40.dp,
+                        )
+                    }
+                    PlayPauseButton(
+                        state = state,
+                        onClick = player::toggle,
+                        size = if (compact) 64.dp else 72.dp,
+                    )
+                    IconButton(onClick = player::skipForward, modifier = Modifier.size(56.dp)) {
+                        SeekIcon(
+                            seconds = (player.forwardMs / 1000).toInt(),
+                            forward = true,
+                            size = 40.dp,
+                        )
+                    }
+                }
+                Spacer(
+                    Modifier.height(
+                        if (compact) MaterialTheme.spacings.medium else MaterialTheme.spacings.large
+                    )
+                )
+                val hasVideo =
+                    when (episode) {
+                        is AudioEpisode.Jrwi -> episode.item.video != null
+                        is AudioEpisode.Video -> true
+                        null -> false
+                    }
+                val buttons =
+                    2 +
+                        (if (state.hasNext) 1 else 0) +
+                        (if (episode != null && hasVideo) 1 else 0) +
+                        (if (transcriptPost != null) 1 else 0)
+                // All as wide, so the row sits centred under Play; a little narrower when five
+                // wouldn't fit on a phone
+                val width = if (buttons > 4) NARROW_ROW_BUTTON_WIDTH else ROW_BUTTON_WIDTH
+                Row(
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            if (buttons > 4) 4.dp else MaterialTheme.spacings.small
+                        )
+                ) {
+                    PlayerButton(
+                        icon = CoreR.drawable.ic_gauge,
+                        contentDescription = stringResource(CoreR.string.jrwi_player_speed),
+                        onClick = { speedOpen = true },
+                        filled = state.speed != 1f,
+                        modifier = Modifier.width(width),
+                    ) {
+                        Text(
+                            text = speedLabel(state.speed),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                    SleepButton(state = state, onClick = { sleepOpen = true }, width = width)
+                    if (state.hasNext) {
+                        PlayerButton(
+                            icon = CoreR.drawable.ic_skip_forward,
+                            contentDescription = stringResource(CoreR.string.audio_player_next),
+                            onClick = player::skipToNext,
+                            modifier = Modifier.width(width),
+                        )
+                    }
+                    if (transcriptPost != null) {
+                        PlayerButton(
+                            icon = CoreR.drawable.ic_transcript,
+                            contentDescription =
+                                stringResource(
+                                    if (showTranscript) CoreR.string.jrwi_transcript_hide
+                                    else CoreR.string.jrwi_transcript_show
+                                ),
+                            onClick = { transcriptOpen = !transcriptOpen },
+                            filled = showTranscript,
+                            modifier = Modifier.width(width),
+                        )
+                    }
+                    if (episode != null && hasVideo) {
+                        PlayerButton(
+                            icon = CoreR.drawable.ic_film,
+                            contentDescription =
+                                stringResource(CoreR.string.jrwi_player_watch_video),
+                            onClick = {
+                                leaving = true
+                                scope.launch {
+                                    val position = player.closeForVideo()
+                                    onWatchVideo(episode, position)
+                                }
+                            },
+                            modifier = Modifier.width(width),
+                        )
+                    }
+                }
+            }
             // Under the top bar with the padding it had before it was centred, the bar taller so
             // it sits a little lower than then; scrolling when it doesn't fit
             BoxWithConstraints(
@@ -431,159 +615,92 @@ fun AudioPlayerScreen(
                             WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)
                         )
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Top,
-                    modifier =
-                        Modifier.fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                            .heightIn(min = maxHeight)
-                            .padding(horizontal = 24.dp, vertical = MaterialTheme.spacings.medium),
-                ) {
-                    Box(
-                        modifier =
-                            Modifier.widthIn(max = 560.dp)
-                                .fillMaxWidth()
-                                .aspectRatio(16f / 9f)
-                                .clip(look.pictureShape)
-                                .background(look.picture)
-                    ) {
-                        JrwiImage(path = state.picture, modifier = Modifier.fillMaxSize())
-                        if (state.loading) {
-                            CircularProgressIndicator(
-                                color = look.accent,
-                                modifier = Modifier.align(Alignment.Center),
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(24.dp))
-                    Text(
-                        text = episode?.title.orEmpty(),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = look.text,
-                        textAlign = TextAlign.Center,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    val subtitle =
-                        listOfNotNull(
-                                state.subtitle,
-                                if (state.fromPhone)
-                                    stringResource(CoreR.string.jrwi_player_from_phone)
-                                else null,
-                            )
-                            .joinToString(" · ")
-                    if (subtitle.isNotEmpty()) {
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = look.muted,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(top = 4.dp),
+                val transcriptBox: @Composable (Modifier) -> Unit = { boxModifier ->
+                    if (transcriptPost != null) {
+                        JrwiTranscriptLines(
+                            postId = transcriptPost,
+                            transcripts = viewModel.transcripts,
+                            positionMs = { player.positionNowMs },
+                            onPlayFrom = player::playFrom,
+                            modifier =
+                                boxModifier
+                                    .clip(JrwiShape)
+                                    .border(1.dp, JrwiColors.Line, JrwiShape)
+                                    .background(TranscriptBackground),
                         )
                     }
-                    if (state.error != null) {
-                        Text(
-                            text =
-                                state.error?.takeIf { it.isNotBlank() }
-                                    ?: stringResource(CoreR.string.jrwi_player_error),
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(top = MaterialTheme.spacings.small),
-                        )
-                    }
-                    Spacer(Modifier.height(MaterialTheme.spacings.large))
-                    SeekBar(
-                        state = state,
-                        showLength = showLength,
-                        onToggleEnd = { showLength = !showLength },
-                        onSeek = player::seekTo,
-                    )
-                    // A segment, when the video player's settings ask for a button rather than
-                    // skipping
-                    state.segment?.let { segment ->
-                        Button(
-                            onClick = player::skipSegment,
-                            shape = look.buttonShape,
-                            colors =
-                                ButtonDefaults.buttonColors(
-                                    containerColor = look.button,
-                                    contentColor = look.onButton,
-                                ),
-                            modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+                }
+                when {
+                    // Beside the buttons on a screen held sideways, where there's room for them
+                    showTranscript && maxWidth > maxHeight && maxHeight < SIDE_BY_SIDE_HEIGHT ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(24.dp),
+                            modifier =
+                                Modifier.fillMaxSize()
+                                    .padding(
+                                        horizontal = 24.dp,
+                                        vertical = MaterialTheme.spacings.medium,
+                                    ),
                         ) {
-                            Text(stringResource(skipLabel(segment)))
-                        }
-                    }
-                    Spacer(Modifier.height(MaterialTheme.spacings.medium))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = player::skipBack, modifier = Modifier.size(56.dp)) {
-                            SeekIcon(
-                                seconds = (player.backMs / 1000).toInt(),
-                                forward = false,
-                                size = 40.dp,
-                            )
-                        }
-                        PlayPauseButton(state = state, onClick = player::toggle, size = 72.dp)
-                        IconButton(onClick = player::skipForward, modifier = Modifier.size(56.dp)) {
-                            SeekIcon(
-                                seconds = (player.forwardMs / 1000).toInt(),
-                                forward = true,
-                                size = 40.dp,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(MaterialTheme.spacings.large))
-                    // All as wide, so the row sits centred under Play
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)
-                    ) {
-                        PlayerButton(
-                            icon = CoreR.drawable.ic_gauge,
-                            contentDescription = stringResource(CoreR.string.jrwi_player_speed),
-                            onClick = { speedOpen = true },
-                            filled = state.speed != 1f,
-                            modifier = Modifier.width(ROW_BUTTON_WIDTH),
-                        ) {
-                            Text(
-                                text = speedLabel(state.speed),
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                        }
-                        SleepButton(state = state, onClick = { sleepOpen = true })
-                        if (state.hasNext) {
-                            PlayerButton(
-                                icon = CoreR.drawable.ic_skip_forward,
-                                contentDescription = stringResource(CoreR.string.audio_player_next),
-                                onClick = player::skipToNext,
-                                modifier = Modifier.width(ROW_BUTTON_WIDTH),
-                            )
-                        }
-                        val hasVideo =
-                            when (episode) {
-                                is AudioEpisode.Jrwi -> episode.item.video != null
-                                is AudioEpisode.Video -> true
-                                null -> false
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier =
+                                    Modifier.weight(1f)
+                                        .fillMaxHeight()
+                                        .verticalScroll(rememberScrollState()),
+                            ) {
+                                controls(true)
                             }
-                        if (episode != null && hasVideo) {
-                            PlayerButton(
-                                icon = CoreR.drawable.ic_film,
-                                contentDescription =
-                                    stringResource(CoreR.string.jrwi_player_watch_video),
-                                onClick = {
-                                    leaving = true
-                                    scope.launch {
-                                        val position = player.closeForVideo()
-                                        onWatchVideo(episode, position)
-                                    }
-                                },
-                                modifier = Modifier.width(ROW_BUTTON_WIDTH),
-                            )
+                            transcriptBox(Modifier.weight(1.2f).fillMaxHeight())
                         }
-                    }
+                    // In the picture's place, as tall as the page lets it be
+                    showTranscript ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier =
+                                Modifier.fillMaxSize()
+                                    .padding(
+                                        horizontal = 24.dp,
+                                        vertical = MaterialTheme.spacings.medium,
+                                    ),
+                        ) {
+                            transcriptBox(Modifier.weight(1f).widthIn(max = 560.dp).fillMaxWidth())
+                            Spacer(Modifier.height(MaterialTheme.spacings.medium))
+                            controls(true)
+                        }
+                    else ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Top,
+                            modifier =
+                                Modifier.fillMaxWidth()
+                                    .verticalScroll(rememberScrollState())
+                                    .heightIn(min = maxHeight)
+                                    .padding(
+                                        horizontal = 24.dp,
+                                        vertical = MaterialTheme.spacings.medium,
+                                    ),
+                        ) {
+                            Box(
+                                modifier =
+                                    Modifier.widthIn(max = 560.dp)
+                                        .fillMaxWidth()
+                                        .aspectRatio(16f / 9f)
+                                        .clip(look.pictureShape)
+                                        .background(look.picture)
+                            ) {
+                                JrwiImage(path = state.picture, modifier = Modifier.fillMaxSize())
+                                if (state.loading) {
+                                    CircularProgressIndicator(
+                                        color = look.accent,
+                                        modifier = Modifier.align(Alignment.Center),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(24.dp))
+                            controls(false)
+                        }
                 }
             }
         }
@@ -802,7 +919,7 @@ private fun SeekIcon(seconds: Int, forward: Boolean, size: Dp = 24.dp) {
 
 /** The sleep timer's button: a moon, or the time left on it once it's set. */
 @Composable
-private fun SleepButton(state: AudioState, onClick: () -> Unit) {
+private fun SleepButton(state: AudioState, onClick: () -> Unit, width: Dp = ROW_BUTTON_WIDTH) {
     val sleep = state.sleep
     val endsAt = sleep?.endsAtMs
     val now by rememberTicker(running = endsAt != null)
@@ -811,7 +928,7 @@ private fun SleepButton(state: AudioState, onClick: () -> Unit) {
         contentDescription = stringResource(CoreR.string.jrwi_player_sleep),
         onClick = onClick,
         filled = sleep != null,
-        modifier = Modifier.width(ROW_BUTTON_WIDTH),
+        modifier = Modifier.width(width),
     ) {
         if (endsAt != null) {
             Text(
@@ -1074,6 +1191,15 @@ private val PLAYER_TOP_INSETS
 private val BUTTON_SIZE = 48.dp
 // The buttons under Play, wide enough for the speed and the sleep timer's time left
 private val ROW_BUTTON_WIDTH = 64.dp
+
+// Five buttons under Play fit a phone at this width
+private val NARROW_ROW_BUTTON_WIDTH = 56.dp
+
+// Lower than this, a screen held sideways has the transcript beside the buttons
+private val SIDE_BY_SIDE_HEIGHT = 560.dp
+
+// Behind the transcript's lines, as the web app's .transcript
+private val TranscriptBackground = Color.Black.copy(alpha = 0.18f)
 private const val DISABLED_ALPHA = 0.38f
 private const val SPEED_STEP = 0.05f
 private val SPEED_PRESETS = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)

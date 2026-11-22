@@ -268,7 +268,7 @@ constructor(
                 youtubeId = youtubeId,
                 showName = jrwiProgress.showNameOrNull(full.show),
             )
-            if (withFiles) jrwiDownloader.keepFilesForVideo(full.id)
+            if (withFiles || full.transcript) jrwiDownloader.keepFilesForVideo(full.id)
             changed = true
         }
         writeNotJrwi(checked)

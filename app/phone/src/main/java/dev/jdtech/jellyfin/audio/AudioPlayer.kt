@@ -127,6 +127,11 @@ data class AudioState(
     val hasNext: Boolean = false,
     /** The archiver's item of a JRWI episode whose video's sound this is, whose page it has. */
     val linkedJrwiId: Long? = null,
+    /**
+     * The post whose transcript follows what plays, timed in its timeline: a JRWI episode's audio,
+     * or the video of the JRWI episode whose sound this is. Null without a transcript (v0.23).
+     */
+    val transcriptPostId: Long? = null,
 ) {
     /** Something is loaded, playing or not, which the mini player shows. */
     val active: Boolean
@@ -440,6 +445,7 @@ constructor(
                 fromPhone = file != null,
                 error = null,
                 ended = false,
+                transcriptPostId = item.transcriptPost(audio = true),
             )
         }
         start(mediaItem, startMs)
@@ -710,6 +716,7 @@ constructor(
                 segment = null,
                 hasNext = playlist?.nextTaVideoId != null,
                 linkedJrwiId = null,
+                transcriptPostId = null,
             )
         }
         start(mediaItem, startMs)
@@ -750,7 +757,13 @@ constructor(
                     ?: videoId?.let { jrwiProgress.itemForYoutube(it) }
             if (isCurrent()) {
                 linkedJrwi = item
-                _state.update { it.copy(linkedJrwiId = item?.id) }
+                _state.update {
+                    it.copy(
+                        linkedJrwiId = item?.id,
+                        // The video's own sound, so the lines timed for the video
+                        transcriptPostId = item?.transcriptPost(audio = false),
+                    )
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -900,6 +913,19 @@ constructor(
         player.seekTo(positionMs.coerceIn(0L, max(0L, player.duration)))
         publish()
     }
+
+    /** Plays on from [positionMs], as a tap on a line of the transcript does. */
+    fun playFrom(positionMs: Long) {
+        val player = exo ?: return
+        val duration = player.duration
+        player.seekTo(if (duration > 0) positionMs.coerceIn(0L, duration) else max(0L, positionMs))
+        player.play()
+        publish()
+    }
+
+    /** Where it plays now, for following the transcript closer than the state's updates. */
+    val positionNowMs: Long
+        get() = exo?.currentPosition ?: _state.value.positionMs
 
     /** Back as far as the video player goes back. */
     fun skipBack() = skipBy(-backMs)

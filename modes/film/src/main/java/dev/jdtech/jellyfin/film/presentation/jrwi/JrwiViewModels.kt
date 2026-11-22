@@ -747,7 +747,9 @@ constructor(
                     item
                 }
             jrwiDownloads.saveVideo(full, episodeId.toString(), withFiles)
-            if (jrwiDownloads.videoKeepsFiles(item.id)) jrwiDownloader.keepFilesForVideo(item.id)
+            if (jrwiDownloads.videoKeepsFiles(item.id) || full.transcript) {
+                jrwiDownloader.keepFilesForVideo(item.id)
+            }
             val error = downloader.downloadItem(episode, source.id, storageIndex)
             if (error != null) {
                 jrwiDownloads.deleteVideo(item.id)
@@ -1026,7 +1028,10 @@ constructor(
         val item = state.item ?: return
         val episodeId = state.episodeId ?: return
         jrwiDownloads.saveVideo(item, episodeId.toString(), withFiles)
-        if (jrwiDownloads.videoKeepsFiles(item.id)) jrwiDownloader.keepFilesForVideo(item.id)
+        // With its transcript too, to follow along without a connection
+        if (jrwiDownloads.videoKeepsFiles(item.id) || item.transcript) {
+            jrwiDownloader.keepFilesForVideo(item.id)
+        }
     }
 
     /** The video's download is removed, and what was kept with it goes too. */

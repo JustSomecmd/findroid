@@ -640,6 +640,16 @@
     <string name="jrwi_player_sleep_at_end">Pauses at the end of the episode</string>
     <string name="jrwi_player_sleep_off">Turn off</string>
     <string name="jrwi_player_watch_video">Watch the video from here</string>
+    <!-- An episode's transcript, followed as it plays (contract v0.23) -->
+    <string name="jrwi_transcript">Transcript</string>
+    <string name="jrwi_transcript_show">Show the transcript</string>
+    <string name="jrwi_transcript_hide">Hide the transcript</string>
+    <string name="jrwi_transcript_loading">Loading the transcript…</string>
+    <string name="jrwi_transcript_failed">The transcript couldn\'t be loaded.</string>
+    <string name="jrwi_transcript_none">This episode has no transcript.</string>
+    <string name="jrwi_transcript_untimed">Not timed yet: the lines don\'t follow the sound.</string>
+    <string name="jrwi_transcript_follow">Back to the line being spoken</string>
+    <string name="jrwi_transcript_play_from">Play from here</string>
     <string name="jrwi_read_more">Read more</string>
     <string name="jrwi_show_newest">newest %1$s</string>
     <string name="jrwi_open_web_app">Open the archiver\'s web app</string>

@@ -15,6 +15,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiJellyfinLookup
 import dev.jdtech.jellyfin.jrwi.JrwiProgressStore
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
+import dev.jdtech.jellyfin.jrwi.JrwiTranscripts
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.JellyfinPlaylistSessionStore
@@ -134,6 +135,11 @@ object ApiModule {
     @Provides
     fun provideJrwiDownloads(@ApplicationContext application: Context): JrwiDownloads =
         JrwiDownloads(application)
+
+    @Singleton
+    @Provides
+    fun provideJrwiTranscripts(jrwiApi: JrwiApi, downloads: JrwiDownloads): JrwiTranscripts =
+        JrwiTranscripts(jrwiApi, downloads)
 
     @Singleton
     @Provides

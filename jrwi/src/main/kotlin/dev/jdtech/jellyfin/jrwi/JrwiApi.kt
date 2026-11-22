@@ -341,6 +341,12 @@ class JrwiApi(private val config: JrwiConfig) {
         return decode(send("GET", url, null))
     }
 
+    /**
+     * The episode's transcript as lines (v0.23), timed in the timeline of the video or audio post
+     * with this ID once the archiver has timed it. A 404 when the episode has none.
+     */
+    suspend fun getTranscript(postId: Long): JrwiTranscript = decode(get("api/transcript/$postId"))
+
     // Watching and listening progress, one record per episode for its video and audio
 
     /**

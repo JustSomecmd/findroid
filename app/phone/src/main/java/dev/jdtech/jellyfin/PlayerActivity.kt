@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin
 
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AppOpsManager
 import android.app.PendingIntent
@@ -34,6 +35,7 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.animation.PathInterpolator
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -49,9 +51,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalDensity
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.children
+import androidx.core.view.doOnNextLayout
 import androidx.core.view.isVisible
 import androidx.core.widget.TextViewCompat
 import androidx.lifecycle.Lifecycle
@@ -69,6 +73,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.audio.AudioPlayer
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.databinding.ActivityPlayerBinding
+import dev.jdtech.jellyfin.jrwi.JrwiTranscripts
 import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.local.R as PlayerR
 import dev.jdtech.jellyfin.player.local.domain.getTrackNames
@@ -79,6 +84,7 @@ import dev.jdtech.jellyfin.presentation.player.ChapterSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.PlayerMenuDialogFragment
 import dev.jdtech.jellyfin.presentation.player.PlayerMenuItem
 import dev.jdtech.jellyfin.presentation.player.PlayerPlaylistPanel
+import dev.jdtech.jellyfin.presentation.player.PlayerTranscriptPanel
 import dev.jdtech.jellyfin.presentation.player.QualitySelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.SleepTimerDialogFragment
 import dev.jdtech.jellyfin.presentation.player.SpeedSelectionDialogFragment
@@ -95,6 +101,8 @@ import dev.jdtech.jellyfin.utils.PreviewScrubListener
 import java.lang.ref.WeakReference
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -110,11 +118,27 @@ class PlayerActivity : BasePlayerActivity() {
 
     @Inject lateinit var audioPlayer: AudioPlayer
 
+    @Inject lateinit var jrwiTranscripts: JrwiTranscripts
+
     lateinit var binding: ActivityPlayerBinding
     private var playerGestureHelper: PlayerGestureHelper? = null
 
     // Whether the playlist being played is slid open over the player
     private var playlistOpen by mutableStateOf(false)
+
+    // Whether a JRWI episode's transcript is open beside the video, and where and how big it is
+    private var transcriptOpen by mutableStateOf(false)
+    private var transcriptSpace by mutableStateOf(TranscriptSpace(wide = true, size = 0))
+
+    // How far the video is moved over for the transcript now, and the animation doing it
+    private var transcriptShownPx = 0
+    private var transcriptAnimator: ValueAnimator? = null
+
+    // The margins each view of the screen had before the transcript made room
+    private val plainMargins = HashMap<View, IntArray>()
+
+    // Whether the picture was zoomed to fill the screen before the transcript opened
+    private var zoomBeforeTranscript = false
     override val viewModel: PlayerViewModel by viewModels()
 
     override fun isBackgroundPlaybackEnabled(): Boolean =
@@ -172,6 +196,7 @@ class PlayerActivity : BasePlayerActivity() {
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
         addPlaylistPanel()
+        addTranscriptPanel()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         binding.playerView.player = viewModel.player
@@ -211,6 +236,7 @@ class PlayerActivity : BasePlayerActivity() {
 
         val audioButton = binding.playerView.findViewById<ImageButton>(R.id.btn_audio_track)
         val subtitleButton = binding.playerView.findViewById<ImageButton>(R.id.btn_subtitle)
+        val transcriptButton = binding.playerView.findViewById<ImageButton>(R.id.btn_transcript)
         val speedButton = binding.playerView.findViewById<ImageButton>(R.id.btn_speed)
         val chaptersButton = binding.playerView.findViewById<ImageButton>(R.id.btn_chapters)
         val qualityButton = binding.playerView.findViewById<ImageButton>(R.id.btn_quality)
@@ -276,6 +302,7 @@ class PlayerActivity : BasePlayerActivity() {
                 PlayerButton.SLEEP_TIMER to sleepTimerButton,
                 PlayerButton.AUDIO to audioButton,
                 PlayerButton.SUBTITLES to subtitleButton,
+                PlayerButton.TRANSCRIPT to transcriptButton,
                 PlayerButton.ROTATE to rotateButton,
                 PlayerButton.PLAYLIST to playlistButton,
             ),
@@ -384,6 +411,12 @@ class PlayerActivity : BasePlayerActivity() {
 
                             // Subtitles: hidden when the video has none
                             subtitleButton.isVisible = hasSubtitles
+
+                            // A JRWI episode's transcript, as captions: only when it has one, and
+                            // dimmed while it's closed
+                            transcriptButton.isVisible = transcriptPostId != null
+                            if (transcriptPostId == null && transcriptOpen) closeTranscript()
+                            updateTranscriptButton(transcriptButton)
 
                             audioOnlyOverlay?.isVisible = isAudioOnly
 
@@ -518,6 +551,11 @@ class PlayerActivity : BasePlayerActivity() {
             TrackSelectionDialogFragment(C.TRACK_TYPE_TEXT, viewModel)
                 .show(supportFragmentManager, "trackselectiondialog")
             true
+        }
+
+        transcriptButton.setOnClickListener {
+            if (transcriptOpen) closeTranscript() else openTranscript()
+            updateTranscriptButton(transcriptButton)
         }
 
         speedButton.setOnClickListener {
@@ -677,6 +715,15 @@ class PlayerActivity : BasePlayerActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         updateOrientationLayout(newConfig.orientation == Configuration.ORIENTATION_PORTRAIT)
+        // The transcript moves to the side or the bottom, once the screen has its new size
+        if (transcriptOpen) {
+            binding.root.doOnNextLayout {
+                if (!transcriptOpen) return@doOnNextLayout
+                makeRoomForTranscript(0, animate = false)
+                transcriptSpace = transcriptSpaceNow()
+                makeRoomForTranscript(transcriptSpace.size, animate = false)
+            }
+        }
     }
 
     /**
@@ -952,6 +999,136 @@ class PlayerActivity : BasePlayerActivity() {
 
     private fun openPlaylistPage(playlistId: String) = openPage(TaPlaylistRoute(playlistId))
 
+    /**
+     * The transcript of a JRWI episode, beside the video, hidden until it's opened. Only the panel
+     * takes taps; the rest go through to the player.
+     */
+    private fun addTranscriptPanel() {
+        val panel =
+            ComposeView(this).apply {
+                setContent {
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    val space = transcriptSpace
+                    val size = with(LocalDensity.current) { space.size.toDp() }
+                    FindroidTheme(darkTheme = true) {
+                        PlayerTranscriptPanel(
+                            open = transcriptOpen,
+                            wide = space.wide,
+                            size = size,
+                            postId = state.transcriptPostId,
+                            transcripts = jrwiTranscripts,
+                            positionMs = { viewModel.player.currentPosition },
+                            onPlayFrom = { position ->
+                                viewModel.player.seekTo(position)
+                                viewModel.player.play()
+                            },
+                            onClose = { closeTranscript() },
+                            slideMillis = TRANSCRIPT_SLIDE_MS.toInt(),
+                        )
+                    }
+                }
+            }
+        binding.root.addView(
+            panel,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    /**
+     * Opens the transcript beside the video, which moves over to make room and stays whole: a
+     * picture zoomed to fill the screen goes back to fitting it while the transcript is open.
+     */
+    private fun openTranscript() {
+        if (transcriptOpen || viewModel.uiState.value.transcriptPostId == null) return
+        playlistOpen = false
+        binding.playerView.hideController()
+        zoomBeforeTranscript = playerGestureHelper?.isZoomEnabled == true
+        if (zoomBeforeTranscript) playerGestureHelper?.updateZoomMode(false)
+        transcriptSpace = transcriptSpaceNow()
+        transcriptOpen = true
+        makeRoomForTranscript(transcriptSpace.size, animate = true)
+    }
+
+    private fun closeTranscript(animate: Boolean = true) {
+        if (!transcriptOpen) return
+        transcriptOpen = false
+        makeRoomForTranscript(0, animate)
+        if (zoomBeforeTranscript) playerGestureHelper?.updateZoomMode(true)
+        zoomBeforeTranscript = false
+        binding.playerView.findViewById<ImageButton>(R.id.btn_transcript)?.let {
+            updateTranscriptButton(it)
+        }
+    }
+
+    private fun updateTranscriptButton(button: ImageButton) {
+        button.imageAlpha = if (transcriptOpen) 255 else 120
+        button.contentDescription =
+            getString(
+                if (transcriptOpen) CoreR.string.jrwi_transcript_hide
+                else CoreR.string.jrwi_transcript_show
+            )
+    }
+
+    /**
+     * Where the transcript goes on the screen as it's held now: at the side, at most 40% of a
+     * screen wider than tall; or at the bottom, below the video at the screen's width and room for
+     * its controls.
+     */
+    private fun transcriptSpaceNow(): TranscriptSpace {
+        val metrics = resources.displayMetrics
+        val width = binding.root.width.takeIf { it > 0 } ?: metrics.widthPixels
+        val height = binding.root.height.takeIf { it > 0 } ?: metrics.heightPixels
+        val density = metrics.density
+        return if (width > height) {
+            val size = min((width * 0.4f).toInt(), (TRANSCRIPT_MAX_WIDTH_DP * density).toInt())
+            TranscriptSpace(wide = true, size = size)
+        } else {
+            val video = (width * 9f / 16f + TRANSCRIPT_CONTROLS_DP * density).toInt()
+            val player = max(video, (height * 0.4f).toInt()).coerceAtMost((height * 0.6f).toInt())
+            TranscriptSpace(wide = false, size = height - player)
+        }
+    }
+
+    /**
+     * Moves the video and what's shown over it, such as the volume and brightness while they're
+     * changed, [px] away from the screen's end or bottom, for the transcript there: gliding as the
+     * transcript slides in or out with [animate].
+     */
+    private fun makeRoomForTranscript(px: Int, animate: Boolean) {
+        transcriptAnimator?.cancel()
+        transcriptAnimator = null
+        val wide = transcriptSpace.wide
+        if (!animate || transcriptShownPx == px) {
+            moveForTranscript(px, wide)
+            return
+        }
+        transcriptAnimator =
+            ValueAnimator.ofInt(transcriptShownPx, px).apply {
+                duration = TRANSCRIPT_SLIDE_MS
+                // As the panel's slide: Material's fast out, slow in
+                interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+                addUpdateListener { moveForTranscript(it.animatedValue as Int, wide) }
+                start()
+            }
+    }
+
+    private fun moveForTranscript(px: Int, wide: Boolean) {
+        transcriptShownPx = px
+        for (child in binding.root.children) {
+            // The panels themselves stay over the whole screen
+            if (child is ComposeView) continue
+            val params = child.layoutParams as? FrameLayout.LayoutParams ?: continue
+            val plain =
+                plainMargins.getOrPut(child) { intArrayOf(params.marginEnd, params.bottomMargin) }
+            params.marginEnd = plain[0] + if (wide) px else 0
+            params.bottomMargin = plain[1] + if (wide) 0 else px
+            child.layoutParams = params
+        }
+    }
+
     /** Opens the page of what's playing, from its title: its post, video, episode or movie. */
     private fun openItemPage() {
         val route =
@@ -1042,6 +1219,14 @@ class PlayerActivity : BasePlayerActivity() {
                 ) {
                     TrackSelectionDialogFragment(C.TRACK_TYPE_TEXT, viewModel)
                         .show(supportFragmentManager, "trackselectiondialog")
+                }
+            PlayerButton.TRANSCRIPT ->
+                PlayerMenuItem(
+                    icon = CoreR.drawable.ic_transcript,
+                    title = getString(CoreR.string.jrwi_transcript),
+                    value = if (transcriptOpen) getString(PlayerR.string.player_on) else off,
+                ) {
+                    view.performClick()
                 }
             PlayerButton.LOCK ->
                 PlayerMenuItem(
@@ -1477,6 +1662,8 @@ class PlayerActivity : BasePlayerActivity() {
         when (isInPictureInPictureMode) {
             true -> {
                 playlistOpen = false
+                // The small window shows the video alone
+                if (transcriptOpen) closeTranscript(animate = false)
                 binding.playerView.useController = false
                 skipSegmentButton.isVisible = false
 
@@ -1554,6 +1741,15 @@ private const val PIP_CONTROL_BACKGROUND = 3
 // The empty button in the small window's row, which does nothing
 private const val PIP_CONTROL_NONE = 0
 private const val CONTROLS_FADE_IN_MS = 150L
+
+/** Where the transcript is beside the video, and how wide or tall in pixels. */
+private data class TranscriptSpace(val wide: Boolean, val size: Int)
+
+// The transcript at the side is at most this wide, and below the video leaves the video's
+// controls this much room
+private const val TRANSCRIPT_MAX_WIDTH_DP = 420
+private const val TRANSCRIPT_CONTROLS_DP = 120
+private const val TRANSCRIPT_SLIDE_MS = 250L
 private const val CONTROLS_FADE_OUT_MS = 250L
 
 // About 38%, as Material uses for disabled icons

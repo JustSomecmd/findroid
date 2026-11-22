@@ -31,6 +31,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiDownloader
 import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
+import dev.jdtech.jellyfin.jrwi.JrwiTranscripts
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -59,6 +60,7 @@ constructor(
     private val jrwiApi: JrwiApi,
     private val jrwiProgress: JrwiProgressSync,
     private val downloads: JrwiDownloads,
+    private val transcripts: JrwiTranscripts,
 ) : CoroutineWorker(appContext, params) {
     private val notificationManager = appContext.getSystemService(NotificationManager::class.java)
     private var foreground = true
@@ -91,11 +93,18 @@ constructor(
         }
     }
 
-    /** The post's files for a video's download, when it still wants them. */
+    /**
+     * What goes with a video's download: the transcript timed for the video (v0.23), and the post's
+     * files when it still wants them.
+     */
     private suspend fun keepFilesForVideo(itemId: Long): Result {
-        if (itemId < 0 || !downloads.videoKeepsFiles(itemId)) return Result.success()
+        val video = if (itemId < 0) null else downloads.savedVideo(itemId)
+        if (video == null) return Result.success()
         return try {
-            withContext(Dispatchers.IO) { saveFiles(itemId) }
+            withContext(Dispatchers.IO) {
+                video.item.transcriptPost(audio = false)?.let { transcripts.keepWithDownload(it) }
+                if (downloads.videoKeepsFiles(itemId)) saveFiles(itemId)
+            }
             Result.success()
         } catch (e: CancellationException) {
             throw e
@@ -131,6 +140,8 @@ constructor(
         downloads.saveDetails(itemId, item, post(audio.postId), comments(audio.postId))
         item.thumbnail?.let { saveFile(it, downloads.thumbnailFile(itemId)) }
         if (downloads.get(itemId)?.withFiles != false) saveFiles(itemId)
+        // The lines to follow along with, timed for the audio (v0.23)
+        item.transcriptPost(audio = true)?.let { transcripts.keepWithDownload(it) }
         if (whole) return
         val etag = downloadAudio(itemId, audio, item)
         downloads.update(itemId) {

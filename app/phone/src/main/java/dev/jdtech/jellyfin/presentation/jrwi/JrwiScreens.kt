@@ -3266,6 +3266,21 @@ internal fun JrwiStatusCard(status: JrwiStatus, lastRun: JrwiCheckRun? = null) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        // Work between checks, such as timing transcripts (v0.23), which isn't a check
+        status.background?.let { background ->
+            val text =
+                listOfNotNull(background.phase, background.detail)
+                    .filter { it.isNotBlank() }
+                    .joinToString(": ")
+            if (text.isNotEmpty()) {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = JrwiColors.BodyText,
+                    modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+                )
+            }
+        }
         if (status.loginOk == false) {
             Text(
                 text = stringResource(CoreR.string.jrwi_login_failed),

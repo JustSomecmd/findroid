@@ -147,6 +147,11 @@ constructor(
         val taVideoId: String? = null,
         /** Whether it's a JRWI episode, archived or on YouTube, for the player's JRWI look. */
         val isJrwi: Boolean = false,
+        /**
+         * The JRWI post whose transcript follows what plays, timed in its timeline: the episode's
+         * video, or its audio while that plays here. Null without a transcript (v0.23).
+         */
+        val transcriptPostId: Long? = null,
     )
 
     /**
@@ -266,8 +271,18 @@ constructor(
     private var jrwiItem: JrwiItem? = null
         set(value) {
             field = value
-            _uiState.update { it.copy(isJrwi = value != null) }
+            _uiState.update {
+                it.copy(isJrwi = value != null, transcriptPostId = value?.let(::transcriptPost))
+            }
         }
+
+    /** The post whose transcript lines are timed for what plays of [item]: its audio or video. */
+    private fun transcriptPost(item: JrwiItem): Long? {
+        val audio = item.audio
+        val playsAudio =
+            audio != null && jrwiAudioMediaId == jrwiAudioMediaId(audio.postId).toString()
+        return item.transcriptPost(audio = playsAudio)
+    }
 
     private var jrwiAudioMediaId: String? = null
     private var jrwiLastReport = 0L
@@ -494,8 +509,9 @@ constructor(
                 if (startFromBeginning) null else jrwiProgress.progress(item, audio = true)
             val seconds = progress?.takeIf { !it.finished }?.position ?: 0.0
             val mediaId = jrwiAudioMediaId(audio.postId)
-            jrwiItem = item
+            // Before the item, which reads it for the transcript's timeline
             jrwiAudioMediaId = mediaId.toString()
+            jrwiItem = item
             jrwiLastReport = 0L
             val playerItem =
                 PlayerItem(
