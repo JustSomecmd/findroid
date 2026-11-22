@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -68,7 +69,7 @@ import kotlinx.coroutines.launch
  * JRWI mode's Downloads: the JRWI episodes on the phone ([phone]), and on the server side the
  * archiver at work, as its admin page has it, side by side under one bar as TubeArchivist's
  * Downloads has the phone's and the server's queue. The bar takes the server side's purple along
- * with a swipe, as Home's does.
+ * with a swipe, as Home's does, and has a button to the admin page itself.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +79,8 @@ fun JrwiDownloadsScreen(
     phone: @Composable () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val adminUrl = jrwiUrl(JRWI_ADMIN_PATH)
     JrwiTheme {
         JrwiScaffold(
             modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged(),
@@ -91,6 +94,18 @@ fun JrwiDownloadsScreen(
                                 onServer = sides.onServerSide,
                                 onToggle = { sides.switchSide(scope) },
                             )
+                        },
+                        // The archiver's admin page, which this page follows
+                        actions = {
+                            if (adminUrl != null) {
+                                IconButton(onClick = { openUrl(context, adminUrl) }) {
+                                    Icon(
+                                        painterResource(CoreR.drawable.ic_external_link),
+                                        contentDescription =
+                                            stringResource(CoreR.string.jrwi_open_in_archiver),
+                                    )
+                                }
+                            }
                         },
                         expandedHeight = JRWI_BAR_HEIGHT,
                         windowInsets = TOP_BAR_INSETS,
@@ -126,9 +141,10 @@ fun JrwiDownloadsScreen(
 
 /**
  * The archiver at work, as its admin page shows it: what it's doing, Check now, Full check and
- * Re-read saved pages (Stop while one runs), what happened lately, and the podcast feed it reads.
- * While it's shown, the status is read every few seconds during a check, so it can be followed, and
- * once a minute otherwise; the events and the feed once a check has finished, or on a pull.
+ * Re-read saved pages (Stop while one runs), what happened lately, the podcast feed it reads, and
+ * the posts it couldn't fully save. While it's shown, the status is read every few seconds during a
+ * check, so it can be followed, and once a minute otherwise; the rest once a check has finished, or
+ * on a pull.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -195,6 +211,7 @@ internal fun JrwiArchiverContent(
                     onRead = { viewModel.readPodcast() },
                 )
             }
+            item(key = "problems") { JrwiProblemsCard(state.problems, onItemClick) }
         }
     }
 }

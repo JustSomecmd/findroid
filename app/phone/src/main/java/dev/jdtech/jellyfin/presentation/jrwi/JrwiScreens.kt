@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
@@ -11,6 +12,10 @@ import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +30,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -157,6 +163,7 @@ import dev.jdtech.jellyfin.presentation.components.pageSwipes
 import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
 import dev.jdtech.jellyfin.presentation.film.components.HomeHeader
 import dev.jdtech.jellyfin.presentation.film.components.StorageSelectionDialog
+import dev.jdtech.jellyfin.presentation.theme.LocalPillShape
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.TA_CARD_MIN_WIDTH
 import dev.jdtech.jellyfin.presentation.tube.TaSectionTitle
@@ -260,9 +267,8 @@ internal fun openUrl(context: Context, url: String?) {
 /**
  * JRWI mode's Home: what was started and not finished, then the archive's feed, as the web app's
  * Home has it, with a search button in its bar. Its server side, to the left as with
- * TubeArchivist's Home, is the archiver's page in purple: the archive's numbers, what it's doing,
- * Check now and the posts it couldn't fully save. A swipe, a tap on the switch, or a double tap on
- * the tab turns it.
+ * TubeArchivist's Home, is the archive's numbers in purple, with a button in the bar to the
+ * archiver's admin page. A swipe, a tap on the switch, or a double tap on the tab turns it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -291,6 +297,7 @@ fun JrwiHomeScreen(
     }
     val scope = rememberCoroutineScope()
     val onServer = sides.serverSideShown(serverFirst = true)
+    val adminUrl = jrwiUrl(JRWI_ADMIN_PATH)
     // The archiver, from the header's pill, as TubeArchivist's servers from its Home
     var serverSheet by rememberSaveable { mutableStateOf(false) }
     // One page with the glow behind its bar, as the other JRWI pages, so the bar is one colour
@@ -340,6 +347,22 @@ fun JrwiHomeScreen(
                                         modifier = Modifier.size(32.dp),
                                     )
                                 },
+                                // On the archive's numbers, the archiver's admin page, as from
+                                // JRWI's Downloads
+                                endActions =
+                                    if (state.configured) {
+                                        {
+                                            AnimatedVisibility(
+                                                visible = onServer,
+                                                enter = fadeIn(),
+                                                exit = fadeOut(),
+                                            ) {
+                                                JrwiHeaderLinkButton(adminUrl)
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    },
                                 actions =
                                     if (state.configured) {
                                         {
@@ -463,6 +486,29 @@ private fun JrwiServerSheet(
         }
     }
 }
+
+/** A square button in Home's header that opens [url], a page of the archiver's web app. */
+@Composable
+private fun JrwiHeaderLinkButton(url: String?) {
+    val context = LocalContext.current
+    Surface(
+        onClick = { openUrl(context, url) },
+        enabled = url != null,
+        modifier = Modifier.fillMaxHeight().aspectRatio(1f),
+        shape = LocalPillShape.current,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                painter = painterResource(CoreR.drawable.ic_external_link),
+                contentDescription = stringResource(CoreR.string.jrwi_open_in_archiver),
+            )
+        }
+    }
+}
+
+/** The archiver's admin page: what it's doing, its controls, and the posts it couldn't save. */
+internal const val JRWI_ADMIN_PATH = "/admin"
 
 /**
  * Continue watching, then the archive's feed: every post on its own, newest first, loaded a page at
@@ -1393,7 +1439,24 @@ fun JrwiShowScreen(
                             }
                     }
                 }
-                JrwiShowBar(show = show, collapse = collapse, navigateBack = navigateBack)
+                // The shown page on the archiver's web app, which takes the same tab and season
+                val shownPage = tabs.getOrNull(shownTab)
+                val archiveUrl =
+                    jrwiUrl(
+                        buildString {
+                            append("/shows/").append(Uri.encode(showId))
+                            shownPage?.let { page ->
+                                append("?tab=").append(Uri.encode(page.tab))
+                                page.season?.let { append("&season=").append(it) }
+                            }
+                        }
+                    )
+                JrwiShowBar(
+                    show = show,
+                    collapse = collapse,
+                    navigateBack = navigateBack,
+                    archiveUrl = archiveUrl,
+                )
             }
         }
     }
@@ -1592,11 +1655,18 @@ private fun JrwiShowTabs(tabs: List<JrwiShowPage>, selected: Int, onSelect: (Int
 }
 
 /**
- * The show page's bar, over its picture: Back on a dark square while the picture shows, and once
- * it's folded away the bar's purple with the picture small and the show's name.
+ * The show page's bar, over its picture: Back, and at the other end the page on the archiver's web
+ * app, each on a dark square while the picture shows, and once it's folded away the bar's purple
+ * with the picture small and the show's name.
  */
 @Composable
-private fun JrwiShowBar(show: JrwiShow?, collapse: JrwiCollapse, navigateBack: () -> Unit) {
+private fun JrwiShowBar(
+    show: JrwiShow?,
+    collapse: JrwiCollapse,
+    navigateBack: () -> Unit,
+    archiveUrl: String?,
+) {
+    val context = LocalContext.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1607,30 +1677,18 @@ private fun JrwiShowBar(show: JrwiShow?, collapse: JrwiCollapse, navigateBack: (
                 .height(JRWI_SHOW_BAR_HEIGHT)
                 .padding(horizontal = MaterialTheme.spacings.small),
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier =
-                Modifier.size(44.dp)
-                    .clip(JrwiShape)
-                    .drawBehind {
-                        drawRect(
-                            JrwiColors.Background.copy(alpha = 0.55f * (1f - collapse.barAlpha))
-                        )
-                    }
-                    .clickable(onClick = navigateBack),
+        JrwiShowBarButton(
+            icon = CoreR.drawable.ic_arrow_left,
+            contentDescription = null,
+            collapse = collapse,
+            onClick = navigateBack,
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.weight(1f).graphicsLayer { alpha = collapse.barAlpha },
         ) {
-            Icon(
-                painter = painterResource(CoreR.drawable.ic_arrow_left),
-                contentDescription = null,
-                tint = JrwiColors.Text,
-            )
-        }
-        if (show != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f).graphicsLayer { alpha = collapse.barAlpha },
-            ) {
+            if (show != null) {
                 val ownPicture = show.poster ?: show.banner
                 JrwiImage(
                     path = show.image ?: ownPicture,
@@ -1647,6 +1705,40 @@ private fun JrwiShowBar(show: JrwiShow?, collapse: JrwiCollapse, navigateBack: (
                 )
             }
         }
+        if (archiveUrl != null) {
+            JrwiShowBarButton(
+                icon = CoreR.drawable.ic_external_link,
+                contentDescription = stringResource(CoreR.string.jrwi_open_in_archiver),
+                collapse = collapse,
+                onClick = { openUrl(context, archiveUrl) },
+            )
+        }
+    }
+}
+
+/** A button in the show page's bar, on a dark square while the picture shows. */
+@Composable
+private fun JrwiShowBarButton(
+    @DrawableRes icon: Int,
+    contentDescription: String?,
+    collapse: JrwiCollapse,
+    onClick: () -> Unit,
+) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier =
+            Modifier.size(44.dp)
+                .clip(JrwiShape)
+                .drawBehind {
+                    drawRect(JrwiColors.Background.copy(alpha = 0.55f * (1f - collapse.barAlpha)))
+                }
+                .clickable(onClick = onClick),
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = contentDescription,
+            tint = JrwiColors.Text,
+        )
     }
 }
 
@@ -2893,11 +2985,10 @@ private val RGB_REGEX =
 
 /**
  * The server side of JRWI Home: the archive's numbers, as TubeArchivist's stats on its Home's
- * server side, and the posts it couldn't fully save. What the archiver is doing, and its controls,
- * are on the server side of JRWI's Downloads. While it's shown, the status is read every few
- * seconds during a check, and once a minute otherwise, for the numbers to follow it. The numbers
- * are loaded once while the app runs, and again on a pull or once a check has finished; the
- * problems likewise.
+ * server side. What the archiver is doing, its controls and the posts it couldn't fully save are on
+ * the server side of JRWI's Downloads. While it's shown, the status is read every few seconds
+ * during a check, and once a minute otherwise, for the numbers to follow it. The numbers are loaded
+ * once while the app runs, and again on a pull or once a check has finished.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2988,9 +3079,6 @@ internal fun JrwiServerContent(
                             CircularProgressIndicator(modifier = Modifier.size(32.dp))
                         }
                     }
-            }
-            if (state.status != null) {
-                item(key = "problems") { JrwiProblemsCard(state.problems) }
             }
         }
     }
@@ -3253,9 +3341,9 @@ private const val CLOCK_TICK_MILLIS = 30_000L
 // The stats' run and the status's last check are the same one when they ended this close together
 private const val SAME_RUN_MILLIS = 5_000L
 
-/** The posts the archiver couldn't fully save, and why. */
+/** The posts the archiver couldn't fully save, and why; a post's title opens it. */
 @Composable
-private fun JrwiProblemsCard(problems: List<JrwiProblem>) {
+internal fun JrwiProblemsCard(problems: List<JrwiProblem>, onItemClick: (Long) -> Unit) {
     JrwiStatsCard(title = stringResource(CoreR.string.jrwi_problems)) {
         if (problems.isEmpty()) {
             Text(
@@ -3271,7 +3359,12 @@ private fun JrwiProblemsCard(problems: List<JrwiProblem>) {
                     modifier = Modifier.padding(vertical = MaterialTheme.spacings.small),
                 )
             }
-            Text(text = problem.title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = problem.title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable { onItemClick(problem.postId) },
+            )
             problem.problems.forEach {
                 Text(
                     text = it,

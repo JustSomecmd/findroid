@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -49,6 +50,8 @@ fun HomeHeader(
     logo: @Composable () -> Unit = { HomeHeaderLogo() },
     /** Shown right after the server pill, such as a switch. */
     actions: (@Composable () -> Unit)? = null,
+    /** Shown at the other end, before search, such as a link. */
+    endActions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val isOfflineMode = LocalOfflineMode.current
     // Round, or square on the JRWI pages
@@ -137,6 +140,8 @@ fun HomeHeader(
                     }
                 }
             }
+
+            endActions?.invoke(this)
 
             if (!isOfflineMode) {
                 Surface(

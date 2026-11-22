@@ -1467,7 +1467,10 @@ data class JrwiServerState(
     val error: String? = null,
 )
 
-/** The archiver itself: what it's doing, a check now, and posts it couldn't save. */
+/**
+ * The archiver itself: what it's doing, a check now, and for the Downloads server side the posts it
+ * couldn't save, what happened lately and the podcast feed.
+ */
 @HiltViewModel
 class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : ViewModel() {
     private val _state = MutableStateFlow(JrwiServerState())
@@ -1480,39 +1483,27 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
         viewModelScope.launch { refresh() }
     }
 
-    // When the last check had finished as the problems were read, which only change with a check
-    private var problemsRead = false
-    private var problemsCheck: String? = null
-
-    // Likewise the events and the podcast feed, which the Downloads server side shows
+    // When the last check had finished as the details were read: the problems, the recent events
+    // and the podcast feed, which the Downloads server side shows and which only change with a
+    // check
     private var detailsRead = false
     private var detailsCheck: String? = null
 
     /**
-     * Reads the status again, for a page that keeps it up to date, and the problems the first time,
-     * after a check has finished since, or with [force]. With [details], the recent events and the
-     * podcast feed too, on the same terms.
+     * Reads the status again, for a page that keeps it up to date. With [details], the posts it
+     * couldn't fully save, the recent events and the podcast feed too: the first time, after a
+     * check has finished since, or with [force].
      */
     suspend fun refresh(force: Boolean = false, details: Boolean = false) {
         try {
             val status = jrwiApi.getStatus()
             val finished = status.lastCheckFinished
-            val problems =
-                if (force || !problemsRead || finished != problemsCheck) {
-                    jrwiApi.getProblems().also {
-                        problemsRead = true
-                        problemsCheck = finished
-                    }
-                } else {
-                    _state.value.problems
-                }
             val canStop = jrwiApi.has(JrwiFeature.STOP) == true
             val canReread = jrwiApi.has(JrwiFeature.REPARSE) == true
             val hasPodcast = jrwiApi.has(JrwiFeature.PODCAST) == true
             _state.update {
                 it.copy(
                     status = status,
-                    problems = problems,
                     canStop = canStop,
                     canReread = canReread,
                     hasPodcast = hasPodcast,
@@ -1548,51 +1539,52 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
         }
     }
 
-    /** The events of the last week, newest first, and the podcast feed when the archiver has it. */
-    private suspend fun loadDetails(hasPodcast: Boolean) {
+    /**
+     * The posts the archiver couldn't fully save, the events of the last week, newest first, the
+     * podcast feed when the archiver has it, and the last finished check, all asked at once.
+     */
+    private suspend fun loadDetails(hasPodcast: Boolean) = coroutineScope {
         val since =
             OffsetDateTime.now(ZoneOffset.UTC)
                 .minusDays(EVENT_DAYS)
                 .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-        val events =
-            try {
+        val problemsRead = async { orNull("problems") { jrwiApi.getProblems() } }
+        val eventsRead = async {
+            orNull("events") {
                 jrwiApi.getEvents(since = since).sortedByDescending { it.at }.take(MAX_EVENTS)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.d(e, "No events from the archiver")
-                null
             }
-        val podcast =
-            if (!hasPodcast) null
-            else
-                try {
-                    jrwiApi.getPodcast()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.d(e, "No podcast feed from the archiver")
-                    null
-                }
-        val lastRun =
+        }
+        val podcastRead = async {
+            if (hasPodcast) orNull("podcast feed") { jrwiApi.getPodcast() } else null
+        }
+        val runRead = async {
             if (jrwiApi.has(JrwiFeature.STATS) == false) null
-            else
-                try {
-                    jrwiApi.getStats().checks.firstOrNull { it.finished != null }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.d(e, "No stats from the archiver")
-                    null
-                }
+            else orNull("stats") { jrwiApi.getStats().checks.firstOrNull { it.finished != null } }
+        }
+        val problems = problemsRead.await()
+        val events = eventsRead.await()
+        val podcast = podcastRead.await()
+        val lastRun = runRead.await()
         _state.update {
             it.copy(
+                problems = problems ?: it.problems,
                 events = events ?: it.events,
                 podcast = podcast ?: it.podcast,
                 lastRun = lastRun ?: it.lastRun,
             )
         }
     }
+
+    /** What [block] reads, or null when the archiver couldn't give it. */
+    private suspend fun <T> orNull(what: String, block: suspend () -> T): T? =
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.d(e, "No %s from the archiver", what)
+            null
+        }
 
     /**
      * Has the archiver re-read its saved pages with its current rules, as its admin page's Re-read
