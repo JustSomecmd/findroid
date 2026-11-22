@@ -3,10 +3,15 @@ package dev.jdtech.jellyfin
 import android.os.SystemClock
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -605,9 +610,17 @@ private fun MainNavigation(
                         // The mode's tabs sit side by side in one pager under the other pages, and
                         // their own entries in the navigation are left empty so the pager shows
                         // through. A new pager for each mode, on the tab it's switched to.
-                        val mainPages = if (jrwiMode) JRWI_TABS else taMainPages()
                         Box(modifier = Modifier.fillMaxSize()) {
-                            key(jrwiMode) {
+                            // Switching modes fades one mode's pager out and the other's in, the
+                            // new one rising a little into place: JRWI from below, as it's the
+                            // switch's far end, and TubeArchivist from above
+                            AnimatedContent(
+                                targetState = jrwiMode,
+                                transitionSpec = { modeSwitchTransition(toJrwi = targetState) },
+                                label = "mode switch",
+                                modifier = Modifier.fillMaxSize(),
+                            ) { mode ->
+                                val mainPages = if (mode) JRWI_TABS else taMainPages()
                                 TaMainPager(
                                     navigationState = navigationState,
                                     navigator = navigator,
@@ -635,6 +648,29 @@ private fun MainNavigation(
         }
     }
 }
+
+/**
+ * The switch between the modes: the old mode's pages fade out while drifting the other way, and the
+ * new mode's fade in as they rise (into JRWI) or drop (back to TubeArchivist) a little into place.
+ */
+private fun modeSwitchTransition(toJrwi: Boolean): ContentTransform {
+    val way = if (toJrwi) 1 else -1
+    val enter =
+        fadeIn(tween(MODE_SWITCH_MILLIS, delayMillis = MODE_SWITCH_MILLIS / 4)) +
+            slideInVertically(tween(MODE_SWITCH_MILLIS, easing = FastOutSlowInEasing)) { height ->
+                way * height / MODE_SWITCH_DRIFT
+            }
+    val exit =
+        fadeOut(tween(MODE_SWITCH_MILLIS / 2)) +
+            slideOutVertically(tween(MODE_SWITCH_MILLIS, easing = FastOutSlowInEasing)) { height ->
+                -way * height / MODE_SWITCH_DRIFT
+            }
+    return enter togetherWith exit
+}
+
+// How long switching modes takes, and how far the pages drift: a part of the screen's height
+private const val MODE_SWITCH_MILLIS = 350
+private const val MODE_SWITCH_DRIFT = 12
 
 /** Each mode's last tab with a match in the other: JRWI's, and TubeArchivist's or Jellyfin's. */
 private class LastModeTabs {
