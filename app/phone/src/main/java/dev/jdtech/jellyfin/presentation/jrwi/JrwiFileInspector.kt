@@ -1,6 +1,5 @@
 package dev.jdtech.jellyfin.presentation.jrwi
 
-import android.app.DownloadManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
@@ -45,6 +44,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,7 +62,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.net.toUri
 import coil3.compose.AsyncImage
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.jrwi.JrwiPostFile
@@ -133,7 +132,8 @@ fun jrwiFileDetail(file: JrwiPostFile): String {
  *
  * [loadPreview] gives what's inside, from the archiver or kept with a download; [fileOnPhone] gives
  * the file itself on the phone, for drawing a PDF there; [hasLocalCopy] says one was kept with the
- * download. [fileUrl] gives the archiver's address with the token, for another app or saving.
+ * download. [fileUrl] gives the archiver's address with the token, for saving; another app gets the
+ * file itself.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -146,6 +146,7 @@ fun JrwiFileInspector(
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var pictures by remember { mutableStateOf<JrwiPictures?>(null) }
     Dialog(
         onDismissRequest = onClose,
@@ -194,7 +195,12 @@ fun JrwiFileInspector(
                         },
                         actions = {
                             if (file.url != null) {
-                                IconButton(onClick = { openUrl(context, fileUrl(file.url)) }) {
+                                // Through a copy in the app, so the other app gets no token
+                                IconButton(
+                                    onClick = {
+                                        openJrwiFileElsewhere(context, scope, file, fileOnPhone)
+                                    }
+                                ) {
                                     Icon(
                                         painter = painterResource(CoreR.drawable.ic_external_link),
                                         contentDescription =
@@ -759,20 +765,14 @@ private fun InspectorText(text: String, padded: Boolean = true) {
 
 /**
  * Saves a file from the archiver to the phone's [directory], under JRWI, through Android's download
- * manager, which shows it in the notifications. [url] is its full address with the token.
+ * manager, which shows it in the notifications. [url] is its full address with the token, which
+ * goes to the download manager as a header.
  */
 fun saveFromJrwi(context: Context, url: String?, name: String, directory: String) {
     if (url == null) return
-    val fileName = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "file" }
+    val fileName = safeFileName(name)
     try {
-        val request =
-            DownloadManager.Request(url.toUri())
-                .setTitle(fileName)
-                .setNotificationVisibility(
-                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-                )
-                .setDestinationInExternalPublicDir(directory, "JRWI/$fileName")
-        context.getSystemService(DownloadManager::class.java).enqueue(request)
+        enqueueJrwiDownload(context, url, fileName, directory, "JRWI/$fileName")
         Toast.makeText(
                 context,
                 context.getString(CoreR.string.jrwi_file_saving, fileName, directory),

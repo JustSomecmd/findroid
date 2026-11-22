@@ -73,6 +73,18 @@
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
 
+        <!-- A JRWI file opened in another app, by an address that app may only read, so the
+             archiver's token never leaves the app -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/jrwi_shared_files" />
+        </provider>
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"

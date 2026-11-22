@@ -13,6 +13,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.jdtech.jellyfin.core.presentation.dummy.dummyMovies
 import dev.jdtech.jellyfin.film.presentation.home.HomeAction
 import dev.jdtech.jellyfin.models.FindroidItem
@@ -21,6 +23,7 @@ import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.carouselPages
 import dev.jdtech.jellyfin.presentation.utils.isWideLayout
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 // Three pages side by side when held sideways, as in the TubeArchivist carousel
 private fun dynamicPageSize(wide: Boolean) =
@@ -45,10 +48,14 @@ fun HomeCarousel(
 
     val autoScrollDelay = 5000L
 
+    // Turns on its own only while the page is on screen
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     if (!pagerIsDragged) {
-        LaunchedEffect(pagerState) {
+        LaunchedEffect(pagerState, lifecycle) {
             while (true) {
                 delay(autoScrollDelay)
+                // Waits while the page isn't on screen, without stopping a turn half way
+                lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
                 val nextPage =
                     if (pagerState.canScrollForward) {
                         pagerState.currentPage + 1

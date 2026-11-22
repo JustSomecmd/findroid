@@ -90,6 +90,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -186,6 +187,9 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** Address of the JRWI archiver, for the images it serves. */
@@ -222,13 +226,12 @@ internal fun JrwiImage(
 internal val TOP_BAR_INSETS
     @Composable get() = WindowInsets.statusBars.union(WindowInsets.displayCutout)
 
-/** Turns a message from a JRWI page into text. */
 /**
  * A comment's date as the site shows it, once: the archive reads replies' dates with the time in
  * twice ("2d 2d"), so a text that's the same thing twice over is shown halved.
  */
 private fun shownOnce(text: String): String {
-    val words = text.trim().split(Regex("\\s+"))
+    val words = text.trim().split(WHITESPACE)
     if (words.size % 2 != 0) return text
     val half = words.size / 2
     return if (words.subList(0, half) == words.subList(half, words.size)) {
@@ -238,6 +241,9 @@ private fun shownOnce(text: String): String {
     }
 }
 
+private val WHITESPACE = Regex("\\s+")
+
+/** Turns a message from a JRWI page into text. */
 internal fun jrwiMessageText(context: Context, message: String): String =
     when (message) {
         JrwiMessages.SAVED -> context.getString(CoreR.string.jrwi_saved)
@@ -252,15 +258,25 @@ internal fun jrwiMessageText(context: Context, message: String): String =
         else -> message
     }
 
-/** Opens an address in the browser, or whatever app handles it. */
+/**
+ * Opens an address in the browser, or whatever app handles it. Only web and mail addresses: a link
+ * in a post's text can be anything, and no other kind is handed on.
+ */
 internal fun openUrl(context: Context, url: String?) {
     if (url == null) return
+    val uri = url.toUri()
+    if (uri.scheme?.lowercase() !in OPENABLE_SCHEMES) {
+        Toast.makeText(context, url, Toast.LENGTH_LONG).show()
+        return
+    }
     try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
     } catch (_: Exception) {
         Toast.makeText(context, url, Toast.LENGTH_LONG).show()
     }
 }
+
+private val OPENABLE_SCHEMES = setOf("http", "https", "mailto")
 
 // The JRWI tab
 
@@ -549,7 +565,12 @@ private fun JrwiHomeList(
         if (state.feed.isNotEmpty()) {
             item(key = "feed_title") { TaSectionTitle(stringResource(CoreR.string.jrwi_latest)) }
         }
-        itemsIndexed(state.feed, key = { _, entry -> "feed:" + entry.post.id }) { index, entry ->
+        // Cards of one kind, so scrolling reuses them rather than building each anew
+        itemsIndexed(
+            state.feed,
+            key = { _, entry -> "feed:" + entry.post.id },
+            contentType = { _, _ -> "feed_post" },
+        ) { index, entry ->
             val post = entry.post
             LaunchedEffect(post.id) { onLoadDetails(post.id) }
             // The next page, a few posts before the end
@@ -1104,7 +1125,7 @@ fun JrwiShowsScreen(
                             Text(text = error, color = MaterialTheme.colorScheme.error)
                         }
                     }
-                    items(state.shows, key = { it.id }) { show ->
+                    items(state.shows, key = { it.id }, contentType = { "show" }) { show ->
                         JrwiShowCard(
                             show = show,
                             picture = state.showPictures[show.id],
@@ -1794,7 +1815,7 @@ private fun JrwiTabList(
                 JrwiPageDownloadButton(label = label, busy = queueing, onClick = onDownload)
             }
         }
-        items(list.items, key = { it.id }) { item ->
+        items(list.items, key = { it.id }, contentType = { "item" }) { item ->
             JrwiItemRow(
                 item = item,
                 // Posts the site's tags place here from another show say which show they're from
@@ -2337,13 +2358,21 @@ fun JrwiItemScreen(
                                         viewModel.showFrom(file)?.let {
                                             pictures = JrwiPictures(listOf(it), 0)
                                         }
-                                    // Other sound and video open in another app
+                                    // Other sound and video open in another app, which gets
+                                    // the file itself and not the archiver's token
                                     file.type == "audio" || file.type == "video" ->
-                                        openUrl(context, viewModel.fileUrl(file.url))
+                                        openJrwiFileElsewhere(
+                                            context,
+                                            scope,
+                                            file,
+                                            viewModel::fileOnPhone,
+                                        )
                                     else -> inspected = file
                                 }
                             },
-                            fileUrl = viewModel::fileUrl,
+                            onOpenFile = { file ->
+                                openJrwiFileElsewhere(context, scope, file, viewModel::fileOnPhone)
+                            },
                         )
                 }
                 item(key = "comments_title") {
@@ -2352,7 +2381,11 @@ fun JrwiItemScreen(
                             (comments.total?.let { " ($it)" } ?: "")
                     )
                 }
-                items(flatComments, key = { "comment:" + it.comment.id }) { flat ->
+                items(
+                    flatComments,
+                    key = { "comment:" + it.comment.id },
+                    contentType = { "comment" },
+                ) { flat ->
                     JrwiCommentRow(
                         comment = flat.comment,
                         depth = flat.depth,
@@ -2404,7 +2437,8 @@ private fun LazyListScope.jrwiPostContent(
     onOpen: (String?) -> Unit,
     onPicture: (JrwiPictures) -> Unit,
     onFile: (JrwiPostFile) -> Unit,
-    fileUrl: (String?) -> String?,
+    /** Opens a file in another app, for archivers that list no files. */
+    onOpenFile: (JrwiPostFile) -> Unit,
 ) {
     // Keyed by post, so switching versions never mixes the two
     val id = post.id
@@ -2481,7 +2515,7 @@ private fun LazyListScope.jrwiPostContent(
             }
         }
     } else {
-        // Older archivers list a post's attachments and documents, which open in the browser
+        // Older archivers list a post's attachments and documents, which open in another app
         val attached = (post.attachments + post.documents).distinctBy { it.url }
         if (attached.isNotEmpty()) {
             item(key = "files_title:$id") {
@@ -2492,7 +2526,9 @@ private fun LazyListScope.jrwiPostContent(
                     icon = CoreR.drawable.ic_download,
                     text = file.name,
                     detail = file.size?.let { formatBytes(it) },
-                    onClick = { onOpen(fileUrl(file.url)) },
+                    onClick = {
+                        onOpenFile(JrwiPostFile(name = file.name, url = file.url, size = file.size))
+                    },
                 )
             }
         }
@@ -3002,25 +3038,8 @@ internal fun JrwiServerContent(
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val stats by statsViewModel.state.collectAsStateWithLifecycle()
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
-    LaunchedEffect(lifecycle) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            statsViewModel.onShown()
-            // The status every few seconds while a check runs, to follow it, and now and then
-            // while the archiver waits, to see a check start
-            viewModel.refresh()
-            var waited = 0L
-            while (true) {
-                delay(SERVER_REFRESH_MILLIS)
-                waited += SERVER_REFRESH_MILLIS
-                if (state.status?.running == true || waited >= SERVER_IDLE_REFRESH_MILLIS) {
-                    viewModel.refresh()
-                    waited = 0L
-                }
-            }
-        }
-    }
+    FollowArchiver(viewModel, details = false, onShown = statsViewModel::onShown)
     // The numbers again once a check has finished
     LaunchedEffect(state.status?.running, state.status?.lastCheckFinished) {
         state.status?.let { statsViewModel.onStatus(it.running, it.lastCheckFinished) }
@@ -3080,6 +3099,37 @@ internal fun JrwiServerContent(
                         }
                     }
             }
+        }
+    }
+}
+
+/**
+ * Reads the archiver's status while a page shows it: every few seconds while a check runs, to
+ * follow it, and once a minute while the archiver waits, to see a check start. A check started from
+ * the page is followed from then on. [onShown] runs each time the page shows. With [details], the
+ * page's problems, events and podcast feed too, once a check has finished.
+ */
+@Composable
+internal fun FollowArchiver(
+    viewModel: JrwiServerViewModel,
+    details: Boolean,
+    onShown: () -> Unit = {},
+) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val shown by rememberUpdatedState(onShown)
+    LaunchedEffect(lifecycle, viewModel, details) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            shown()
+            viewModel.refresh(details = details)
+            viewModel.state
+                .map { it.status?.running == true }
+                .distinctUntilChanged()
+                .collectLatest { running ->
+                    while (true) {
+                        delay(if (running) SERVER_REFRESH_MILLIS else SERVER_IDLE_REFRESH_MILLIS)
+                        viewModel.refresh(details = details)
+                    }
+                }
         }
     }
 }
@@ -3173,10 +3223,14 @@ internal fun JrwiStatusCard(status: JrwiStatus, lastRun: JrwiCheckRun? = null) {
 private fun JrwiCheckTimes(status: JrwiStatus, lastRun: JrwiCheckRun?) {
     val context = LocalContext.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(CLOCK_TICK_MILLIS)
-            now = System.currentTimeMillis()
+    // Only while the page is on screen, and up to date as soon as it's back
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                now = System.currentTimeMillis()
+                delay(CLOCK_TICK_MILLIS)
+            }
         }
     }
     val muted = MaterialTheme.colorScheme.onSurfaceVariant

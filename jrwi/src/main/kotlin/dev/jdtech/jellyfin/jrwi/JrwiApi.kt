@@ -74,13 +74,30 @@ class JrwiApi(private val config: JrwiConfig) {
     }
 
     /**
-     * Full address of a path with the token in it, for players, downloads and other apps that can't
-     * send the Authorization header.
+     * Full address of a path with the token in it, for the app's own players, which can't send the
+     * Authorization header. The token only goes with an address on the archiver itself, never to
+     * another server a post's content points to.
      */
     fun fileUrlWithToken(path: String?): String? {
         val url = fileUrl(path)?.toHttpUrlOrNull() ?: return null
-        val token = token ?: return url.toString()
+        val token = token?.takeIf { isArchiverUrl(url) } ?: return url.toString()
         return url.newBuilder().setQueryParameter("token", token).build().toString()
+    }
+
+    /**
+     * [url] with the token in it when it's an address on the archiver, for the app's own picture
+     * loading; any other address as it is.
+     */
+    fun withToken(url: String): String {
+        val parsed = url.toHttpUrlOrNull() ?: return url
+        val token = token?.takeIf { isArchiverUrl(parsed) } ?: return url
+        return parsed.newBuilder().setQueryParameter("token", token).build().toString()
+    }
+
+    /** Whether [url] is on the archiver itself, so its token may go with it. */
+    fun isArchiverUrl(url: HttpUrl): Boolean {
+        val base = baseUrl?.toHttpUrlOrNull() ?: return false
+        return url.scheme == base.scheme && url.host == base.host && url.port == base.port
     }
 
     // Connection
@@ -372,7 +389,8 @@ class JrwiApi(private val config: JrwiConfig) {
             Request.Builder()
                 .url(url)
                 .apply {
-                    authHeader?.let { header("Authorization", it) }
+                    // The token only to the archiver, not to another server a post points to
+                    if (isArchiverUrl(url)) authHeader?.let { header("Authorization", it) }
                     if (from > 0) header("Range", "bytes=$from-")
                 }
                 .build()

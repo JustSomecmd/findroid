@@ -1,6 +1,5 @@
 package dev.jdtech.jellyfin.presentation.jrwi
 
-import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
@@ -65,7 +64,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.net.toUri
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
@@ -317,20 +315,14 @@ private const val ZOOM_MILLIS = 250
 
 /**
  * Saves a picture to the phone's Pictures folder, under JRWI, through Android's download manager,
- * which shows it in the notifications. [url] is the picture's full address with the token.
+ * which shows it in the notifications. [url] is the picture's full address with the token, which
+ * goes to the download manager as a header.
  */
 fun saveJrwiPicture(context: Context, url: String?, path: String) {
     if (url == null) return
-    val name = pictureFileName(path)
+    val name = safeFileName(pictureFileName(path))
     try {
-        val request =
-            DownloadManager.Request(url.toUri())
-                .setTitle(name)
-                .setNotificationVisibility(
-                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-                )
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_PICTURES, "JRWI/$name")
-        context.getSystemService(DownloadManager::class.java).enqueue(request)
+        enqueueJrwiDownload(context, url, name, Environment.DIRECTORY_PICTURES, "JRWI/$name")
         Toast.makeText(
                 context,
                 context.getString(CoreR.string.jrwi_picture_saving, name),

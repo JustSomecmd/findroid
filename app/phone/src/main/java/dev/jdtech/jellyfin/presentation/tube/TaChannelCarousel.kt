@@ -34,11 +34,14 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.utils.isWideLayout
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 /**
  * How many carousel pages sit side by side: one on a phone, two or three on wider screens, as on
@@ -74,10 +77,14 @@ fun TaChannelCarousel(
     val pageSize = remember(wide) { carouselPageSize(wide) }
     val dragged by pagerState.interactionSource.collectIsDraggedAsState()
 
+    // Turns on its own only while the page is on screen
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     if (!dragged) {
-        LaunchedEffect(pagerState) {
+        LaunchedEffect(pagerState, lifecycle) {
             while (true) {
                 delay(AUTO_SCROLL_DELAY_MS)
+                // Waits while the page isn't on screen, without stopping a turn half way
+                lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
                 val next = if (pagerState.canScrollForward) pagerState.currentPage + 1 else 0
                 pagerState.animateScrollToPage(next)
             }

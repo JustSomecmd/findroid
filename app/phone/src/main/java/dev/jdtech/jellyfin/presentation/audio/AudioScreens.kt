@@ -74,7 +74,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
@@ -104,6 +103,7 @@ import dev.jdtech.jellyfin.presentation.jrwi.JrwiPurple
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiScaffold
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShape
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiTheme
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiTonal
 import dev.jdtech.jellyfin.presentation.jrwi.jrwiGhostButtonColors
 import dev.jdtech.jellyfin.presentation.jrwi.jrwiTopBarColors
 import dev.jdtech.jellyfin.presentation.theme.spacings
@@ -120,14 +120,19 @@ import kotlinx.coroutines.launch
 @HiltViewModel class AudioViewModel @Inject constructor(val player: AudioPlayer) : ViewModel()
 
 /**
- * The player's colours and shapes: the archiver's colours with JRWI mode's purple and square
- * corners for JRWI audio, the app's own colours and round buttons for a TubeArchivist video.
+ * The player's colours and shapes: for JRWI audio the archiver's colours, its yellow buttons with
+ * square corners, and JRWI mode's purple on the bars; for a TubeArchivist video the app's own
+ * colours and round buttons.
  */
 @Immutable
 private class PlayerLook(
     val jrwi: Boolean,
+    /** The bars, sliders and spinner. */
     val accent: Color,
     val onAccent: Color,
+    /** The buttons: filled, and the quieter ones next to them. */
+    val button: Color,
+    val onButton: Color,
     val tonal: Color,
     val onTonal: Color,
     val text: Color,
@@ -144,14 +149,17 @@ private class PlayerLook(
 
 private val LocalPlayerLook = staticCompositionLocalOf<PlayerLook> { error("No player look") }
 
-// JRWI mode's purple, as the bottom bar lights up in, in place of the archiver's yellow
+// The archiver's yellow buttons, with JRWI mode's purple, as the bottom bar lights up in, on the
+// bars
 private val JrwiLook =
     PlayerLook(
         jrwi = true,
         accent = JrwiPurple.Accent,
         onAccent = JrwiPurple.Ink,
-        tonal = JrwiPurple.Accent.copy(alpha = 0.16f).compositeOver(JrwiColors.Background),
-        onTonal = JrwiPurple.Accent,
+        button = JrwiColors.Accent,
+        onButton = JrwiColors.AccentInk,
+        tonal = JrwiTonal,
+        onTonal = JrwiColors.Accent,
         text = JrwiColors.Text,
         muted = JrwiColors.Muted,
         track = JrwiBarTrack,
@@ -173,6 +181,8 @@ private fun PlayerLookTheme(appLook: Boolean, content: @Composable () -> Unit) {
                     jrwi = false,
                     accent = colors.primary,
                     onAccent = colors.onPrimary,
+                    button = colors.primary,
+                    onButton = colors.onPrimary,
                     tonal = colors.secondaryContainer,
                     onTonal = colors.onSecondaryContainer,
                     text = colors.onSurface,
@@ -497,8 +507,8 @@ fun AudioPlayerScreen(
                             shape = look.buttonShape,
                             colors =
                                 ButtonDefaults.buttonColors(
-                                    containerColor = look.accent,
-                                    contentColor = look.onAccent,
+                                    containerColor = look.button,
+                                    contentColor = look.onButton,
                                 ),
                             modifier = Modifier.padding(top = MaterialTheme.spacings.small),
                         ) {
@@ -697,7 +707,8 @@ private fun SeekBar(
 }
 
 /**
- * Play or pause in the accent, square or round as the look has it, with a spinner while it loads.
+ * Play or pause in the buttons' colour, square or round as the look has it, with a spinner while it
+ * loads.
  */
 @Composable
 private fun PlayPauseButton(state: AudioState, onClick: () -> Unit, size: Dp) {
@@ -706,14 +717,14 @@ private fun PlayPauseButton(state: AudioState, onClick: () -> Unit, size: Dp) {
         onClick = onClick,
         enabled = !state.loading,
         shape = look.buttonShape,
-        color = look.accent,
-        contentColor = look.onAccent,
+        color = look.button,
+        contentColor = look.onButton,
         modifier = Modifier.size(size),
     ) {
         Box(contentAlignment = Alignment.Center) {
             if (state.loading || (state.buffering && !state.playing && !state.ended)) {
                 CircularProgressIndicator(
-                    color = look.onAccent,
+                    color = look.onButton,
                     strokeWidth = 2.dp,
                     modifier = Modifier.size(size / 2),
                 )
@@ -753,8 +764,8 @@ private fun PlayerButton(
         onClick = onClick,
         enabled = enabled,
         shape = look.buttonShape,
-        color = if (filled) look.accent else look.tonal,
-        contentColor = if (filled) look.onAccent else look.onTonal,
+        color = if (filled) look.button else look.tonal,
+        contentColor = if (filled) look.onButton else look.onTonal,
         modifier = modifier.size(BUTTON_SIZE).alpha(if (enabled) 1f else DISABLED_ALPHA),
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -960,7 +971,7 @@ private fun SleepSheet(
                                                 CoreR.string.jrwi_player_minutes,
                                                 abs(minutes),
                                             ),
-                                    color = look.accent,
+                                    color = look.button,
                                 )
                             }
                         }
@@ -1029,8 +1040,8 @@ private fun Choice(text: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = look.buttonShape,
-        color = if (selected) look.accent else look.tonal,
-        contentColor = if (selected) look.onAccent else look.onTonal,
+        color = if (selected) look.button else look.tonal,
+        contentColor = if (selected) look.onButton else look.onTonal,
     ) {
         Text(
             text = text,

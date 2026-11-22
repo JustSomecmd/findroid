@@ -28,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -41,10 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.repeatOnLifecycle
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiServerState
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiServerViewModel
@@ -62,7 +58,6 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -155,22 +150,8 @@ internal fun JrwiArchiverContent(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
-    LaunchedEffect(lifecycle) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            viewModel.refresh(details = true)
-            var waited = 0L
-            while (true) {
-                delay(SERVER_REFRESH_MILLIS)
-                waited += SERVER_REFRESH_MILLIS
-                if (state.status?.running == true || waited >= SERVER_IDLE_REFRESH_MILLIS) {
-                    viewModel.refresh(details = true)
-                    waited = 0L
-                }
-            }
-        }
-    }
+    FollowArchiver(viewModel, details = true)
     ObserveAsEvents(viewModel.messages) { message ->
         Toast.makeText(context, jrwiMessageText(context, message), Toast.LENGTH_LONG).show()
     }

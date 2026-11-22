@@ -561,6 +561,8 @@
     <string name="jrwi_file_save">Save to the phone</string>
     <string name="jrwi_file_source">Original link</string>
     <string name="jrwi_file_saving">Saving %1$s to %2$s/JRWI</string>
+    <string name="jrwi_file_getting">Getting %1$s from the archive…</string>
+    <string name="jrwi_file_no_app">No app on this phone opens this kind of file</string>
     <string name="jrwi_file_no_preview">There\'s no preview for this type of file. Save it or open it in another app.</string>
     <string name="jrwi_file_preview_failed">The preview couldn\'t be loaded (%1$s). Save the file or open it in another app.</string>
     <string name="jrwi_file_pdf_failed">The PDF couldn\'t be opened (%1$s). Save it or open it in another app.</string>

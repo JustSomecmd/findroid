@@ -23,7 +23,7 @@ class PlaybackService : MediaSessionService() {
     private val playerListener =
         object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
-                updateLocks(shouldStayAwake(player))
+                updateLocks(shouldStayAwake(player), streams(player))
             }
         }
 
@@ -35,6 +35,16 @@ class PlaybackService : MediaSessionService() {
         player.playWhenReady &&
             (player.playbackState == Player.STATE_READY ||
                 player.playbackState == Player.STATE_BUFFERING)
+
+    /**
+     * Whether what plays may come over the network, so Wi-Fi has to stay awake too: all but a file
+     * on the phone, which is a path or a file or content address.
+     */
+    private fun streams(player: Player): Boolean {
+        val uri = player.currentMediaItem?.localConfiguration?.uri ?: return true
+        val scheme = uri.scheme ?: return false
+        return scheme != "file" && scheme != "content"
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -55,7 +65,7 @@ class PlaybackService : MediaSessionService() {
             observedPlayer?.removeListener(playerListener)
             observedPlayer = session.player
             session.player.addListener(playerListener)
-            updateLocks(shouldStayAwake(session.player))
+            updateLocks(shouldStayAwake(session.player), streams(session.player))
         }
     }
 
@@ -72,11 +82,12 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         observedPlayer?.removeListener(playerListener)
         observedPlayer = null
-        updateLocks(false)
+        updateLocks(isPlaying = false, streaming = false)
         super.onDestroy()
     }
 
-    private fun updateLocks(isPlaying: Boolean) {
+    /** The processor awake while it plays, and Wi-Fi too while what plays is a stream. */
+    private fun updateLocks(isPlaying: Boolean, streaming: Boolean) {
         if (isPlaying) {
             val wake =
                 wakeLock
@@ -92,7 +103,9 @@ class PlaybackService : MediaSessionService() {
                         .apply { setReferenceCounted(false) }
                         .also { wifiLock = it }
             if (!wake.isHeld) wake.acquire(WAKE_LOCK_TIMEOUT_MS)
-            if (!wifi.isHeld) wifi.acquire()
+            // A video on the phone needs no Wi-Fi, which can then sleep
+            if (streaming && !wifi.isHeld) wifi.acquire()
+            if (!streaming && wifi.isHeld) wifi.release()
         } else {
             wakeLock?.takeIf { it.isHeld }?.release()
             wifiLock?.takeIf { it.isHeld }?.release()

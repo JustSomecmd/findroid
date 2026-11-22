@@ -6,6 +6,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiApi
 import dev.jdtech.jellyfin.jrwi.JrwiDownloader
 import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
+import dev.jdtech.jellyfin.jrwi.JrwiSavedVideo
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidSourceType
 import dev.jdtech.jellyfin.models.isDownloaded
@@ -17,6 +18,10 @@ import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.utils.Downloader
 import java.io.File
+import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,9 +34,10 @@ import timber.log.Timber
 /**
  * Keeps the phone's downloads of JRWI episodes in step with TubeArchivist:
  * - When the archive deletes an episode's video because TubeArchivist has it from YouTube, a copy
- *   of that video downloaded through Jellyfin goes too, and TubeArchivist's video is put in the
- *   download queue instead, on the same storage, once Jellyfin has it. Until then it waits, and
- *   each check tries again.
+ *   of that video downloaded through Jellyfin goes too (found through the archive's events, and
+ *   once a day by looking up each video), and TubeArchivist's video is put in the download queue
+ *   instead, on the same storage, once Jellyfin has it. Until then it waits, and each check tries
+ *   again.
  * - TubeArchivist's downloads that are a JRWI episode's YouTube video are kept with their episode,
  *   so they're listed in JRWI's Downloads as well as TubeArchivist's.
  */
@@ -80,23 +86,32 @@ constructor(
         }
     }
 
-    /** Takes handed-over archived videos off the phone: true when there were any. */
+    /**
+     * Takes handed-over archived videos off the phone: true when there were any. Each video is
+     * looked up once a day; in between, one request for the archive's events says which were handed
+     * over since the last look, and only those are looked up.
+     */
     private suspend fun removeHandedOver(): Boolean {
         // Only the archived videos: TubeArchivist's copies are what's wanted after a hand-over
         val saved = jrwiDownloads.savedVideos().filter { it.youtubeId == null }
         if (saved.isEmpty()) return false
+        val started = System.currentTimeMillis()
+        val sweep = started - prefs.getLong(KEY_SWEPT, 0L) >= SWEEP_MILLIS
+        val toCheck = if (sweep) saved else handedOverSince(saved) ?: return false
         var removed = false
+        var allRead = true
         // The phone's downloaded episodes, read once there's a hand-over
         var downloaded: List<FindroidEpisode>? = null
-        for (video in saved) {
+        for (video in toCheck) {
             val item =
                 try {
                     jrwiApi.getItem(video.item.id)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    // Offline, or the archive can't say: the copy stays
+                    // Offline, or the archive can't say: the copy stays, and is asked about again
                     Timber.d(e, "Could not look up JRWI item ${video.item.id}")
+                    allRead = false
                     continue
                 }
             val now = item.video ?: continue
@@ -114,7 +129,39 @@ constructor(
             Timber.i("JRWI item ${video.item.id} was handed over to TubeArchivist ($youtubeId)")
             if (youtubeId != null) addWaiting(youtubeId, storageIndex, video.withFiles)
         }
+        // Up to here once every video asked about was read
+        if (allRead) {
+            prefs
+                .edit()
+                .putLong(KEY_EVENTS_FROM, started)
+                .apply { if (sweep) putLong(KEY_SWEPT, started) }
+                .apply()
+        }
         return removed
+    }
+
+    /**
+     * The downloaded videos the archive's events say were handed over since the last look, or null
+     * when the archive can't say.
+     */
+    private suspend fun handedOverSince(saved: List<JrwiSavedVideo>): List<JrwiSavedVideo>? {
+        // A little before, for the phone's clock and the server's not quite agreeing
+        val from = prefs.getLong(KEY_EVENTS_FROM, 0L) - CLOCK_MARGIN_MILLIS
+        val since =
+            OffsetDateTime.ofInstant(Instant.ofEpochMilli(from), ZoneOffset.UTC)
+                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        val events =
+            try {
+                jrwiApi.getEvents(since = since)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.d(e, "Could not read the archive's events")
+                return null
+            }
+        val handedOver =
+            events.filter { it.type == EVENT_HANDED_OVER }.mapNotNull { it.postId }.toSet()
+        return saved.filter { it.item.id in handedOver }
     }
 
     private suspend fun queueWaiting() {
@@ -310,6 +357,12 @@ constructor(
         // TubeArchivist videos queued after a hand-over whose post's files come with them
         const val KEY_FILES = "with_files"
         const val KEY_NOT_JRWI = "not_jrwi"
+        // When every downloaded video was last looked up, and from when the events were last read
+        const val KEY_SWEPT = "swept"
+        const val KEY_EVENTS_FROM = "events_from"
+        const val EVENT_HANDED_OVER = "video_handed_over"
+        val SWEEP_MILLIS = TimeUnit.DAYS.toMillis(1)
+        val CLOCK_MARGIN_MILLIS = TimeUnit.HOURS.toMillis(1)
         // A TubeArchivist video Jellyfin still doesn't have after this long isn't waited for
         val GIVE_UP_MILLIS = TimeUnit.DAYS.toMillis(14)
         val DAY = TimeUnit.DAYS.toMillis(1)

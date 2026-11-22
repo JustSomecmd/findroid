@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The only folder the file provider hands out: copies of JRWI files opened in another app -->
+<paths>
+    <cache-path
+        name="shared"
+        path="shared/" />
+</paths>

@@ -13,6 +13,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -56,10 +57,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jellyfin.sdk.model.api.BaseItemKind
 import timber.log.Timber
 
@@ -216,6 +219,9 @@ constructor(
 
     private var loadJob: Job? = null
     private var tickJob: Job? = null
+
+    // Whether the player may hand the sound to the phone's audio chip, until that once fails
+    private var offloading = false
     private var sleepJob: Job? = null
     private var lastSaveMs = 0L
     private var pausedAtMs: Long? = null
@@ -306,6 +312,20 @@ constructor(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                val player = exo
+                // A phone that said its audio chip could play this and then couldn't: once more
+                // the usual way, from the same place
+                if (player != null && offloading && error.errorCode in AUDIO_TRACK_ERRORS) {
+                    Timber.w(error, "Audio offload failed, playing without it")
+                    offloading = false
+                    player.trackSelectionParameters =
+                        player.trackSelectionParameters
+                            .buildUpon()
+                            .setAudioOffloadPreferences(AudioOffloadPreferences.DEFAULT)
+                            .build()
+                    player.prepare()
+                    return
+                }
                 _state.update { it.copy(error = error.localizedMessage) }
             }
         }
@@ -389,9 +409,10 @@ constructor(
         val localPicture =
             download?.let { jrwiDownloads.thumbnailFile(it.itemId) }?.takeIf { it.exists() }
         val picture = localPicture?.let { Uri.fromFile(it).toString() } ?: item.thumbnail
+        // Without the token: the session shares this address with other apps' media controls, and
+        // its picture loader adds the token in the app
         val artwork =
-            localPicture?.let { Uri.fromFile(it) }
-                ?: jrwiApi.fileUrlWithToken(item.thumbnail)?.toUri()
+            localPicture?.let { Uri.fromFile(it) } ?: jrwiApi.fileUrl(item.thumbnail)?.toUri()
         val mediaItem =
             MediaItem.Builder()
                 .setMediaId("jrwi-audio-${audio.postId}")
@@ -763,7 +784,10 @@ constructor(
                         }
                 video?.sponsorSegments().orEmpty()
             }
-        if (isCurrent()) segments = media + sponsor
+        if (isCurrent()) {
+            segments = media + sponsor
+            if (segments.isNotEmpty()) restartTicking()
+        }
     }
 
     /** Skippable SponsorBlock segments, as the video player has them. */
@@ -841,6 +865,11 @@ constructor(
 
     private fun start(mediaItem: MediaItem, startMs: Long) {
         val player = ensurePlayer()
+        // Wi-Fi kept awake only while a stream plays; a file on the phone needs just the processor
+        val uri = mediaItem.localConfiguration?.uri
+        val onPhone =
+            uri != null && uri.scheme.let { it == null || it == "file" || it == "content" }
+        player.setWakeMode(if (onPhone) C.WAKE_MODE_LOCAL else C.WAKE_MODE_NETWORK)
         lastSaveMs = SystemClock.elapsedRealtime()
         pausedAtMs = null
         player.setMediaItem(mediaItem, startMs)
@@ -987,7 +1016,8 @@ constructor(
                 )
                 // Pauses when headphones are unplugged
                 .setHandleAudioBecomingNoisy(true)
-                // Keeps the phone and Wi-Fi awake while it streams with the screen off
+                // Keeps the phone and Wi-Fi awake while it streams with the screen off; set for
+                // each episode, as one on the phone needs no Wi-Fi
                 .setWakeMode(C.WAKE_MODE_NETWORK)
                 // For the notification and Bluetooth, as far as the buttons
                 .setSeekBackIncrementMs(backMs)
@@ -999,7 +1029,9 @@ constructor(
                 .buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .setAudioOffloadPreferences(OFFLOAD)
                 .build()
+        offloading = true
         player.addListener(listener)
         exo = player
         session =
@@ -1016,6 +1048,8 @@ constructor(
                         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                     )
                 )
+                // The archiver's pictures with its token, which the session doesn't share
+                .setBitmapLoader(ArchiverBitmapLoader(context, jrwiApi))
                 .build()
         return player
     }
@@ -1047,7 +1081,9 @@ constructor(
 
     /**
      * Reads the player's position often while it plays, saves it every 15 seconds, and skips or
-     * offers to skip segments.
+     * offers to skip segments. With no page showing the player and no segments to skip, such as
+     * with the screen off, it only wakes to save, so the phone can sleep in between, and goes back
+     * to reading often as soon as a page shows it again.
      */
     private fun startTicking() {
         if (tickJob?.isActive == true) return
@@ -1059,9 +1095,21 @@ constructor(
                 checkSegment(player.currentPosition)
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastSaveMs >= SAVE_EVERY_MS) save(Save.TICK)
-                delay(TICK_MS)
+                if (segments.isNotEmpty() || _state.subscriptionCount.value > 0) {
+                    delay(TICK_MS)
+                } else {
+                    withTimeoutOrNull(SAVE_EVERY_MS) { _state.subscriptionCount.first { it > 0 } }
+                }
             }
         }
+    }
+
+    /** Reads often again from now, such as once a video's segments are known. */
+    private fun restartTicking() {
+        if (tickJob?.isActive != true) return
+        tickJob?.cancel()
+        tickJob = null
+        startTicking()
     }
 
     /**
@@ -1241,6 +1289,24 @@ constructor(
         private const val JRWI_ALBUM = "JRWI"
         private const val SAVE_EVERY_MS = 15_000L
         private const val TICK_MS = 250L
+
+        /**
+         * The phone's audio chip plays the sound where it can while the processor sleeps, for long
+         * episodes with the screen off, only where it can change the speed too.
+         */
+        private val OFFLOAD =
+            AudioOffloadPreferences.Builder()
+                .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED)
+                .setIsSpeedChangeSupportRequired(true)
+                .build()
+
+        private val AUDIO_TRACK_ERRORS =
+            setOf(
+                PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+                PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED,
+                PlaybackException.ERROR_CODE_AUDIO_TRACK_OFFLOAD_INIT_FAILED,
+                PlaybackException.ERROR_CODE_AUDIO_TRACK_OFFLOAD_WRITE_FAILED,
+            )
         private const val WATCHED_PART = 0.9
         private const val REWIND_AFTER_PAUSE_MS = 60_000L
         private const val REWIND_MS = 5_000L
