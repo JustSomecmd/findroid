@@ -76,9 +76,8 @@ private fun sharedCopy(context: Context, source: File, name: String): File {
     val target = File(dir, safeFileName(name))
     dir.listFiles()?.forEach { if (it != target) it.deleteRecursively() }
     dir.mkdirs()
-    if (!target.isFile || target.length() != source.length()) {
-        source.copyTo(target, overwrite = true)
-    }
+    // Copied again each time, as another post can have a file of the same name
+    source.copyTo(target, overwrite = true)
     return target
 }
 
