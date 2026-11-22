@@ -241,13 +241,9 @@ fun JrwiHomeScreen(
     onSetUp: () -> Unit,
     sides: PagerState,
     viewModel: JrwiShowsViewModel = hiltViewModel(),
-    audioViewModel: AudioViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val audio by audioViewModel.player.state.collectAsStateWithLifecycle()
-    // The feed's audio playing now, which its card shows with a pause button
-    val playingAudio = audio.jrwiItem?.audio?.postId?.takeIf { audio.playing }
     // A post's pictures full screen, after one is tapped in the feed
     var pictures by remember { mutableStateOf<JrwiPictures?>(null) }
     pictures?.let { shown ->
@@ -357,16 +353,7 @@ fun JrwiHomeScreen(
                     ) {
                         JrwiHomeList(
                             state = state,
-                            playingAudio = playingAudio,
                             onItemClick = onItemClick,
-                            onPlayAudio = { postId ->
-                                // The same episode pauses or plays on; another starts
-                                if (audio.jrwiItem?.audio?.postId == postId) {
-                                    audioViewModel.player.toggle()
-                                } else {
-                                    audioViewModel.player.playJrwi(postId)
-                                }
-                            },
                             onPicture = { pictures = it },
                             onOpen = { openUrl(context, it) },
                             onLoadDetails = viewModel::loadFeedDetails,
@@ -452,9 +439,7 @@ private fun JrwiServerSheet(
 @Composable
 private fun JrwiHomeList(
     state: JrwiShowsState,
-    playingAudio: Long?,
     onItemClick: (Long) -> Unit,
-    onPlayAudio: (Long) -> Unit,
     onPicture: (JrwiPictures) -> Unit,
     onOpen: (String?) -> Unit,
     onLoadDetails: (Long) -> Unit,
@@ -493,13 +478,10 @@ private fun JrwiHomeList(
             if (index >= state.feed.size - FEED_PREFETCH) {
                 LaunchedEffect(state.feed.size) { onLoadMore() }
             }
-            val audioId = post.audio?.postId
             JrwiFeedCard(
                 entry = entry,
                 showName = showNames[post.show],
-                playing = audioId != null && playingAudio == audioId,
                 onClick = { onItemClick(post.id) },
-                onPlayAudio = { audioId?.let(onPlayAudio) },
                 onPicture = onPicture,
                 onOpen = onOpen,
             )
@@ -520,16 +502,14 @@ private const val FEED_PREFETCH = 5
 /**
  * A post in the feed, laid out as the web app's feed has it: its media, then the show and date, its
  * title, a short preview of its text that opens in place, its files and tags, likes, comments, the
- * original post, and its first comments. A tap opens the post's page; an audio post plays from its
- * card in the app's audio player, and pictures open full screen.
+ * original post, and its first comments. A tap opens the post's page, and pictures open full
+ * screen.
  */
 @Composable
 private fun JrwiFeedCard(
     entry: JrwiFeedPost,
     showName: String?,
-    playing: Boolean,
     onClick: () -> Unit,
-    onPlayAudio: () -> Unit,
     onPicture: (JrwiPictures) -> Unit,
     onOpen: (String?) -> Unit,
 ) {
@@ -546,8 +526,6 @@ private fun JrwiFeedCard(
         JrwiFeedMedia(
             post = post,
             pictures = full?.images.orEmpty().map { it.url },
-            playing = playing,
-            onPlayAudio = onPlayAudio,
             onPicture = onPicture,
         )
         Column(
@@ -610,53 +588,18 @@ private fun JrwiFeedCard(
 }
 
 /**
- * A feed post's media, as the web app's feed shows it: an audio post's picture with a button to
- * play it, a video's picture with its length, or the post's pictures, up to four with how many
- * more.
+ * A feed post's media, as the web app's feed shows it: an audio or video post's picture with its
+ * length and watched mark, or the post's pictures, up to four with how many more.
  */
 @Composable
 private fun JrwiFeedMedia(
     post: JrwiItem,
     pictures: List<String>,
-    playing: Boolean,
-    onPlayAudio: () -> Unit,
     onPicture: (JrwiPictures) -> Unit,
 ) {
     val thumbnail = post.thumbnail
     when {
-        post.audio != null ->
-            Box(contentAlignment = Alignment.Center) {
-                // With its watched mark, as in the show lists
-                JrwiThumbnail(
-                    item = post,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                // Plays in the app's audio player, which the mini player then shows
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier =
-                        Modifier.size(56.dp)
-                            .clip(JrwiPillShape)
-                            .background(JrwiColors.Accent)
-                            .clickable(onClick = onPlayAudio),
-                ) {
-                    Icon(
-                        painter =
-                            painterResource(
-                                if (playing) CoreR.drawable.ic_pause else CoreR.drawable.ic_play
-                            ),
-                        contentDescription =
-                            stringResource(
-                                if (playing) CoreR.string.jrwi_player_pause
-                                else CoreR.string.jrwi_play_audio
-                            ),
-                        tint = JrwiColors.AccentInk,
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-            }
-        post.video != null && thumbnail != null ->
+        post.audio != null || (post.video != null && thumbnail != null) ->
             JrwiThumbnail(
                 item = post,
                 contentScale = ContentScale.Fit,
