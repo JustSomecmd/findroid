@@ -26,6 +26,7 @@ import android.os.Looper
 import android.os.Process
 import android.text.format.DateUtils
 import android.util.Rational
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.SurfaceView
 import android.view.View
@@ -70,6 +71,7 @@ import dev.jdtech.jellyfin.player.local.R as PlayerR
 import dev.jdtech.jellyfin.player.local.domain.getTrackNames
 import dev.jdtech.jellyfin.player.local.presentation.PlayerEvents
 import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiPurple
 import dev.jdtech.jellyfin.presentation.player.ChapterSelectionDialogFragment
 import dev.jdtech.jellyfin.presentation.player.PlayerMenuDialogFragment
 import dev.jdtech.jellyfin.presentation.player.PlayerMenuItem
@@ -284,6 +286,7 @@ class PlayerActivity : BasePlayerActivity() {
                     viewModel.uiState.collect { uiState ->
                         Timber.d("$uiState")
                         uiState.apply {
+                            applyJrwiLook(isJrwi)
                             // Title, with the channel or show under it
                             videoNameTextView.text = currentItemTitle
                             videoSubtitleTextView.text = currentItemSubtitle
@@ -1251,37 +1254,86 @@ class PlayerActivity : BasePlayerActivity() {
         return builder.build()
     }
 
+    // Whether the player shows a JRWI episode in JRWI mode's purple
+    private var jrwiLook = false
+
+    // The time bar's and Up next's own colors, from before the purple, to go back to
+    private var plainColors: PlainColors? = null
+
+    private class PlainColors(
+        val played: Int,
+        val upNextTint: ColorStateList?,
+        val upNextText: ColorStateList?,
+    )
+
+    /**
+     * Shows a JRWI episode, archived or on YouTube, in JRWI mode's purple, as the audio player has
+     * it: the progress bar and Up next always, and the buttons too when the player settings give
+     * them the accent. Other videos keep the app's accent.
+     */
+    private fun applyJrwiLook(jrwi: Boolean) {
+        if (jrwi == jrwiLook) return
+        jrwiLook = jrwi
+        applyAccentControls()
+    }
+
     /**
      * Gives the buttons the app's accent color, with a grey play button whose arrow takes the
      * accent, when that's turned on in the player settings. The progress bar follows the accent
-     * too.
+     * too. A JRWI episode takes JRWI mode's purple in place of the accent.
      */
     private fun applyAccentControls() {
-        if (!appPreferences.getValue(appPreferences.playerAccentControls)) return
+        val accentControls = appPreferences.getValue(appPreferences.playerAccentControls)
+        val timeBar = binding.playerView.findViewById<DefaultTimeBar>(R.id.exo_progress)
+        val upNext = binding.playerView.findViewById<Button>(R.id.up_next_play)
+        if (plainColors == null) {
+            val played = TypedValue()
+            theme.resolveAttribute(androidx.appcompat.R.attr.colorPrimary, played, true)
+            plainColors = PlainColors(played.data, upNext?.backgroundTintList, upNext?.textColors)
+        }
+        if (!accentControls && !jrwiLook) {
+            // As the layout has them
+            plainColors?.let { plain ->
+                timeBar?.setPlayedColor(plain.played)
+                timeBar?.setScrubberColor(DefaultTimeBar.DEFAULT_SCRUBBER_COLOR)
+                upNext?.backgroundTintList = plain.upNextTint
+                plain.upNextText?.let { upNext?.setTextColor(it) }
+            }
+            return
+        }
         val scheme =
             darkAppColorScheme(
                 context = this,
                 dynamicColor = appPreferences.getValue(appPreferences.dynamicColors),
                 accent = appPreferences.getValue(appPreferences.accentColor),
             )
-        val accent = scheme.primary.toArgb()
+        val accent = if (jrwiLook) JrwiPurple.Accent.toArgb() else scheme.primary.toArgb()
+        val onAccent = if (jrwiLook) JrwiPurple.Ink.toArgb() else scheme.onPrimary.toArgb()
         val icons =
             ColorStateList(
                 arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-                intArrayOf(ColorUtils.setAlphaComponent(accent, DISABLED_ICON_ALPHA), accent),
+                intArrayOf(
+                    ColorUtils.setAlphaComponent(
+                        if (accentControls) accent else Color.WHITE,
+                        DISABLED_ICON_ALPHA,
+                    ),
+                    if (accentControls) accent else Color.WHITE,
+                ),
             )
-        listOf(R.id.player_controls, R.id.locked_player_view).forEach { id ->
-            binding.playerView.findViewById<ViewGroup>(id)?.let { tintImageButtons(it, icons) }
+        if (accentControls) {
+            listOf(R.id.player_controls, R.id.locked_player_view).forEach { id ->
+                binding.playerView.findViewById<ViewGroup>(id)?.let { tintImageButtons(it, icons) }
+            }
+            binding.playerView.findViewById<ImageButton>(R.id.exo_play_pause)?.backgroundTintList =
+                ColorStateList.valueOf(scheme.surfaceContainerHighest.toArgb())
         }
-        binding.playerView.findViewById<ImageButton>(R.id.exo_play_pause)?.backgroundTintList =
-            ColorStateList.valueOf(scheme.surfaceContainerHighest.toArgb())
-        binding.playerView.findViewById<DefaultTimeBar>(R.id.exo_progress)?.apply {
+        timeBar?.apply {
             setPlayedColor(accent)
             setScrubberColor(accent)
         }
-        binding.playerView.findViewById<Button>(R.id.up_next_play)?.apply {
+        upNext?.apply {
             backgroundTintList = ColorStateList.valueOf(accent)
-            setTextColor(scheme.onPrimary.toArgb())
+            setTextColor(onAccent)
         }
     }
 

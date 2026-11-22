@@ -139,6 +139,8 @@ constructor(
         val taPlaylistVideos: List<TaVideo> = emptyList(),
         /** Which of them is playing. */
         val taVideoId: String? = null,
+        /** Whether it's a JRWI episode, archived or on YouTube, for the player's JRWI look. */
+        val isJrwi: Boolean = false,
     )
 
     /**
@@ -240,6 +242,11 @@ constructor(
     // JRWI: the archiver's item of what's playing, whose video and audio share one position, and
     // the media ID of its audio while the audio is what's playing
     private var jrwiItem: JrwiItem? = null
+        set(value) {
+            field = value
+            _uiState.update { it.copy(isJrwi = value != null) }
+        }
+
     private var jrwiAudioMediaId: String? = null
     private var jrwiLastReport = 0L
     private val sponsorBlockMode = appPreferences.getValue(appPreferences.tubeArchivistSponsorBlock)

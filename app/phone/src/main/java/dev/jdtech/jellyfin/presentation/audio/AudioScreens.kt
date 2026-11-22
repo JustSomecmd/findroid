@@ -74,6 +74,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
@@ -99,10 +100,10 @@ import dev.jdtech.jellyfin.presentation.jrwi.JrwiBarTrack
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiColors
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiGhostBorder
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiImage
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiPurple
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiScaffold
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShape
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiTheme
-import dev.jdtech.jellyfin.presentation.jrwi.JrwiTonal
 import dev.jdtech.jellyfin.presentation.jrwi.jrwiGhostButtonColors
 import dev.jdtech.jellyfin.presentation.jrwi.jrwiTopBarColors
 import dev.jdtech.jellyfin.presentation.theme.spacings
@@ -119,8 +120,8 @@ import kotlinx.coroutines.launch
 @HiltViewModel class AudioViewModel @Inject constructor(val player: AudioPlayer) : ViewModel()
 
 /**
- * The player's colours and shapes: the archiver's yellow and square corners for JRWI audio, the
- * app's own colours and round buttons for a TubeArchivist video.
+ * The player's colours and shapes: the archiver's colours with JRWI mode's purple and square
+ * corners for JRWI audio, the app's own colours and round buttons for a TubeArchivist video.
  */
 @Immutable
 private class PlayerLook(
@@ -143,13 +144,14 @@ private class PlayerLook(
 
 private val LocalPlayerLook = staticCompositionLocalOf<PlayerLook> { error("No player look") }
 
+// JRWI mode's purple, as the bottom bar lights up in, in place of the archiver's yellow
 private val JrwiLook =
     PlayerLook(
         jrwi = true,
-        accent = JrwiColors.Accent,
-        onAccent = JrwiColors.AccentInk,
-        tonal = JrwiTonal,
-        onTonal = JrwiColors.Accent,
+        accent = JrwiPurple.Accent,
+        onAccent = JrwiPurple.Ink,
+        tonal = JrwiPurple.Accent.copy(alpha = 0.16f).compositeOver(JrwiColors.Background),
+        onTonal = JrwiPurple.Accent,
         text = JrwiColors.Text,
         muted = JrwiColors.Muted,
         track = JrwiBarTrack,
@@ -185,7 +187,23 @@ private fun PlayerLookTheme(appLook: Boolean, content: @Composable () -> Unit) {
             }
         CompositionLocalProvider(LocalPlayerLook provides look, content = content)
     } else {
-        JrwiTheme { CompositionLocalProvider(LocalPlayerLook provides JrwiLook, content = content) }
+        JrwiTheme {
+            // What takes the theme's accent, such as the sheets' switches, in the purple too
+            MaterialTheme(
+                colorScheme =
+                    MaterialTheme.colorScheme.copy(
+                        primary = JrwiPurple.Accent,
+                        onPrimary = JrwiPurple.Ink,
+                        primaryContainer = JrwiPurple.Accent,
+                        onPrimaryContainer = JrwiPurple.Ink,
+                        inversePrimary = JrwiPurple.Accent,
+                    ),
+                typography = MaterialTheme.typography,
+                shapes = MaterialTheme.shapes,
+            ) {
+                CompositionLocalProvider(LocalPlayerLook provides JrwiLook, content = content)
+            }
+        }
     }
 }
 
