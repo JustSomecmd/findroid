@@ -56,6 +56,9 @@ object JrwiColors {
 
     /** The purple glow at the top of the page. */
     val Glow = Color(0x2E50288C)
+
+    /** Behind the JRWI logo where a show has no picture of its own: the glow, brighter. */
+    val LogoGlow = Color(0x737846C8)
 }
 
 private val JrwiColorScheme =

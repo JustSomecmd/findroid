@@ -476,6 +476,8 @@ data class JrwiShowPage(
     val tabName: String,
     val season: Int? = null,
     val seasonName: String? = null,
+    /** How many items are on the page. */
+    val count: Int = 0,
 ) {
     val key: String
         get() = if (season == null) tab else "$tab:$season"
@@ -489,9 +491,9 @@ fun JrwiShow.pages(): List<JrwiShowPage> = tabs.flatMap { tab ->
     // Archivers on v0.13 only give the seasons of the episodes, on the show
     val tabSeasons = tab.seasons.ifEmpty { if (tab.id == "episodes") this.seasons else emptyList() }
     if (tabSeasons.size > 1) {
-        tabSeasons.map { JrwiShowPage(tab.id, tab.name, it.season, it.name) }
+        tabSeasons.map { JrwiShowPage(tab.id, tab.name, it.season, it.name, it.count) }
     } else {
-        listOf(JrwiShowPage(tab.id, tab.name))
+        listOf(JrwiShowPage(tab.id, tab.name, count = tab.count))
     }
 }
 

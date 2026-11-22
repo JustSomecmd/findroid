@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin.presentation.jrwi
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,12 +54,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -65,8 +65,10 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -76,9 +78,19 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -93,8 +105,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -148,6 +162,7 @@ import dev.jdtech.jellyfin.presentation.tube.startTaPlayback
 import dev.jdtech.jellyfin.presentation.tube.switchSide
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -171,12 +186,14 @@ internal fun JrwiImage(
     path: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    /** Behind the picture, before it loads and around it when it's fitted. */
+    background: Color = JrwiColors.Picture,
 ) {
     AsyncImage(
         model = jrwiUrl(path),
         contentDescription = null,
         contentScale = contentScale,
-        modifier = modifier.background(JrwiColors.Picture),
+        modifier = modifier.background(background),
     )
 }
 
@@ -1298,8 +1315,12 @@ private fun itemDetails(item: JrwiItem, otherShow: String? = null): String? {
 
 // A show
 
-/** A show, with a tab for each kind of post it has, such as episodes and aftershows. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * A show: its picture across the top with its name, as the web app's show page has it, then a pill
+ * for each kind of post it has, such as episodes and aftershows, or each season of them, and their
+ * list. Scrolling a list folds the picture away into the top bar, which then shows the picture
+ * small with the name, and keeps the pills under it.
+ */
 @Composable
 fun JrwiShowScreen(
     showId: String,
@@ -1319,78 +1340,395 @@ fun JrwiShowScreen(
         val swiper = rememberPageSwiper(pages)
         val shownTab =
             (swiper.target ?: pages.currentPage).coerceIn(0, tabs.lastIndex.coerceAtLeast(0))
+        val collapse = remember { JrwiCollapse() }
+        val topInset = TOP_BAR_INSETS.asPaddingValues().calculateTopPadding()
+        val barHeight = topInset + JRWI_SHOW_BAR_HEIGHT
 
-        JrwiScaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(show?.name.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = navigateBack) {
-                            Icon(
-                                painterResource(CoreR.drawable.ic_arrow_left),
-                                contentDescription = null,
+        JrwiScaffold(contentWindowInsets = WindowInsets(0)) { innerPadding ->
+            Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize().nestedScroll(collapse.connection)) {
+                    show?.let { shown ->
+                        JrwiShowHeader(
+                            show = shown,
+                            collapse = collapse,
+                            topInset = topInset,
+                            barHeight = barHeight,
+                        )
+                    } ?: Spacer(Modifier.height(barHeight))
+                    if (tabs.size > 1) {
+                        JrwiShowPills(
+                            tabs = tabs,
+                            selected = shownTab,
+                            onSelect = { swiper.turnTo(it) },
+                            // On the bar's purple once the picture is folded away
+                            modifier =
+                                Modifier.drawBehind {
+                                    drawRect(JrwiColors.Header.copy(alpha = collapse.barAlpha))
+                                },
+                        )
+                    }
+                    when {
+                        tabs.isNotEmpty() ->
+                            HorizontalPager(
+                                state = pages,
+                                modifier = Modifier.weight(1f).fillMaxWidth().pageSwipes(swiper),
+                                userScrollEnabled = false,
+                                key = { page -> tabs[page].key },
+                            ) { page ->
+                                JrwiTabList(
+                                    viewModel = viewModel,
+                                    showId = showId,
+                                    tab = tabs[page],
+                                    onItemClick = onItemClick,
+                                    topPadding =
+                                        if (tabs.size > 1) 4.dp else MaterialTheme.spacings.medium,
+                                )
+                            }
+                        error != null ->
+                            Text(
+                                text = error.orEmpty(),
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(MaterialTheme.spacings.medium),
                             )
-                        }
-                    },
-                    windowInsets = TOP_BAR_INSETS,
-                    colors = jrwiTopBarColors(),
-                )
-            },
-            contentWindowInsets = TOP_BAR_INSETS,
-        ) { innerPadding ->
-            Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-                if (tabs.size > 1) {
-                    // Under the header in its purple, as the site's menu, with the yellow line
-                    PrimaryScrollableTabRow(
-                        selectedTabIndex = shownTab,
-                        edgePadding = MaterialTheme.spacings.medium,
-                        containerColor = JrwiColors.Header,
-                        contentColor = JrwiColors.Text,
-                        divider = {},
-                    ) {
-                        tabs.forEachIndexed { index, tab ->
-                            Tab(
-                                selected = index == shownTab,
-                                onClick = { swiper.turnTo(index) },
-                                text = { Text(pageTitle(tab), fontWeight = FontWeight.Bold) },
-                                selectedContentColor = JrwiColors.Text,
-                                unselectedContentColor = JrwiColors.Muted,
+                        show != null ->
+                            Text(
+                                text = stringResource(CoreR.string.jrwi_nothing_here),
+                                modifier = Modifier.padding(MaterialTheme.spacings.medium),
                             )
-                        }
+                        else ->
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
                     }
                 }
-                when {
-                    tabs.isNotEmpty() ->
-                        HorizontalPager(
-                            state = pages,
-                            modifier = Modifier.fillMaxSize().pageSwipes(swiper),
-                            userScrollEnabled = false,
-                            key = { page -> tabs[page].key },
-                        ) { page ->
-                            JrwiTabList(viewModel, showId, tabs[page], onItemClick)
-                        }
-                    error != null ->
-                        Text(
-                            text = error.orEmpty(),
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(MaterialTheme.spacings.medium),
-                        )
-                    show != null ->
-                        Text(
-                            text = stringResource(CoreR.string.jrwi_nothing_here),
-                            modifier = Modifier.padding(MaterialTheme.spacings.medium),
-                        )
-                    else ->
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                }
+                JrwiShowBar(show = show, collapse = collapse, navigateBack = navigateBack)
             }
         }
     }
 }
+
+/**
+ * How far a show page's header has folded away: [offset] goes from 0, open, to minus [range],
+ * folded. Lists scrolled up fold it before they move, and once a list is back at its top, scrolling
+ * on opens it again.
+ */
+@Stable
+private class JrwiCollapse {
+    var offset by mutableFloatStateOf(0f)
+    var range by mutableFloatStateOf(0f)
+
+    /** From 0, open, to 1, folded. */
+    val fraction: Float
+        get() = if (range > 0f) (-offset / range).coerceIn(0f, 1f) else 0f
+
+    /** The bar's purple, which comes in over the last part of the folding. */
+    val barAlpha: Float
+        get() = ((fraction - BAR_FROM) / (1f - BAR_FROM)).coerceIn(0f, 1f)
+
+    val connection =
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+                if (available.y < 0f) Offset(0f, move(available.y)) else Offset.Zero
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset = if (available.y > 0f) Offset(0f, move(available.y)) else Offset.Zero
+        }
+
+    private fun move(delta: Float): Float {
+        val before = offset.coerceIn(-range, 0f)
+        val after = (before + delta).coerceIn(-range, 0f)
+        offset = after
+        return after - before
+    }
+
+    private companion object {
+        const val BAR_FROM = 0.6f
+    }
+}
+
+/**
+ * The show's picture across the top, fading into the page, with its name and how many posts it has
+ * over it, and its description under it. A show without a picture of its own has the JRWI logo
+ * shown whole on the bar's purple. It folds away up to the bar as [collapse] says.
+ */
+@Composable
+private fun JrwiShowHeader(show: JrwiShow, collapse: JrwiCollapse, topInset: Dp, barHeight: Dp) {
+    val ownPicture = show.poster ?: show.banner
+    val picture = show.image ?: ownPicture
+    // The logo is shown whole, as on the show tiles
+    val logo = ownPicture == null
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val heroHeight = (JRWI_HERO_HEIGHT + topInset).coerceAtMost(screenHeight * 0.5f)
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var overflows by remember { mutableStateOf(false) }
+    Column(
+        modifier =
+            Modifier.fillMaxWidth().clipToBounds().layout { measurable, constraints ->
+                val placeable =
+                    measurable.measure(
+                        constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity)
+                    )
+                val range = (placeable.height - barHeight.roundToPx()).coerceAtLeast(0).toFloat()
+                if (collapse.range != range) collapse.range = range
+                val offset = collapse.offset.coerceIn(-range, 0f).roundToInt()
+                layout(placeable.width, placeable.height + offset) { placeable.place(0, offset) }
+            }
+    ) {
+        Box(
+            contentAlignment = Alignment.BottomStart,
+            modifier = Modifier.fillMaxWidth().height(heroHeight).background(JrwiColors.Header),
+        ) {
+            if (logo) {
+                // The glow behind the logo, as on the rest of the archiver's pages
+                Box(
+                    Modifier.matchParentSize().drawBehind {
+                        drawRect(
+                            Brush.radialGradient(
+                                0f to JrwiColors.LogoGlow,
+                                1f to Color.Transparent,
+                                center = Offset(size.width / 2, size.height * 0.4f),
+                                radius = size.width * 0.6f,
+                            )
+                        )
+                    }
+                )
+                JrwiImage(
+                    path = picture,
+                    contentScale = ContentScale.Fit,
+                    modifier =
+                        Modifier.matchParentSize()
+                            .padding(
+                                top = topInset + MaterialTheme.spacings.large,
+                                bottom = 96.dp,
+                                start = 64.dp,
+                                end = 64.dp,
+                            ),
+                    // On the glow, not on a dark box
+                    background = Color.Transparent,
+                )
+            } else {
+                JrwiImage(path = picture, modifier = Modifier.matchParentSize())
+            }
+            // Dark at the top for the back button, and into the page at the bottom, as the web
+            // app's .hero
+            Box(
+                Modifier.matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to JrwiColors.Background.copy(alpha = if (logo) 0f else 0.55f),
+                            0.24f to Color.Transparent,
+                            0.42f to Color.Transparent,
+                            1f to JrwiColors.Background.copy(alpha = 0.96f),
+                        )
+                    )
+            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier =
+                    Modifier.padding(
+                        start = MaterialTheme.spacings.medium,
+                        end = MaterialTheme.spacings.medium,
+                        bottom = 14.dp,
+                    ),
+            ) {
+                Text(
+                    text = show.name.uppercase(),
+                    color = JrwiColors.Text,
+                    style =
+                        MaterialTheme.typography.headlineLarge.copy(
+                            fontWeight = FontWeight.Black,
+                            lineHeight = 34.sp,
+                            shadow =
+                                Shadow(
+                                    color = Color.Black.copy(alpha = 0.6f),
+                                    offset = Offset(0f, 4f),
+                                    blurRadius = 24f,
+                                ),
+                        ),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val count =
+                    pluralStringResource(
+                        CoreR.plurals.jrwi_item_count,
+                        show.itemCount,
+                        show.itemCount,
+                    )
+                val newest =
+                    fullDate(show.latest)?.let { stringResource(CoreR.string.jrwi_show_newest, it) }
+                Text(
+                    text = listOfNotNull(count, newest).joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = JrwiColors.ChipText,
+                )
+            }
+        }
+        val description = show.description.trim()
+        if (description.isNotEmpty()) {
+            Column(
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .padding(
+                            start = MaterialTheme.spacings.medium,
+                            end = MaterialTheme.spacings.medium,
+                            top = 12.dp,
+                        )
+                        .animateContentSize()
+            ) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = JrwiColors.BodyText,
+                    maxLines = if (expanded) Int.MAX_VALUE else 2,
+                    overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
+                )
+                if (overflows || expanded) {
+                    Text(
+                        text =
+                            stringResource(
+                                if (expanded) CoreR.string.jrwi_show_less
+                                else CoreR.string.jrwi_read_more
+                            ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = JrwiColors.Accent,
+                        modifier =
+                            Modifier.padding(top = 4.dp)
+                                .clip(JrwiShape)
+                                .clickable { expanded = !expanded }
+                                .padding(vertical = 4.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(MaterialTheme.spacings.small))
+    }
+}
+
+/**
+ * A show page's pages as the web app's pills, "Season 2 · 40", the shown one in the archiver's
+ * yellow, scrolled sideways to keep it in sight.
+ */
+@Composable
+private fun JrwiShowPills(
+    tabs: List<JrwiShowPage>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val rowState = rememberLazyListState()
+    LaunchedEffect(selected) {
+        val visible = rowState.layoutInfo.visibleItemsInfo
+        val item = visible.firstOrNull { it.index == selected }
+        val end = rowState.layoutInfo.viewportEndOffset
+        if (item == null || item.offset < 0 || item.offset + item.size > end) {
+            rowState.animateScrollToItem((selected - 1).coerceAtLeast(0))
+        }
+    }
+    LazyRow(
+        state = rowState,
+        contentPadding =
+            PaddingValues(horizontal = MaterialTheme.spacings.medium, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        itemsIndexed(tabs, key = { _, tab -> tab.key }) { index, tab ->
+            val on = index == selected
+            val title = pageTitle(tab)
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier =
+                    Modifier.height(34.dp)
+                        .clip(JrwiPillShape)
+                        .then(
+                            if (on) Modifier.background(JrwiColors.Accent)
+                            else Modifier.border(1.dp, JrwiColors.Line, JrwiPillShape)
+                        )
+                        .clickable { onSelect(index) }
+                        .padding(horizontal = 12.dp),
+            ) {
+                Text(
+                    text =
+                        if (tab.count > 0) {
+                            stringResource(CoreR.string.jrwi_page_count, title, tab.count)
+                        } else {
+                            title
+                        },
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                    color = if (on) JrwiColors.AccentInk else JrwiColors.PillText,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The show page's bar, over its picture: Back on a dark square while the picture shows, and once
+ * it's folded away the bar's purple with the picture small and the show's name.
+ */
+@Composable
+private fun JrwiShowBar(show: JrwiShow?, collapse: JrwiCollapse, navigateBack: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier =
+            Modifier.fillMaxWidth()
+                .drawBehind { drawRect(JrwiColors.Header.copy(alpha = collapse.barAlpha)) }
+                .windowInsetsPadding(TOP_BAR_INSETS)
+                .height(JRWI_SHOW_BAR_HEIGHT)
+                .padding(horizontal = MaterialTheme.spacings.small),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier =
+                Modifier.size(44.dp)
+                    .clip(JrwiShape)
+                    .drawBehind {
+                        drawRect(
+                            JrwiColors.Background.copy(alpha = 0.55f * (1f - collapse.barAlpha))
+                        )
+                    }
+                    .clickable(onClick = navigateBack),
+        ) {
+            Icon(
+                painter = painterResource(CoreR.drawable.ic_arrow_left),
+                contentDescription = null,
+                tint = JrwiColors.Text,
+            )
+        }
+        if (show != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f).graphicsLayer { alpha = collapse.barAlpha },
+            ) {
+                val ownPicture = show.poster ?: show.banner
+                JrwiImage(
+                    path = show.image ?: ownPicture,
+                    contentScale = if (ownPicture == null) ContentScale.Fit else ContentScale.Crop,
+                    modifier = Modifier.size(32.dp).clip(JrwiShape),
+                )
+                Text(
+                    text = show.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = JrwiColors.Text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+// The show page's bar, under the status bar, and its picture's height under that
+private val JRWI_SHOW_BAR_HEIGHT = 64.dp
+private val JRWI_HERO_HEIGHT = 300.dp
 
 /**
  * A page's name: its tab's, or for one season "Season 2: Empty Graves" and "Just Rolled With It:
@@ -1413,13 +1751,20 @@ private fun JrwiTabList(
     showId: String,
     tab: JrwiShowPage,
     onItemClick: (Long) -> Unit,
+    topPadding: Dp,
 ) {
     val flow = remember(tab) { viewModel.items(tab) }
     val list by flow.collectAsStateWithLifecycle()
     val showNames by viewModel.showNames.collectAsStateWithLifecycle()
     LaunchedEffect(tab) { if (list.page == 0) viewModel.loadMore(tab) }
     LazyColumn(
-        contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+        contentPadding =
+            PaddingValues(
+                start = MaterialTheme.spacings.medium,
+                end = MaterialTheme.spacings.medium,
+                top = topPadding,
+                bottom = MaterialTheme.spacings.medium,
+            ),
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
         modifier = Modifier.fillMaxSize(),
     ) {
