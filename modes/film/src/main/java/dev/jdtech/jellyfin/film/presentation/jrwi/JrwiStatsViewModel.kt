@@ -18,6 +18,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.ceil
 import kotlinx.coroutines.Dispatchers
@@ -132,38 +133,72 @@ data class JrwiStatsState(
 )
 
 /**
- * The archive's numbers for the archiver page, as TubeArchivist's stats on its Home's server side.
- * The archiver has no stats of its own yet, so they're worked out from its lists of posts and
- * items, a few pages of 200 each, and its events.
+ * The archive's numbers as last loaded, kept while the app runs, so the archiver page shows them
+ * straight away each time it opens without loading them again.
+ */
+@Singleton
+class JrwiStatsCache @Inject constructor() {
+    /** For [address]; [check] is when the archiver's last check finished as they were loaded. */
+    data class Entry(val address: String, val stats: JrwiArchiveStats, val check: String?)
+
+    @Volatile var entry: Entry? = null
+}
+
+/**
+ * The archive's numbers for the archiver page, as TubeArchivist's stats on its Home's server side,
+ * worked out from its lists of posts and items, a few pages of 200 each, its events and its own
+ * stats. Loaded once while the app runs, and again on a pull or once a check has finished, when
+ * they'll have changed.
  */
 @HiltViewModel
-class JrwiStatsViewModel @Inject constructor(private val jrwiApi: JrwiApi) : ViewModel() {
-    private val _state = MutableStateFlow(JrwiStatsState())
+class JrwiStatsViewModel
+@Inject
+constructor(private val jrwiApi: JrwiApi, private val cache: JrwiStatsCache) : ViewModel() {
+    private val _state =
+        MutableStateFlow(
+            JrwiStatsState(stats = cache.entry?.takeIf { it.address == jrwiApi.baseUrl }?.stats)
+        )
     val state = _state.asStateFlow()
 
-    private var lastLoad = 0L
-
-    /** Loads the numbers the first time they're shown, and again once they're a while old. */
+    /** Loads the numbers unless they're in for this archiver already. */
     fun onShown() {
         val state = _state.value
         if (state.loading) return
-        if (
-            System.currentTimeMillis() - lastLoad < STALE_AFTER_MS &&
-                state.error == null &&
-                state.stats != null
-        ) {
+        val kept = cache.entry
+        if (kept != null && kept.address == jrwiApi.baseUrl && state.error == null) {
+            if (state.stats == null) _state.update { it.copy(stats = kept.stats) }
             return
         }
         refresh()
     }
 
+    /**
+     * The archiver's status as the page reads it: once a check has finished since the numbers were
+     * loaded, they're loaded again.
+     */
+    fun onStatus(running: Boolean, lastCheckFinished: String?) {
+        val kept = cache.entry ?: return
+        if (running || _state.value.loading || kept.address != jrwiApi.baseUrl) return
+        when {
+            // Loaded before the status was first read
+            kept.check == null -> cache.entry = kept.copy(check = lastCheckFinished)
+            lastCheckFinished != null && lastCheckFinished != kept.check -> {
+                // Noted first, so the numbers are loaded once for this check
+                cache.entry = kept.copy(check = lastCheckFinished)
+                refresh()
+            }
+        }
+    }
+
     fun refresh() {
         if (!jrwiApi.isConfigured) return
-        lastLoad = System.currentTimeMillis()
+        val address = jrwiApi.baseUrl ?: return
+        val check = cache.entry?.takeIf { it.address == address }?.check
         _state.update { it.copy(loading = true) }
         viewModelScope.launch {
             try {
                 val stats = load()
+                cache.entry = JrwiStatsCache.Entry(address, stats, check)
                 _state.update { JrwiStatsState(stats = stats, loading = false) }
             } catch (e: CancellationException) {
                 throw e
@@ -235,7 +270,6 @@ class JrwiStatsViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vie
     private companion object {
         const val LIST_PAGE = 200
         const val MAX_PAGES = 100
-        const val STALE_AFTER_MS = 5 * 60_000L
         const val NOT_FOUND = 404
         val ISO: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssxxx")
     }

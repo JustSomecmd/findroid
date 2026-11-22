@@ -1139,11 +1139,27 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
         viewModelScope.launch { refresh() }
     }
 
-    /** Reads the status and the problems again, for a page that keeps them up to date. */
-    suspend fun refresh() {
+    // When the last check had finished as the problems were read, which only change with a check
+    private var problemsRead = false
+    private var problemsCheck: String? = null
+
+    /**
+     * Reads the status again, for a page that keeps it up to date, and the problems the first time,
+     * after a check has finished since, or with [force].
+     */
+    suspend fun refresh(force: Boolean = false) {
         try {
             val status = jrwiApi.getStatus()
-            val problems = jrwiApi.getProblems()
+            val finished = status.lastCheckFinished
+            val problems =
+                if (force || !problemsRead || finished != problemsCheck) {
+                    jrwiApi.getProblems().also {
+                        problemsRead = true
+                        problemsCheck = finished
+                    }
+                } else {
+                    _state.value.problems
+                }
             val canStop = jrwiApi.has(JrwiFeature.STOP) == true
             _state.update {
                 it.copy(status = status, problems = problems, canStop = canStop, error = null)

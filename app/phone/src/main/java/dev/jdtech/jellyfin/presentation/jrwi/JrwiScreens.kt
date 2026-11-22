@@ -2420,9 +2420,10 @@ private val RGB_REGEX =
 
 /**
  * The server side of JRWI Home: the archive's numbers, as TubeArchivist's stats on its Home's
- * server side, what the archiver is doing, a check now, and the posts it couldn't fully save. The
- * status is read again every few seconds while it's shown, so a check can be followed; the numbers
- * once they're a few minutes old, or on a pull.
+ * server side, what the archiver is doing, a check now, and the posts it couldn't fully save. While
+ * it's shown, the status is read every few seconds during a check, so it can be followed, and once
+ * a minute otherwise. The numbers are loaded once while the app runs, and again on a pull or once a
+ * check has finished; the problems likewise.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2441,11 +2442,23 @@ internal fun JrwiServerContent(
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             statsViewModel.onShown()
+            // The status every few seconds while a check runs, to follow it, and now and then
+            // while the archiver waits, to see a check start
+            viewModel.refresh()
+            var waited = 0L
             while (true) {
-                viewModel.refresh()
                 delay(SERVER_REFRESH_MILLIS)
+                waited += SERVER_REFRESH_MILLIS
+                if (state.status?.running == true || waited >= SERVER_IDLE_REFRESH_MILLIS) {
+                    viewModel.refresh()
+                    waited = 0L
+                }
             }
         }
+    }
+    // The numbers again once a check has finished
+    LaunchedEffect(state.status?.running, state.status?.lastCheckFinished) {
+        state.status?.let { statsViewModel.onStatus(it.running, it.lastCheckFinished) }
     }
     ObserveAsEvents(viewModel.messages) { message ->
         Toast.makeText(context, jrwiMessageText(context, message), Toast.LENGTH_LONG).show()
@@ -2454,7 +2467,7 @@ internal fun JrwiServerContent(
         isRefreshing = stats.loading && stats.stats != null,
         onRefresh = {
             statsViewModel.refresh()
-            scope.launch { viewModel.refresh() }
+            scope.launch { viewModel.refresh(force = true) }
         },
         modifier = modifier,
     ) {
@@ -2692,6 +2705,7 @@ private fun JrwiProblemsCard(problems: List<JrwiProblem>) {
 }
 
 private const val SERVER_REFRESH_MILLIS = 5_000L
+private const val SERVER_IDLE_REFRESH_MILLIS = 60_000L
 
 // Settings
 
