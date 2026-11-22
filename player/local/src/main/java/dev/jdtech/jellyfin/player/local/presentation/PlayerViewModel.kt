@@ -17,6 +17,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -33,7 +34,9 @@ import dev.jdtech.jellyfin.player.core.domain.models.PlayerItem
 import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.core.domain.models.Trickplay
 import dev.jdtech.jellyfin.player.local.R
+import dev.jdtech.jellyfin.player.local.domain.AvSyncGuard
 import dev.jdtech.jellyfin.player.local.domain.PlaylistManager
+import dev.jdtech.jellyfin.player.local.domain.SYNC_WATCH_MS
 import dev.jdtech.jellyfin.player.local.domain.TaQueueEntry
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.repository.MediaChanges
@@ -57,7 +60,10 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -166,6 +172,17 @@ constructor(
     // The item that was already put back in step, so it is only done once per item
     private var resyncedMediaId: String? = null
     private var resyncJob: Job? = null
+
+    // Watches sound and picture staying in step while a video plays, and what happened to them
+    private val syncGuard = AvSyncGuard(appPreferences.getValue(appPreferences.playerSyncGuard))
+    private var syncWatchJob: Job? = null
+
+    // Whether each video is put back in step once it has played for a moment, measured or not
+    private val resyncAfterStart = appPreferences.getValue(appPreferences.playerResyncAfterStart)
+
+    // Whether playback was tunneled when the picture was last turned off, as it will be again
+    // when it comes back
+    private var tunneledBeforeHidden = false
 
     // Counts down to pausing, for the sleep timer
     private var sleepJob: Job? = null
@@ -301,19 +318,37 @@ constructor(
         )
 
         val renderersFactory =
-            DefaultRenderersFactory(application)
+            syncGuard
+                .renderersFactory(application)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        val seekBackMs = appPreferences.getValue(appPreferences.playerSeekBackInc)
+        // What was just played is kept for a little while, back to a frame the picture can start
+        // from. Skipping back, the picture coming back after the background, and putting sound and
+        // picture back in step then play from what's loaded, rather than loading the stream again
+        val loadControl =
+            DefaultLoadControl.Builder()
+                .setBackBuffer(
+                    (seekBackMs + BACK_BUFFER_MARGIN_MS)
+                        .coerceIn(BACK_BUFFER_MIN_MS, BACK_BUFFER_MAX_MS)
+                        .toInt(),
+                    /* retainBackBufferFromKeyframe= */ true,
+                )
+                .build()
         player =
             ExoPlayer.Builder(application, renderersFactory)
                 .setAudioAttributes(audioAttributes, true)
                 .setTrackSelector(trackSelector)
-                .setSeekBackIncrementMs(appPreferences.getValue(appPreferences.playerSeekBackInc))
+                .setLoadControl(loadControl)
+                .setSeekBackIncrementMs(seekBackMs)
                 .setSeekForwardIncrementMs(
                     appPreferences.getValue(appPreferences.playerSeekForwardInc)
                 )
                 .setPauseAtEndOfMediaItems(true)
                 .build()
-                .also { it.addAnalyticsListener(decoderNames) }
+                .also {
+                    it.addAnalyticsListener(decoderNames)
+                    syncGuard.attach(it)
+                }
     }
 
     fun initializePlayer(
@@ -1348,19 +1383,27 @@ constructor(
             val position = player.currentPosition
             val playWhenReady = player.playWhenReady
 
-            val reloaded = items.map { item ->
-                if (item.isLocal) {
-                    item
-                } else {
-                    try {
-                        playlistManager.reloadPlayerItem(item) ?: item
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Timber.e(e)
-                        item
+            // All at once: the server is asked for each queued video's stream, and the one
+            // playing waits for them all
+            val reloaded = coroutineScope {
+                items
+                    .map { item ->
+                        async {
+                            if (item.isLocal) {
+                                item
+                            } else {
+                                try {
+                                    playlistManager.reloadPlayerItem(item) ?: item
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Timber.e(e)
+                                    item
+                                }
+                            }
+                        }
                     }
-                }
+                    .awaitAll()
             }
 
             val current = reloaded.getOrNull(index)
@@ -1374,8 +1417,11 @@ constructor(
             }
             _uiState.update { it.copy(isAudioOnly = current?.isAudioOnly == true) }
 
+            // It played on while the streams were asked for, so it carries on from where it got to
+            val resumeAt =
+                if (player.currentMediaItemIndex == index) player.currentPosition else position
             items = reloaded.toMutableList()
-            player.setMediaItems(items.map { it.toMediaItem() }, index, position)
+            player.setMediaItems(items.map { it.toMediaItem() }, index, resumeAt)
             player.prepare()
             player.playWhenReady = playWhenReady
         }
@@ -1411,16 +1457,22 @@ constructor(
 
     /**
      * Turns video decoding off while playing in the background and back on when the player is shown
-     * again. The picture coming back can be behind the sound, so it's put back in step.
+     * again. The picture coming back joins the sound as it plays on and catches up by itself, which
+     * the guard watches, and resyncs if it stays behind. Tunneled, where the phone times the
+     * picture and nothing can be measured, or without the guard, it's put back in step with a
+     * resync as before.
      */
     fun setVideoEnabled(enabled: Boolean) {
-        if (player !is ExoPlayer) return
+        val exo = player as? ExoPlayer ?: return
         val parameters = player.trackSelectionParameters
         if (parameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO) == !enabled) return
         try {
+            if (!enabled) tunneledBeforeHidden = exo.isTunnelingEnabled
             player.trackSelectionParameters =
                 parameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !enabled).build()
-            if (enabled) resync()
+            if (enabled && (!syncGuard.enabled || tunneledBeforeHidden)) {
+                resync("picture back after the background")
+            }
         } catch (e: IllegalStateException) {
             Timber.e(e)
         }
@@ -1439,7 +1491,7 @@ constructor(
         trackSelector.setParameters(
             trackSelector.buildUponParameters().setTunnelingEnabled(enabled)
         )
-        resync()
+        resync(if (enabled) "tunneled playback turned on" else "tunneled playback turned off")
     }
 
     /**
@@ -1507,8 +1559,15 @@ constructor(
                 "Buffered ahead" to
                     "%.1f s".format((exo.bufferedPosition - exo.currentPosition) / 1000.0)
             )
+            addAll(syncGuard.info())
         }
     }
+
+    /**
+     * What happened to sound and picture lately, oldest first, each with its time of day:
+     * rebuffers, the sound running dry, resyncs and why. Shown under the Playback info.
+     */
+    fun syncRecord(): List<String> = syncGuard.record()
 
     private fun decoderDescription(name: String?): String =
         when {
@@ -1737,33 +1796,69 @@ constructor(
         isPlayingNow = isPlaying
         TaNowPlaying.setPlaying(isPlaying)
         if (isPlaying) resyncOnce()
+        watchSync(isPlaying)
     }
 
     /**
      * Videos, streamed and downloaded alike, can start with sound and picture out of step, which a
      * seek puts right. So once each video has played for a moment, it does that seek, to where it
      * already is. Waits until it's actually playing, so a video that starts paused is still done.
+     * Turned off in settings, a video is only resynced when the guard measures that it needs it.
      */
     private fun resyncOnce() {
+        if (!resyncAfterStart) return
         val mediaId = player.currentMediaItem?.mediaId ?: return
         if (mediaId == resyncedMediaId || resyncJob?.isActive == true) return
-        resync { resyncedMediaId = mediaId }
+        resync("a moment after starting") { resyncedMediaId = mediaId }
     }
 
     /**
-     * Puts sound and picture back in step with a seek to where it already is, a moment from now if
-     * it's playing then. Also for when the picture comes back after playing in the background, and
-     * after tunneling is turned on or off.
+     * Puts sound and picture back in step with a seek to where it already is, once it has played
+     * for a moment: from now if it's playing, or from when it next is, such as after the stream has
+     * loaded again. Also for when the picture comes back after playing in the background, and after
+     * tunneling is turned on or off. [reason] says why, for the Playback info.
      */
-    private fun resync(onDone: () -> Unit = {}) {
+    private fun resync(reason: String, onDone: () -> Unit = {}) {
         if (player !is ExoPlayer) return
         val mediaId = player.currentMediaItem?.mediaId ?: return
         resyncJob?.cancel()
         resyncJob = viewModelScope.launch {
+            var waitedMs = 0L
+            while (!player.isPlaying && waitedMs < RESYNC_WAIT_MS) {
+                delay(RESYNC_POLL_MS)
+                waitedMs += RESYNC_POLL_MS
+            }
             delay(RESYNC_DELAY_MS)
             if (player.isPlaying && player.currentMediaItem?.mediaId == mediaId) {
                 onDone()
-                player.seekTo(player.currentPosition)
+                resyncNow(reason)
+            }
+        }
+    }
+
+    /**
+     * Puts sound and picture back in step right now. The seek is to where it already is, which
+     * starts both afresh from what's already loaded.
+     */
+    private fun resyncNow(reason: String) {
+        syncGuard.resynced(reason)
+        player.seekTo(player.currentPosition)
+    }
+
+    /**
+     * Has the guard look at sound and picture twice a second while it plays, and resyncs when it
+     * finds they've come apart and stayed apart, which is rare.
+     */
+    private fun watchSync(isPlaying: Boolean) {
+        syncWatchJob?.cancel()
+        syncWatchJob = null
+        if (!isPlaying || !syncGuard.enabled) return
+        syncWatchJob = viewModelScope.launch {
+            while (true) {
+                delay(SYNC_WATCH_MS)
+                val reason = syncGuard.watch() ?: continue
+                // Not on top of a resync that's already on its way
+                if (resyncJob?.isActive != true) resyncNow(reason)
             }
         }
     }
@@ -1793,8 +1888,17 @@ sealed interface PlayerEvents {
 // How long the player waits in the background before dropping the picture
 private const val BACKGROUND_AUDIO_ONLY_DELAY_MS = 10_000L
 
-// How long a video plays before sound and picture are put back in step
+// How long a video plays before sound and picture are put back in step, and how long that waits
+// for it to be playing, looking this often
 private const val RESYNC_DELAY_MS = 1_000L
+private const val RESYNC_WAIT_MS = 15_000L
+private const val RESYNC_POLL_MS = 250L
+
+// How much of what was just played stays loaded: as far as the back button goes and a little more,
+// within reason
+private const val BACK_BUFFER_MARGIN_MS = 5_000L
+private const val BACK_BUFFER_MIN_MS = 10_000L
+private const val BACK_BUFFER_MAX_MS = 30_000L
 
 // How long before the end the next video is shown
 private const val UP_NEXT_MS = 10_000L

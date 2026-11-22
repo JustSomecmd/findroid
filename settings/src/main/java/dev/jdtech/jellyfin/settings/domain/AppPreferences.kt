@@ -60,6 +60,10 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val playerBrightness = Preference("pref_player_brightness", -1.0f)
     // On as it always was; under a new name, since the older setting was off by default
     val playerTunneling = Preference("pref_player_tunneling_on", true)
+    // Watches sound and picture staying in step while a video plays, and corrects what it measures
+    val playerSyncGuard = Preference("pref_player_sync_guard", true)
+    // Skips to where it already is a moment after each video starts, whether it needs it or not
+    val playerResyncAfterStart = Preference("pref_player_resync_after_start", true)
 
     // Player - gestures
     val playerGestures = Preference("pref_player_gestures", true)

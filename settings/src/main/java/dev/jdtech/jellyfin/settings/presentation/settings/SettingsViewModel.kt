@@ -423,6 +423,23 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     backendPreference =
                                                         appPreferences.playerTunneling,
                                                 ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.pref_player_sync_guard,
+                                                    descriptionStringRes =
+                                                        R.string.pref_player_sync_guard_summary,
+                                                    backendPreference =
+                                                        appPreferences.playerSyncGuard,
+                                                ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.pref_player_resync_after_start,
+                                                    descriptionStringRes =
+                                                        R.string
+                                                            .pref_player_resync_after_start_summary,
+                                                    backendPreference =
+                                                        appPreferences.playerResyncAfterStart,
+                                                ),
                                             )
                                     ),
                                     PreferenceGroup(

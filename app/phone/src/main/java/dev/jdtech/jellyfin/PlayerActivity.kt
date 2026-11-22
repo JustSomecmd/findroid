@@ -6,6 +6,8 @@ import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -37,6 +39,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.viewModels
@@ -822,8 +825,10 @@ class PlayerActivity : BasePlayerActivity() {
     }
 
     /**
-     * What's playing and how: formats, decoders, tunneling and frames, kept current every second
-     * while it's open, so frames dropped while it plays show up.
+     * What's playing and how: formats, decoders, tunneling, frames, and how well sound and picture
+     * are in step, kept current every second while it's open, so frames dropped while it plays show
+     * up. Under it, what happened to sound and picture lately. Copy takes all of it, with the app
+     * and the phone it's from, for telling someone what went wrong.
      */
     private fun showPlaybackInfo() {
         val padding = (24 * resources.displayMetrics.density).toInt()
@@ -836,9 +841,18 @@ class PlayerActivity : BasePlayerActivity() {
                     com.google.android.material.R.style.TextAppearance_Material3_BodyMedium,
                 )
             }
-        fun update() {
-            text.text =
+        fun info(): String = buildString {
+            append(
                 viewModel.playbackInfo().joinToString("\n") { (label, value) -> "$label: $value" }
+            )
+            val record = viewModel.syncRecord()
+            if (record.isNotEmpty()) {
+                append("\n\n")
+                append(record.joinToString("\n"))
+            }
+        }
+        fun update() {
+            text.text = info()
         }
         update()
         val updates = lifecycleScope.launch {
@@ -849,13 +863,39 @@ class PlayerActivity : BasePlayerActivity() {
         }
         MaterialAlertDialogBuilder(this)
             .setTitle(PlayerR.string.player_playback_info)
-            .setView(text)
+            // More lines than fit the screen held sideways
+            .setView(ScrollView(this).apply { addView(text) })
             .setPositiveButton(android.R.string.ok, null)
+            .setNeutralButton(android.R.string.copy) { _, _ -> copyPlaybackInfo(info()) }
             .setOnDismissListener {
                 updates.cancel()
                 hideSystemUI()
             }
             .show()
+    }
+
+    /** Puts the Playback info on the clipboard, with which app and phone it's from. */
+    private fun copyPlaybackInfo(info: String) {
+        val version =
+            try {
+                packageManager.getPackageInfo(packageName, 0).versionName
+            } catch (_: PackageManager.NameNotFoundException) {
+                null
+            }
+        val text = buildString {
+            append("Tubedroid ${version.orEmpty()}\n")
+            append("${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}\n\n")
+            append(info)
+        }
+        val clipboard = getSystemService(ClipboardManager::class.java) ?: return
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText(getString(PlayerR.string.player_playback_info), text)
+        )
+        // From Android 13 the phone shows what was copied itself
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Toast.makeText(this, PlayerR.string.player_playback_info_copied, Toast.LENGTH_SHORT)
+                .show()
+        }
     }
 
     /**
