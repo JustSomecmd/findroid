@@ -293,7 +293,8 @@ class JrwiDownloads(context: Context) {
         dropUnwantedFiles(itemId)
     }
 
-    private fun savedVideos(): List<JrwiSavedVideo> =
+    /** The archived videos downloaded through Jellyfin, each with its item. */
+    fun savedVideos(): List<JrwiSavedVideo> =
         videoDir.listFiles()?.mapNotNull { readVideo(it) }.orEmpty()
 
     private fun readVideo(file: File): JrwiSavedVideo? {

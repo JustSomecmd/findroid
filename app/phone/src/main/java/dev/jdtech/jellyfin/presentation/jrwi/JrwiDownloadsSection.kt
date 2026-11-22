@@ -43,6 +43,7 @@ import coil3.compose.AsyncImage
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiEpisodeNumber
+import dev.jdtech.jellyfin.jrwi.JrwiProgress
 import dev.jdtech.jellyfin.models.CollectionSection
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
@@ -51,6 +52,7 @@ import dev.jdtech.jellyfin.presentation.film.components.CollectionSectionHeader
 import dev.jdtech.jellyfin.presentation.film.components.Direction
 import dev.jdtech.jellyfin.presentation.film.components.DownloadedBadge
 import dev.jdtech.jellyfin.presentation.film.components.ItemCard
+import dev.jdtech.jellyfin.presentation.film.components.PlayedBadge
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.formatBytes
 import dev.jdtech.jellyfin.presentation.utils.LocalEpisodeTitleFirst
@@ -189,12 +191,15 @@ data class JrwiShowDownloads(val name: String, val cards: List<JrwiDownloadCard>
 /**
  * JRWI mode's downloads by show, as TubeArchivist's are by channel: the shows by name, each with
  * its numbered episodes first, season by season with an episode's video before its audio, then the
- * rest by title. [other] names the audio of posts without a show.
+ * rest by title. [other] names the audio of posts without a show. A video's watched mark and bar
+ * show how far the archive has it played ([videoWatch], by episode ID), as its page does, in place
+ * of the position kept with its Jellyfin download.
  */
 fun jrwiDownloadsByShow(
     videos: List<CollectionSection>,
     audio: List<JrwiDownloadEntry>,
     other: String,
+    videoWatch: Map<String, JrwiProgress> = emptyMap(),
 ): List<JrwiShowDownloads> {
     data class Sorted(val number: JrwiEpisodeNumber?, val audio: Boolean, val title: String)
     val byShow = mutableMapOf<String, MutableList<Pair<Sorted, JrwiDownloadCard>>>()
@@ -207,9 +212,11 @@ fun jrwiDownloadsByShow(
                 episode
                     ?.takeIf { it.parentIndexNumber > 0 }
                     ?.let { JrwiEpisodeNumber(it.parentIndexNumber, it.indexNumber) }
+            val watch = episode?.let { videoWatch[it.id.toString()] }
+            val shown = if (episode != null && watch != null) episode.playedAs(watch) else item
             byShow
                 .getOrPut(episode?.seriesName ?: other) { mutableListOf() }
-                .add(Sorted(number, false, item.name) to JrwiDownloadCard.Video(item))
+                .add(Sorted(number, false, item.name) to JrwiDownloadCard.Video(shown))
         }
     audio.forEach { entry ->
         byShow
@@ -230,6 +237,16 @@ fun jrwiDownloadsByShow(
         .sortedBy { it.key.lowercase() }
         .map { (name, cards) -> JrwiShowDownloads(name, cards.sortedWith(order).map { it.second }) }
 }
+
+/** The episode as far played as [watch] says, in the video's timeline. */
+private fun FindroidEpisode.playedAs(watch: JrwiProgress): FindroidEpisode =
+    copy(
+        played = watch.finished,
+        playbackPositionTicks =
+            if (watch.finished) 0L else (watch.position * TICKS_PER_SECOND).toLong(),
+    )
+
+private const val TICKS_PER_SECOND = 10_000_000.0
 
 /** The shows' sections on JRWI mode's Downloads: a heading for each, then its cards. */
 fun LazyGridScope.jrwiShowSections(
@@ -283,7 +300,7 @@ private fun JrwiAudioDownloadCard(
     Column(
         modifier =
             modifier
-                .width(260.dp)
+                .width(AUDIO_CARD_WIDTH.dp)
                 .clip(MaterialTheme.shapes.small)
                 .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
     ) {
@@ -298,12 +315,15 @@ private fun JrwiAudioDownloadCard(
                             .aspectRatio(1.77f)
                             .background(MaterialTheme.colorScheme.surfaceContainer),
                 )
+                val watch = entry.watch
                 Row(
                     modifier =
                         Modifier.align(Alignment.TopEnd).padding(MaterialTheme.spacings.small),
                     horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
                 ) {
                     if (download.done) DownloadedBadge()
+                    // Watched, as the video cards beside it show it
+                    if (watch?.finished == true) PlayedBadge()
                     BaseBadge {
                         Icon(
                             painter = painterResource(CoreR.drawable.ic_headphones),
@@ -322,6 +342,21 @@ private fun JrwiAudioDownloadCard(
                         LinearProgressIndicator(progress = { progress }, modifier = bar)
                     } else {
                         LinearProgressIndicator(modifier = bar)
+                    }
+                } else {
+                    // How far it was played, as the video cards' bar
+                    val length = watch?.duration?.takeIf { it > 0 }
+                    if (watch != null && !watch.finished && length != null && watch.position > 0) {
+                        val fraction = (watch.position / length).coerceIn(0.0, 1.0).toFloat()
+                        Box(
+                            modifier =
+                                Modifier.align(Alignment.BottomStart)
+                                    .padding(MaterialTheme.spacings.small)
+                                    .height(4.dp)
+                                    .width((AUDIO_CARD_WIDTH - 16).dp * fraction)
+                                    .clip(MaterialTheme.shapes.extraSmall)
+                                    .background(MaterialTheme.colorScheme.primary)
+                        )
                     }
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -376,3 +411,6 @@ private fun JrwiAudioDownloadCard(
         Spacer(Modifier.height(2.dp))
     }
 }
+
+// As wide as the video cards beside them
+private const val AUDIO_CARD_WIDTH = 260

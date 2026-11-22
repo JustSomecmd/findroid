@@ -56,6 +56,8 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
@@ -109,6 +111,8 @@ data class JrwiDownloadEntry(
     val picture: String? = null,
     /** Its season and episode number, as its show's Episodes number it; null for the rest. */
     val number: JrwiEpisodeNumber? = null,
+    /** How far it was played, as the archive has it, in the audio's timeline; null when unknown. */
+    val watch: JrwiProgress? = null,
 )
 
 /** An episode's place in its show, to list it in order with the show's other downloads. */
@@ -1082,28 +1086,101 @@ constructor(
     }
 }
 
-/** The episodes whose audio is on the phone, for the Downloads page. */
+/**
+ * The episodes whose audio is on the phone, for the Downloads page, and how far each downloaded
+ * episode was played, as the archive has it: the one record the item page shows too (decisions 8
+ * and 9), which the position kept with a Jellyfin download can fall behind or run ahead of.
+ */
 @HiltViewModel
 class JrwiDownloadsViewModel
 @Inject
-constructor(private val downloads: JrwiDownloads, private val downloader: JrwiDownloader) :
-    ViewModel() {
+constructor(
+    private val downloads: JrwiDownloads,
+    private val downloader: JrwiDownloader,
+    private val jrwiProgress: JrwiProgressSync,
+) : ViewModel() {
     // Each episode's number, read once from the item kept with its audio
     private val numbers = ConcurrentHashMap<Long, Optional<JrwiEpisodeNumber>>()
 
+    // How far each downloaded episode was played: its audio's by JRWI item ID, in the audio's
+    // timeline, and its video's by Jellyfin episode ID, in the video's
+    private val audioWatch = MutableStateFlow<Map<Long, JrwiProgress>>(emptyMap())
+    private val _videoWatch = MutableStateFlow<Map<String, JrwiProgress>>(emptyMap())
+
+    /** How far each downloaded archived video was played, by its Jellyfin episode ID. */
+    val videoWatch: StateFlow<Map<String, JrwiProgress>> = _videoWatch.asStateFlow()
+
+    private var watchJob: Job? = null
+
     val entries: StateFlow<List<JrwiDownloadEntry>> =
-        combine(downloads.downloads, downloads.progress) { list, progress ->
+        combine(downloads.downloads, downloads.progress, audioWatch) { list, progress, watch ->
                 list.map {
                     JrwiDownloadEntry(
                         download = it,
                         progress = progress[it.itemId],
                         picture = downloads.thumbnailUri(it.itemId),
                         number = numberOf(it.itemId),
+                        watch = watch[it.itemId],
                     )
                 }
             }
             .flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    init {
+        // Played since, in the app's players: read again for that episode
+        viewModelScope.launch { jrwiProgress.changes.collect { loadWatch(it.itemId) } }
+    }
+
+    /**
+     * Reads how far each downloaded episode was played, from the archive, or without a connection
+     * from what was last saved on the phone; [itemId] reads only that episode's. One that can't be
+     * read at all keeps the position its download has.
+     */
+    fun loadWatch(itemId: Long? = null) {
+        if (itemId == null) watchJob?.cancel()
+        val job =
+            viewModelScope.launch(Dispatchers.IO) {
+                val videos =
+                    downloads.savedVideos().filter { itemId == null || it.item.id == itemId }
+                val audio =
+                    downloads.downloads.value
+                        .filter { itemId == null || it.itemId == itemId }
+                        .mapNotNull { downloads.savedItem(it.itemId) }
+                val limit = Semaphore(WATCH_READS)
+                coroutineScope {
+                    val readVideos = videos.map { saved ->
+                        async {
+                            limit.withPermit {
+                                readWatch(saved.item, audio = false)?.let { saved.episodeId to it }
+                            }
+                        }
+                    }
+                    val readAudio = audio.map { item ->
+                        async {
+                            limit.withPermit {
+                                readWatch(item, audio = true)?.let { item.id to it }
+                            }
+                        }
+                    }
+                    val videoResults = readVideos.awaitAll().filterNotNull().toMap()
+                    val audioResults = readAudio.awaitAll().filterNotNull().toMap()
+                    _videoWatch.update { if (itemId == null) videoResults else it + videoResults }
+                    audioWatch.update { if (itemId == null) audioResults else it + audioResults }
+                }
+            }
+        if (itemId == null) watchJob = job
+    }
+
+    private suspend fun readWatch(item: JrwiItem, audio: Boolean): JrwiProgress? =
+        try {
+            jrwiProgress.progress(item, audio)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.d(e, "No progress for downloaded ${item.id}")
+            null
+        }
 
     /** The kept item's season and number, once it's on the phone; asked again until it is. */
     private fun numberOf(itemId: Long): JrwiEpisodeNumber? {
@@ -1118,6 +1195,11 @@ constructor(private val downloads: JrwiDownloads, private val downloader: JrwiDo
     }
 
     fun remove(itemId: Long) = downloader.remove(itemId)
+
+    private companion object {
+        // Progress read from the archive at once
+        const val WATCH_READS = 4
+    }
 }
 
 data class JrwiServerState(

@@ -36,6 +36,7 @@ import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.core.presentation.dummy.dummyMovies
@@ -46,6 +47,7 @@ import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsScope
 import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadsViewModel
+import dev.jdtech.jellyfin.jrwi.JrwiProgress
 import dev.jdtech.jellyfin.models.CollectionSection
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.UiText
@@ -85,16 +87,23 @@ fun DownloadsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activeDownloads by viewModel.activeDownloads.collectAsStateWithLifecycle()
     val jrwiDownloads by jrwiViewModel.entries.collectAsStateWithLifecycle()
+    val jrwiVideoWatch by jrwiViewModel.videoWatch.collectAsStateWithLifecycle()
 
     LaunchedEffect(scope) {
         viewModel.setScope(scope)
         viewModel.loadItems()
+    }
+    // How far the JRWI episodes were played, as the archive has it, each time the page shows
+    LifecycleResumeEffect(scope) {
+        if (scope == DownloadsScope.JRWI) jrwiViewModel.loadWatch()
+        onPauseOrDispose {}
     }
 
     DownloadsScreenLayout(
         state = state,
         activeDownloads = activeDownloads,
         jrwiDownloads = if (scope == DownloadsScope.NOT_JRWI) emptyList() else jrwiDownloads,
+        jrwiVideoWatch = jrwiVideoWatch,
         onJrwiItemClick = onJrwiItemClick,
         onJrwiRemove = jrwiViewModel::remove,
         onActiveDownloadClick = { item -> onItemClick(item) },
@@ -127,6 +136,8 @@ private fun DownloadsScreenLayout(
      */
     byShow: Boolean = false,
     jrwiDownloads: List<JrwiDownloadEntry> = emptyList(),
+    /** How far JRWI's downloaded videos were played, as the archive has it, by episode ID. */
+    jrwiVideoWatch: Map<String, JrwiProgress> = emptyMap(),
     onJrwiItemClick: (Long) -> Unit = {},
     onJrwiRemove: (Long) -> Unit = {},
 ) {
@@ -169,9 +180,12 @@ private fun DownloadsScreenLayout(
 
         val other = stringResource(CoreR.string.jrwi_downloads_other)
         val shows =
-            remember(byShow, state.sections, jrwiDownloads, other) {
-                if (byShow) jrwiDownloadsByShow(state.sections, jrwiDownloads, other)
-                else emptyList()
+            remember(byShow, state.sections, jrwiDownloads, jrwiVideoWatch, other) {
+                if (byShow) {
+                    jrwiDownloadsByShow(state.sections, jrwiDownloads, other, jrwiVideoWatch)
+                } else {
+                    emptyList()
+                }
             }
         CollectionGrid(
             sections = if (byShow) emptyList() else state.sections,
