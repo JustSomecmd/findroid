@@ -1,8 +1,15 @@
 package dev.jdtech.jellyfin.presentation.jrwi
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Environment
+import android.os.StatFs
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,9 +49,11 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -126,6 +135,8 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiFeedPost
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemEvent
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiItemViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiMessages
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiPageDownload
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiPageDownloadResult
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiServerViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiSettingsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowPage
@@ -147,6 +158,7 @@ import dev.jdtech.jellyfin.presentation.audio.AudioViewModel
 import dev.jdtech.jellyfin.presentation.components.pageSwipes
 import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
 import dev.jdtech.jellyfin.presentation.film.components.HomeHeader
+import dev.jdtech.jellyfin.presentation.film.components.StorageSelectionDialog
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.TA_CARD_MIN_WIDTH
 import dev.jdtech.jellyfin.presentation.tube.TaSectionTitle
@@ -282,8 +294,8 @@ fun JrwiHomeScreen(
             modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged(),
             topBar = {
                 // As TubeArchivist Home's header: the archiver's pill with the side switch next to
-                // it, and search at the other end, in the side's colours: the
-                // archiver's yellow, or the purple of its server side
+                // it, and search at the other end, in the side's colours: the archiver's yellow,
+                // or the purple of its server side, blending between them along with a swipe
                 val header =
                     @Composable {
                         Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
@@ -334,7 +346,7 @@ fun JrwiHomeScreen(
                             )
                         }
                     }
-                if (onServer) JrwiSheetTheme(header) else header()
+                JrwiSideTheme(sides = sides, serverFirst = true, content = header)
             },
             contentWindowInsets = TOP_BAR_INSETS,
         ) { innerPadding ->
@@ -503,8 +515,8 @@ private const val FEED_PREFETCH = 5
 /**
  * A post in the feed, laid out as the web app's feed has it: its media, then the show and date, its
  * title, a short preview of its text that opens in place, its files and tags, likes, comments, the
- * original post, and its first comments. A tap opens the post's page, and pictures open full
- * screen.
+ * post in the archive's web app, and its first comments. A tap opens the post's page, and pictures
+ * open full screen.
  */
 @Composable
 private fun JrwiFeedCard(
@@ -558,7 +570,8 @@ private fun JrwiFeedCard(
                     text = (post.commentCount ?: 0).toString(),
                     onClick = onClick,
                 )
-                full?.originalUrl?.let { url ->
+                // The post in the archiver's web app, as the post's page opens it
+                jrwiUrl("/items/${post.id}")?.let { url ->
                     JrwiPill(
                         icon = CoreR.drawable.ic_external_link,
                         text = stringResource(CoreR.string.jrwi_original_post),
@@ -1285,6 +1298,20 @@ fun JrwiShowScreen(
         val shownTab =
             (swiper.target ?: pages.currentPage).coerceIn(0, tabs.lastIndex.coerceAtLeast(0))
         val collapse = remember { JrwiCollapse() }
+        val context = LocalContext.current
+        // A page downloaded whole, such as a season: its pop-up, and a note on what came of it
+        val pageDownload by viewModel.pageDownload.collectAsStateWithLifecycle()
+        val queueing by viewModel.queueing.collectAsStateWithLifecycle()
+        ObserveAsEvents(viewModel.downloadResults) { result ->
+            Toast.makeText(context, pageDownloadText(context, result), Toast.LENGTH_LONG).show()
+        }
+        pageDownload?.let { download ->
+            JrwiPageDownloadDialog(
+                download = download,
+                onDownload = viewModel::download,
+                onDismiss = viewModel::cancelDownload,
+            )
+        }
         val topInset = TOP_BAR_INSETS.asPaddingValues().calculateTopPadding()
         val barHeight = topInset + JRWI_SHOW_BAR_HEIGHT
 
@@ -1322,8 +1349,8 @@ fun JrwiShowScreen(
                                     showId = showId,
                                     tab = tabs[page],
                                     onItemClick = onItemClick,
-                                    topPadding =
-                                        if (tabs.size > 1) 4.dp else MaterialTheme.spacings.medium,
+                                    queueing = queueing == tabs[page].key,
+                                    onDownload = { viewModel.prepareDownload(tabs[page]) },
                                 )
                             }
                         error != null ->
@@ -1625,7 +1652,10 @@ private fun JrwiTabList(
     showId: String,
     tab: JrwiShowPage,
     onItemClick: (Long) -> Unit,
-    topPadding: Dp,
+    /** Its episodes are being read or queued to download. */
+    queueing: Boolean,
+    /** Downloads every episode of the page, after the pop-up. */
+    onDownload: () -> Unit,
 ) {
     val flow = remember(tab) { viewModel.items(tab) }
     val list by flow.collectAsStateWithLifecycle()
@@ -1636,12 +1666,17 @@ private fun JrwiTabList(
             PaddingValues(
                 start = MaterialTheme.spacings.medium,
                 end = MaterialTheme.spacings.medium,
-                top = topPadding,
+                top = MaterialTheme.spacings.medium,
                 bottom = MaterialTheme.spacings.medium,
             ),
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
         modifier = Modifier.fillMaxSize(),
     ) {
+        pageDownloadLabel(tab)?.let { label ->
+            item(key = "download") {
+                JrwiPageDownloadButton(label = label, busy = queueing, onClick = onDownload)
+            }
+        }
         items(list.items, key = { it.id }) { item ->
             JrwiItemRow(
                 item = item,
@@ -1664,6 +1699,201 @@ private fun JrwiTabList(
         } else if (list.items.isEmpty() && list.error == null) {
             item { Text(stringResource(CoreR.string.jrwi_nothing_here)) }
         }
+    }
+}
+
+/**
+ * What a page's download button says: "Download season" on a season's page, "Download show" on the
+ * episodes of a show with one season, and "Download all" on its Just Rolled With It. Other pages,
+ * such as the extras, have none.
+ */
+@Composable
+private fun pageDownloadLabel(page: JrwiShowPage): String? =
+    when {
+        page.tab != "episodes" && page.tab != "aftershow" -> null
+        page.season != null -> stringResource(CoreR.string.jrwi_download_season)
+        page.tab == "episodes" -> stringResource(CoreR.string.jrwi_download_show)
+        else -> stringResource(CoreR.string.jrwi_download_all)
+    }
+
+/**
+ * Puts the page's episodes in the download queue, after its pop-up. Their progress shows in a
+ * notification, which needs asking for on Android 13 and newer; the downloads start either way.
+ */
+@Composable
+private fun JrwiPageDownloadButton(label: String, busy: Boolean, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val notificationPermission =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    OutlinedButton(
+        shape = JrwiShape,
+        border = JrwiGhostBorder,
+        colors = jrwiGhostButtonColors(),
+        enabled = !busy,
+        onClick = {
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                        PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            onClick()
+        },
+    ) {
+        if (busy) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        } else {
+            Icon(
+                painter = painterResource(CoreR.drawable.ic_download),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Spacer(Modifier.width(MaterialTheme.spacings.small))
+        Text(label)
+    }
+}
+
+/**
+ * The pop-up for downloading a page whole: the audio or the archived videos, when the page has
+ * both, then with or without the posts' files, as an episode's own download asks. Videos go to the
+ * storage picked when the phone has more than one.
+ */
+@Composable
+private fun JrwiPageDownloadDialog(
+    download: JrwiPageDownload,
+    onDownload: (video: Boolean, withFiles: Boolean, storageIndex: Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val both = download.audioCount > 0 && download.videoCount > 0
+    var video by remember(download) { mutableStateOf(download.audioCount == 0) }
+    // The files choice, waiting for the storage to be picked
+    var storageFor by remember(download) { mutableStateOf<Boolean?>(null) }
+    val waiting = storageFor
+    if (waiting != null) {
+        val locations = remember {
+            context.getExternalFilesDirs(null).map { dir ->
+                val where =
+                    context.getString(
+                        if (Environment.isExternalStorageRemovable(dir)) CoreR.string.external
+                        else CoreR.string.internal
+                    )
+                context.getString(
+                    CoreR.string.storage_name,
+                    where,
+                    StatFs(dir.path).availableBytes / 1_000_000,
+                )
+            }
+        }
+        StorageSelectionDialog(
+            storageLocations = locations,
+            onSelect = { index -> onDownload(true, waiting, index) },
+            onDismiss = onDismiss,
+        )
+        return
+    }
+    val choose: (Boolean) -> Unit = { withFiles ->
+        if (video && context.getExternalFilesDirs(null).size > 1) storageFor = withFiles
+        else onDownload(video, withFiles, 0)
+    }
+    val count = if (video) download.videoCount else download.audioCount
+    AlertDialog(
+        title = {
+            Text(pluralStringResource(CoreR.plurals.jrwi_download_page_title, count, count))
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium)) {
+                if (both) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)
+                    ) {
+                        listOf(false, true).forEach { isVideo ->
+                            val number = if (isVideo) download.videoCount else download.audioCount
+                            val name =
+                                stringResource(
+                                    if (isVideo) CoreR.string.jrwi_video
+                                    else CoreR.string.jrwi_audio
+                                )
+                            FilterChip(
+                                selected = video == isVideo,
+                                onClick = { video = isVideo },
+                                label = {
+                                    Text(
+                                        stringResource(
+                                            CoreR.string.jrwi_version_count,
+                                            name,
+                                            number,
+                                        )
+                                    )
+                                },
+                                shape = JrwiPillShape,
+                            )
+                        }
+                    }
+                }
+                Text(stringResource(CoreR.string.jrwi_download_page_files_text))
+            }
+        },
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { choose(true) }) {
+                Text(stringResource(CoreR.string.jrwi_download_with_files))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { choose(false) }) {
+                Text(stringResource(CoreR.string.jrwi_download_without_files))
+            }
+        },
+    )
+}
+
+/** What came of downloading a page whole, as a short note. */
+private fun pageDownloadText(context: Context, result: JrwiPageDownloadResult): String {
+    val resources = context.resources
+    return when (result) {
+        is JrwiPageDownloadResult.Added ->
+            listOfNotNull(
+                    result.added
+                        .takeIf { it > 0 }
+                        ?.let {
+                            resources.getQuantityString(
+                                CoreR.plurals.jrwi_download_page_added,
+                                it,
+                                it,
+                            )
+                        },
+                    result.missing
+                        .takeIf { it > 0 }
+                        ?.let {
+                            resources.getQuantityString(
+                                CoreR.plurals.jrwi_download_page_missing,
+                                it,
+                                it,
+                            )
+                        },
+                )
+                .joinToString(" ")
+        JrwiPageDownloadResult.AllThere ->
+            context.getString(CoreR.string.jrwi_download_page_all_there)
+        JrwiPageDownloadResult.NothingToDownload ->
+            context.getString(CoreR.string.jrwi_download_page_nothing)
+        is JrwiPageDownloadResult.Failed ->
+            listOfNotNull(
+                    result.added
+                        .takeIf { it > 0 }
+                        ?.let {
+                            resources.getQuantityString(
+                                CoreR.plurals.jrwi_download_page_added,
+                                it,
+                                it,
+                            )
+                        },
+                    result.error.asString(resources),
+                )
+                .joinToString(" ")
     }
 }
 

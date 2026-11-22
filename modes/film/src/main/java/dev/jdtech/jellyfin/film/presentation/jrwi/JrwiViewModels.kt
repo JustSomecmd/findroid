@@ -26,11 +26,14 @@ import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.jrwi.JrwiShow
 import dev.jdtech.jellyfin.jrwi.JrwiStatus
 import dev.jdtech.jellyfin.models.FindroidEpisode
+import dev.jdtech.jellyfin.models.UiText
 import dev.jdtech.jellyfin.models.isDownloaded
+import dev.jdtech.jellyfin.models.isDownloading
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaPage
 import dev.jdtech.jellyfin.tubearchivist.TaPaginate
+import dev.jdtech.jellyfin.utils.Downloader
 import java.io.File
 import java.io.IOException
 import java.util.Optional
@@ -501,12 +504,44 @@ fun JrwiShow.pages(): List<JrwiShowPage> = tabs.flatMap { tab ->
     }
 }
 
+/**
+ * A page of a show about to be downloaded whole, such as a season: its [items], oldest first, and
+ * how many have audio and an archived video, for the pop-up to offer the version.
+ */
+data class JrwiPageDownload(
+    val page: JrwiShowPage,
+    val items: List<JrwiItem>,
+    val audioCount: Int,
+    val videoCount: Int,
+)
+
+/** What came of downloading a show's page, for a short note. */
+sealed interface JrwiPageDownloadResult {
+    /** [added] episodes went in the queue; [missing] videos weren't found in Jellyfin. */
+    data class Added(val added: Int, val missing: Int) : JrwiPageDownloadResult
+
+    /** Every episode was on the phone or downloading already. */
+    data object AllThere : JrwiPageDownloadResult
+
+    /** The page has neither audio nor archived videos. */
+    data object NothingToDownload : JrwiPageDownloadResult
+
+    /** It stopped, after [added] were queued: no room left, say. */
+    data class Failed(val error: UiText, val added: Int) : JrwiPageDownloadResult
+}
+
 /** A show's page: its tabs, and a list for each that loads as it's scrolled. */
 @HiltViewModel
 class JrwiShowViewModel
 @Inject
-constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgressSync) :
-    ViewModel() {
+constructor(
+    private val jrwiApi: JrwiApi,
+    private val jrwiProgress: JrwiProgressSync,
+    private val jrwiDownloads: JrwiDownloads,
+    private val jrwiDownloader: JrwiDownloader,
+    private val repository: JellyfinRepository,
+    private val downloader: Downloader,
+) : ViewModel() {
     private val _show = MutableStateFlow<JrwiShow?>(null)
     val show = _show.asStateFlow()
 
@@ -569,6 +604,156 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
                     .asTaPage()
             }
         }
+    }
+
+    private val _pageDownload = MutableStateFlow<JrwiPageDownload?>(null)
+
+    /** A page about to be downloaded, for its pop-up, once its episodes are in. */
+    val pageDownload = _pageDownload.asStateFlow()
+
+    private val _queueing = MutableStateFlow<String?>(null)
+
+    /** The key of the page whose episodes are being read or queued, for its button. */
+    val queueing = _queueing.asStateFlow()
+
+    private val _downloadResults = Channel<JrwiPageDownloadResult>(Channel.BUFFERED)
+    val downloadResults = _downloadResults.receiveAsFlow()
+
+    /** Reads every episode of [page], oldest first, for the pop-up to ask how to download them. */
+    fun prepareDownload(page: JrwiShowPage) {
+        val showId = showId ?: return
+        if (_queueing.value != null) return
+        _queueing.value = page.key
+        viewModelScope.launch {
+            try {
+                val items = mutableListOf<JrwiItem>()
+                for (number in 1..DOWNLOAD_MAX_PAGES) {
+                    val result =
+                        jrwiApi.getShowItems(
+                            showId,
+                            page.tab,
+                            season = page.season,
+                            page = number,
+                            order = "asc",
+                            pageSize = DOWNLOAD_PAGE_SIZE,
+                        )
+                    items += result.items
+                    if (!result.hasMore) break
+                }
+                val unique = items.distinctBy { it.id }.filter { !it.locked }
+                val audio = unique.count { it.audio != null }
+                val video = unique.count { it.video?.isYoutube == false }
+                if (audio == 0 && video == 0) {
+                    _downloadResults.send(JrwiPageDownloadResult.NothingToDownload)
+                } else {
+                    _pageDownload.value = JrwiPageDownload(page, unique, audio, video)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _downloadResults.send(
+                    JrwiPageDownloadResult.Failed(UiText.DynamicString(e.errorText()), 0)
+                )
+            } finally {
+                _queueing.value = null
+            }
+        }
+    }
+
+    fun cancelDownload() {
+        _pageDownload.value = null
+    }
+
+    /**
+     * Puts every episode of the page in the download queue: its audio, or with [video] its archived
+     * video through Jellyfin to the storage [storageIndex], each with its post's files when
+     * [withFiles], as an episode's own download button does. Those on the phone or on their way
+     * already are left as they are.
+     */
+    fun download(video: Boolean, withFiles: Boolean, storageIndex: Int = 0) {
+        val download = _pageDownload.value ?: return
+        _pageDownload.value = null
+        _queueing.value = download.page.key
+        viewModelScope.launch {
+            try {
+                val result =
+                    if (video) queueVideos(download.items, withFiles, storageIndex)
+                    else queueAudio(download.items, withFiles)
+                _downloadResults.send(result)
+            } finally {
+                _queueing.value = null
+            }
+        }
+    }
+
+    private fun queueAudio(items: List<JrwiItem>, withFiles: Boolean): JrwiPageDownloadResult {
+        var added = 0
+        items
+            .filter { it.audio != null }
+            .forEach { item ->
+                val existing = jrwiDownloads.get(item.id)
+                // On the phone or on its way; a failed one is tried again
+                if (existing != null && !existing.failed) return@forEach
+                jrwiDownloader.download(item, withFiles)
+                added++
+            }
+        return if (added == 0) JrwiPageDownloadResult.AllThere
+        else JrwiPageDownloadResult.Added(added, 0)
+    }
+
+    private suspend fun queueVideos(
+        items: List<JrwiItem>,
+        withFiles: Boolean,
+        storageIndex: Int,
+    ): JrwiPageDownloadResult {
+        var added = 0
+        var missing = 0
+        for (item in items.filter { it.video?.isYoutube == false }) {
+            val episodeId = jrwiProgress.episodeId(item)
+            val episode = episodeId?.let {
+                try {
+                    repository.getEpisode(it)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.d(e, "Episode $it of ${item.id} could not be loaded")
+                    null
+                }
+            }
+            val source = episode?.sources?.firstOrNull()
+            if (episodeId == null || episode == null || source == null) {
+                missing++
+                continue
+            }
+            if (episode.isDownloaded() || episode.isDownloading()) continue
+            // The whole item is kept with the download, for its page without a connection
+            val full =
+                try {
+                    jrwiApi.getItem(item.id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    item
+                }
+            jrwiDownloads.saveVideo(full, episodeId.toString(), withFiles)
+            if (jrwiDownloads.videoKeepsFiles(item.id)) jrwiDownloader.keepFilesForVideo(item.id)
+            val error = downloader.downloadItem(episode, source.id, storageIndex)
+            if (error != null) {
+                jrwiDownloads.deleteVideo(item.id)
+                return JrwiPageDownloadResult.Failed(error, added)
+            }
+            added++
+        }
+        return when {
+            added > 0 || missing > 0 -> JrwiPageDownloadResult.Added(added, missing)
+            else -> JrwiPageDownloadResult.AllThere
+        }
+    }
+
+    private companion object {
+        // Reading a page's episodes to download them: pages of 200, oldest first
+        const val DOWNLOAD_PAGE_SIZE = 200
+        const val DOWNLOAD_MAX_PAGES = 20
     }
 }
 

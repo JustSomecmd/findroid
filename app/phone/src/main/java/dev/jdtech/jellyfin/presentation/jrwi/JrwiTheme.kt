@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -16,6 +17,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -25,6 +29,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.presentation.theme.LocalPillShape
+import dev.jdtech.jellyfin.presentation.theme.blendTo
+import kotlin.math.roundToInt
 
 /**
  * The JRWI archiver's own colours, from its web app's stylesheet, so the JRWI tab looks like the
@@ -151,6 +157,42 @@ fun JrwiSheetTheme(content: @Composable () -> Unit) {
         CompositionLocalProvider(LocalPillShape provides JrwiPillShape, content = content)
     }
 }
+
+/**
+ * The JRWI look over a pager with the archiver sheet as its server side, such as Home's header: the
+ * colours move from the site's to the sheet's along with a swipe, as TubeArchivist's server colours
+ * do, rather than all at once halfway.
+ */
+@Composable
+fun JrwiSideTheme(sides: PagerState, serverFirst: Boolean, content: @Composable () -> Unit) {
+    // Read through derived state, so only a new step redraws anything, not every frame
+    val step by
+        remember(sides, serverFirst) {
+            derivedStateOf {
+                val position =
+                    (sides.currentPage + sides.currentPageOffsetFraction).coerceIn(0f, 1f)
+                ((if (serverFirst) 1f - position else position) * SIDE_STEPS).roundToInt()
+            }
+        }
+    val scheme =
+        remember(step) {
+            when (step) {
+                0 -> JrwiColorScheme
+                SIDE_STEPS -> JrwiSheetColorScheme
+                else -> JrwiColorScheme.blendTo(JrwiSheetColorScheme, step / SIDE_STEPS.toFloat())
+            }
+        }
+    MaterialTheme(
+        colorScheme = scheme,
+        typography = MaterialTheme.typography,
+        shapes = JrwiShapes,
+    ) {
+        CompositionLocalProvider(LocalPillShape provides JrwiPillShape, content = content)
+    }
+}
+
+// The colours change in this many steps between the two sides, as the server colours do
+private const val SIDE_STEPS = 10
 
 /** The site's corners: 4 dp on cards, buttons and fields. */
 val JrwiShape = RoundedCornerShape(4.dp)

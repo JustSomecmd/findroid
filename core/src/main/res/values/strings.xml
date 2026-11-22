@@ -482,6 +482,13 @@
     <string name="jrwi_download_files_text">Its attachments, documents and pictures, so they open without a connection. They can take up a lot of space.</string>
     <string name="jrwi_download_with_files">With files</string>
     <string name="jrwi_download_without_files">Without files</string>
+    <string name="jrwi_download_season">Download season</string>
+    <string name="jrwi_download_show">Download show</string>
+    <string name="jrwi_download_all">Download all</string>
+    <string name="jrwi_download_page_files_text">Each episode\'s attachments, documents and pictures can come too, so they open without a connection. They can take up a lot of space.</string>
+    <string name="jrwi_version_count">%1$s · %2$d</string>
+    <string name="jrwi_download_page_all_there">Everything here is downloaded or on its way already.</string>
+    <string name="jrwi_download_page_nothing">Nothing here has audio or an archived video to download.</string>
     <string name="jrwi_offline_copy">The archiver can\'t be reached, so this is the copy kept with the audio.</string>
     <string name="jrwi_not_saved">Not kept on this phone</string>
     <string name="jrwi_downloads">JRWI audio</string>

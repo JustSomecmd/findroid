@@ -163,7 +163,7 @@ fun ColorScheme.serverSide(dark: Boolean): ColorScheme {
 }
 
 /** The colors a fraction of the way from this scheme to [other], for the colors that change. */
-private fun ColorScheme.blendTo(other: ColorScheme, fraction: Float): ColorScheme =
+internal fun ColorScheme.blendTo(other: ColorScheme, fraction: Float): ColorScheme =
     copy(
         primary = lerp(primary, other.primary, fraction),
         onPrimary = lerp(onPrimary, other.onPrimary, fraction),
