@@ -509,6 +509,7 @@ fun AudioPlayerScreen(
                         }
                     }
                     Spacer(Modifier.height(MaterialTheme.spacings.large))
+                    // All as wide, so the row sits centred under Play
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)
                     ) {
@@ -517,7 +518,7 @@ fun AudioPlayerScreen(
                             contentDescription = stringResource(CoreR.string.jrwi_player_speed),
                             onClick = { speedOpen = true },
                             filled = state.speed != 1f,
-                            modifier = Modifier.width(64.dp),
+                            modifier = Modifier.width(ROW_BUTTON_WIDTH),
                         ) {
                             Text(
                                 text = speedLabel(state.speed),
@@ -530,6 +531,7 @@ fun AudioPlayerScreen(
                                 icon = CoreR.drawable.ic_skip_forward,
                                 contentDescription = stringResource(CoreR.string.audio_player_next),
                                 onClick = player::skipToNext,
+                                modifier = Modifier.width(ROW_BUTTON_WIDTH),
                             )
                         }
                         val hasVideo =
@@ -550,6 +552,7 @@ fun AudioPlayerScreen(
                                         onWatchVideo(episode, position)
                                     }
                                 },
+                                modifier = Modifier.width(ROW_BUTTON_WIDTH),
                             )
                         }
                     }
@@ -779,7 +782,7 @@ private fun SleepButton(state: AudioState, onClick: () -> Unit) {
         contentDescription = stringResource(CoreR.string.jrwi_player_sleep),
         onClick = onClick,
         filled = sleep != null,
-        modifier = Modifier.width(64.dp),
+        modifier = Modifier.width(ROW_BUTTON_WIDTH),
     ) {
         if (endsAt != null) {
             Text(
@@ -1040,6 +1043,8 @@ private val PLAYER_TOP_INSETS
     @Composable get() = WindowInsets.statusBars.union(WindowInsets.displayCutout)
 
 private val BUTTON_SIZE = 48.dp
+// The buttons under Play, wide enough for the speed and the sleep timer's time left
+private val ROW_BUTTON_WIDTH = 64.dp
 private const val DISABLED_ALPHA = 0.38f
 private const val SPEED_STEP = 0.05f
 private val SPEED_PRESETS = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
