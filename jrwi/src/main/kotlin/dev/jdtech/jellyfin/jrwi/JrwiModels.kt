@@ -154,6 +154,8 @@ data class JrwiItem(
     val version: String? = null,
     /** On a single post: its episode has other versions (v0.7). */
     val paired: Boolean = false,
+    /** On a single post: the item it's grouped into, the same as [id] for a main post (v0.7). */
+    @SerialName("item_id") val itemId: Long? = null,
     /** On a single post: when the archiver noticed the site no longer has it (v0.15). */
     @SerialName("removed_from_site") val removedFromSite: String? = null,
     /** On a single post whose video was handed over to TubeArchivist (v0.15). */
@@ -414,3 +416,62 @@ data class JrwiArchiveEntry(
 @Serializable data class JrwiContinue(val item: JrwiItem, val progress: JrwiProgress)
 
 @Serializable data class JrwiContinueList(val items: List<JrwiContinue> = emptyList())
+
+/** One of the site's tags, with how many of the archive's posts carry it. Suggested. */
+@Serializable data class JrwiTagCount(val name: String, val count: Int = 0)
+
+/**
+ * What the archive holds beyond its lists, for the archiver page's numbers. Suggested to the
+ * archiver as `GET /api/stats`; every part can be missing.
+ */
+@Serializable
+data class JrwiStats(
+    /** The last checks, newest first. */
+    val checks: List<JrwiCheckRun> = emptyList(),
+    /** The archive's files by type and extension, as its Admin > Files page counts them. */
+    val files: List<JrwiFileCount> = emptyList(),
+    val comments: JrwiCommentStats? = null,
+)
+
+@Serializable
+data class JrwiCheckRun(
+    val started: String? = null,
+    val finished: String? = null,
+    /** ok, login_failed, blocked, error or stopped */
+    val result: String? = null,
+    val message: String? = null,
+    /** Posts that were new to the archive. */
+    @SerialName("new_items") val newItems: Int = 0,
+    /** Posts saved, new or changed. */
+    val archived: Int = 0,
+)
+
+@Serializable
+data class JrwiFileCount(
+    val type: String = "other",
+    val ext: String = "",
+    val count: Int = 0,
+    val bytes: Long = 0,
+)
+
+@Serializable
+data class JrwiCommentStats(
+    /** Every comment and reply. */
+    val total: Int = 0,
+    val replies: Int = 0,
+    /** How many members commented. */
+    val commenters: Int = 0,
+    /** Those who commented most, most first. */
+    val top: List<JrwiCommenter> = emptyList(),
+)
+
+@Serializable
+data class JrwiCommenter(
+    val name: String = "",
+    val avatar: String? = null,
+    val color: String? = null,
+    val badges: List<JrwiBadge> = emptyList(),
+    val count: Int = 0,
+    /** Likes on all their comments. */
+    val likes: Int = 0,
+)

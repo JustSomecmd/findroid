@@ -110,6 +110,7 @@ import dev.jdtech.jellyfin.presentation.jrwi.JrwiColors
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiHomeScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiItemScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiPurple
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiSearchScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiSettingsScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowScreen
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiShowsScreen
@@ -867,6 +868,9 @@ private fun TaMainPager(
                 JrwiRoute ->
                     JrwiHomeScreen(
                         onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
+                        onShowClick =
+                            resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
+                        onSearchClick = dropUnlessResumed { navigator.navigate(JrwiSearchRoute) },
                         onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
                         sides = jrwiHomeSides,
                     )
@@ -1387,8 +1391,16 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
         if (LocalTaMainPagerShown.current) return@entry
         JrwiHomeScreen(
             onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
+            onShowClick = resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
+            onSearchClick = dropUnlessResumed { navigator.navigate(JrwiSearchRoute) },
             onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
             sides = rememberSidePagerState(serverFirst = true),
+        )
+    }
+    entry<JrwiSearchRoute> {
+        JrwiSearchScreen(
+            onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
+            navigateBack = dropUnlessResumed { navigator.goBack() },
         )
     }
     entry<JrwiShowsRoute>(metadata = MAIN_PAGE_ENTRY) {

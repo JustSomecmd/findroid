@@ -140,6 +140,7 @@ class JrwiApi(private val config: JrwiConfig) {
         youtubeId: String? = null,
         page: Int = 1,
         pageSize: Int = PAGE_SIZE,
+        order: String = "desc",
     ): JrwiPage<JrwiItem> =
         decode(
             get("api/items") {
@@ -148,6 +149,7 @@ class JrwiApi(private val config: JrwiConfig) {
                 tab?.let { addQueryParameter("tab", it) }
                 kind?.let { addQueryParameter("kind", it) }
                 youtubeId?.let { addQueryParameter("youtube_id", it) }
+                addQueryParameter("order", order)
                 addQueryParameter("page", page.toString())
                 addQueryParameter("page_size", pageSize.toString())
             }
@@ -155,20 +157,47 @@ class JrwiApi(private val config: JrwiConfig) {
 
     /**
      * Every post on its own, as the archiver's web feed lists them (v0.7): newest first, or oldest
-     * with [order] "asc", leaving out those above the user's tier.
+     * with [order] "asc", leaving out those above the user's tier. [query] finds posts with it in
+     * their title or text, and [show] and [tab] keep the posts the site's tags put there. [tag]
+     * keeps the posts with that tag, on archivers that list their tags ([getTags]); others ignore
+     * it, so it's only sent to those.
      */
     suspend fun getPosts(
         page: Int = 1,
         pageSize: Int = PAGE_SIZE,
         order: String = "desc",
+        query: String? = null,
+        show: String? = null,
+        tab: String? = null,
+        tag: String? = null,
     ): JrwiPage<JrwiItem> =
         decode(
             get("api/posts") {
+                query?.takeIf { it.isNotBlank() }?.let { addQueryParameter("q", it) }
+                show?.let { addQueryParameter("show", it) }
+                tab?.let { addQueryParameter("tab", it) }
+                tag?.let { addQueryParameter("tag", it) }
                 addQueryParameter("order", order)
                 addQueryParameter("page", page.toString())
                 addQueryParameter("page_size", pageSize.toString())
             }
         )
+
+    /**
+     * The site's tags that archived posts carry, with how many posts each, as the web feed's tag
+     * picker lists them. Suggested to the archiver; archivers without it answer 404.
+     */
+    suspend fun getTags(): List<JrwiTagCount> =
+        json.decodeFromString(ListSerializer(JrwiTagCount.serializer()), get("api/tags"))
+
+    /**
+     * What the archive holds beyond its lists: its last checks, its files by type, and who comments
+     * most. Suggested to the archiver; archivers without it answer 404.
+     */
+    suspend fun getStats(): JrwiStats = decode(get("api/stats"))
+
+    /** The archiver's name and version. */
+    suspend fun getPing(): JrwiPing = decode(get("api/ping"))
 
     /** The newest items across every show. */
     suspend fun getLatest(limit: Int = 20): List<JrwiItem> =

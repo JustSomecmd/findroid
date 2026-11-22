@@ -574,7 +574,7 @@ private fun TaStatsCard(title: String, content: @Composable ColumnScope.() -> Un
 
 /** A stat's name, with a detail under it, and its value on the right. */
 @Composable
-private fun TaStatLine(label: String, value: String, detail: String? = null) {
+internal fun TaStatLine(label: String, value: String, detail: String? = null) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -600,7 +600,7 @@ private fun TaStatLine(label: String, value: String, detail: String? = null) {
 
 /** A rounded bar filled to [fraction]. */
 @Composable
-private fun TaBar(
+internal fun TaBar(
     fraction: Float,
     color: Color,
     trackColor: Color,
@@ -634,5 +634,5 @@ private fun videoCount(count: Long): String =
     )
 
 /** 0.2612 as 26.1. */
-private fun formatPercent(fraction: Double): String =
+internal fun formatPercent(fraction: Double): String =
     String.format(Locale.getDefault(), "%.1f", fraction * 100)

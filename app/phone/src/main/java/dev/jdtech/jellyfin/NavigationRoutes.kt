@@ -91,5 +91,8 @@ data class CollectionRoute(val collectionId: String, val collectionName: String)
 
 @Serializable data object JrwiSettingsRoute : NavKey
 
+/** Searches the archive's posts, from JRWI Home's search button. */
+@Serializable data object JrwiSearchRoute : NavKey
+
 /** The audio player, for JRWI audio and TubeArchivist videos' sound. */
 @Serializable data object AudioPlayerRoute : NavKey

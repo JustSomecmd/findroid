@@ -19,6 +19,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiPage
 import dev.jdtech.jellyfin.jrwi.JrwiPostFile
 import dev.jdtech.jellyfin.jrwi.JrwiPreview
 import dev.jdtech.jellyfin.jrwi.JrwiProblem
+import dev.jdtech.jellyfin.jrwi.JrwiProgress
 import dev.jdtech.jellyfin.jrwi.JrwiProgressChange
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.jrwi.JrwiShow
@@ -107,6 +108,33 @@ private fun List<JrwiItem>.withProgress(change: JrwiProgressChange): List<JrwiIt
     return map { if (it.id == change.itemId) it.copy(progress = change.progress) else it }
 }
 
+/**
+ * A single post with the progress just saved for its episode, when it's one of the episode's
+ * versions. The archive keeps one record per episode, so every version shows it.
+ */
+internal fun JrwiItem.withEpisodeProgress(change: JrwiProgressChange): JrwiItem {
+    if (video == null && audio == null) return this
+    if ((itemId ?: id) != change.itemId && id != change.itemId) return this
+    return copy(progress = change.progress)
+}
+
+/** A post's own progress, for its watched mark; null for a post without a video or audio. */
+internal suspend fun JrwiApi.postProgress(post: JrwiItem): JrwiProgress? {
+    if (post.video == null && post.audio == null) return null
+    return try {
+        getProgress(post.id)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Timber.d(e, "No progress for post ${post.id}")
+        null
+    }
+}
+
+/** A post's first comments as the site's feed picks them: pinned ones, then the most liked. */
+internal fun List<JrwiComment>.topComments(count: Int): List<JrwiComment> =
+    sortedWith(compareBy<JrwiComment>({ !it.pinned }, { -(it.likeCount ?: 0) })).take(count)
+
 data class JrwiShowsState(
     val configured: Boolean = false,
     val shows: List<JrwiShow> = emptyList(),
@@ -164,6 +192,10 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
                     it.copy(
                         latest = it.latest.withProgress(change),
                         continueWatching = continueWith(it.continueWatching, change),
+                        feed =
+                            it.feed.map { entry ->
+                                entry.copy(post = entry.post.withEpisodeProgress(change))
+                            },
                     )
                 }
             }
@@ -267,8 +299,9 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
     }
 
     /**
-     * A feed post's text, pictures, files and tags, and its first comments, once its card shows.
-     * One that couldn't be loaded is tried again when it shows again.
+     * A feed post's text, pictures, files and tags, its first comments, and for a video or audio
+     * how far it was played, once its card shows. One that couldn't be loaded is tried again when
+     * it shows again.
      */
     fun loadFeedDetails(postId: Long) {
         val entry = _state.value.feed.firstOrNull { it.post.id == postId } ?: return
@@ -286,8 +319,10 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
                             null
                         }
                     }
+                    val progress = async { jrwiApi.postProgress(entry.post) }
                     val post = full.await()
                     val page = comments.await()
+                    val played = progress.await()
                     _state.update { state ->
                         state.copy(
                             feed =
@@ -295,8 +330,15 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
                                     if (it.post.id != postId) it
                                     else
                                         it.copy(
+                                            post =
+                                                if (played != null) {
+                                                    it.post.copy(progress = played)
+                                                } else {
+                                                    it.post
+                                                },
                                             full = post,
-                                            comments = page?.items.orEmpty().take(FEED_COMMENTS),
+                                            comments =
+                                                page?.items.orEmpty().topComments(FEED_COMMENTS),
                                             moreComments = (page?.total ?: 0) > FEED_COMMENTS,
                                         )
                                 }

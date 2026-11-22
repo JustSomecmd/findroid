@@ -90,6 +90,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -113,17 +114,22 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowPage
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowsState
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowsViewModel
+import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiStatsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.pages
+import dev.jdtech.jellyfin.jrwi.JrwiAuthor
 import dev.jdtech.jellyfin.jrwi.JrwiBadge
 import dev.jdtech.jellyfin.jrwi.JrwiComment
 import dev.jdtech.jellyfin.jrwi.JrwiContinue
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiPostFile
+import dev.jdtech.jellyfin.jrwi.JrwiProblem
 import dev.jdtech.jellyfin.jrwi.JrwiShow
+import dev.jdtech.jellyfin.jrwi.JrwiStatus
 import dev.jdtech.jellyfin.presentation.audio.AudioViewModel
 import dev.jdtech.jellyfin.presentation.components.pageSwipes
 import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.tube.TA_CARD_MIN_WIDTH
 import dev.jdtech.jellyfin.presentation.tube.TaSectionTitle
 import dev.jdtech.jellyfin.presentation.tube.TaSidePager
 import dev.jdtech.jellyfin.presentation.tube.TaSideSwitch
@@ -169,7 +175,7 @@ internal fun JrwiImage(
     )
 }
 
-private val TOP_BAR_INSETS
+internal val TOP_BAR_INSETS
     @Composable get() = WindowInsets.statusBars.union(WindowInsets.displayCutout)
 
 /** Turns a message from a JRWI page into text. */
@@ -197,14 +203,17 @@ internal fun openUrl(context: Context, url: String?) {
 
 /**
  * JRWI mode's Home: what was started and not finished, then the archive's feed, as the web app's
- * Home has it. Its server side, to the left as with TubeArchivist's Home, is the archiver's page in
- * purple: what it's doing, Check now and the posts it couldn't fully save. A swipe, a tap on the
- * switch, or a double tap on the tab turns it.
+ * Home has it, with a search button in its bar. Its server side, to the left as with
+ * TubeArchivist's Home, is the archiver's page in purple: the archive's numbers, what it's doing,
+ * Check now and the posts it couldn't fully save. A swipe, a tap on the switch, or a double tap on
+ * the tab turns it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JrwiHomeScreen(
     onItemClick: (Long) -> Unit,
+    onShowClick: (String) -> Unit,
+    onSearchClick: () -> Unit,
     onSetUp: () -> Unit,
     sides: PagerState,
     viewModel: JrwiShowsViewModel = hiltViewModel(),
@@ -248,6 +257,11 @@ fun JrwiHomeScreen(
                                 )
                             },
                             actions = {
+                                // The archive's search, on the posts' side
+                                if (state.configured && !onServer) {
+                                    JrwiSearchButton(onClick = onSearchClick)
+                                    Spacer(Modifier.width(MaterialTheme.spacings.small))
+                                }
                                 if (state.configured) {
                                     TaSideSwitch(
                                         onServer = onServer,
@@ -308,7 +322,11 @@ fun JrwiHomeScreen(
                                 Modifier.fillMaxSize()
                                     .background(MaterialTheme.colorScheme.background)
                         ) {
-                            JrwiServerContent(modifier = Modifier.fillMaxSize())
+                            JrwiServerContent(
+                                onShowClick = onShowClick,
+                                onItemClick = onItemClick,
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
                     }
                 },
@@ -461,7 +479,7 @@ private fun JrwiFeedCard(
             }
             if (entry.comments.isNotEmpty()) {
                 Column(modifier = Modifier.padding(top = MaterialTheme.spacings.small)) {
-                    entry.comments.forEach { comment -> JrwiFeedComment(comment) }
+                    entry.comments.forEach { comment -> JrwiFeedComment(comment, onOpen) }
                     if (entry.moreComments) {
                         Text(
                             text = stringResource(CoreR.string.jrwi_more_comments),
@@ -498,9 +516,9 @@ private fun JrwiFeedMedia(
     when {
         post.audio != null ->
             Box(contentAlignment = Alignment.Center) {
+                // With its watched mark, as in the show lists
                 JrwiThumbnail(
                     item = post,
-                    marks = false,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -531,7 +549,6 @@ private fun JrwiFeedMedia(
         post.video != null && thumbnail != null ->
             JrwiThumbnail(
                 item = post,
-                marks = false,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -638,20 +655,27 @@ private fun JrwiFeedMeta(post: JrwiItem, showName: String?, modifier: Modifier =
             modifier = Modifier.align(Alignment.CenterVertically),
         )
         if (post.pinned) JrwiTag(stringResource(CoreR.string.jrwi_pinned))
-        val version =
-            when (post.version) {
-                "video" -> CoreR.string.jrwi_video
-                "audio" -> CoreR.string.jrwi_audio
-                "youtube" -> CoreR.string.jrwi_youtube
-                else -> null
-            }
-        if (post.paired && version != null) JrwiTag(stringResource(version))
+        versionLabel(post)?.let { JrwiTag(it) }
     }
+}
+
+/** Which version of its episode a single post is, when the episode has more than one. */
+@Composable
+internal fun versionLabel(post: JrwiItem): String? {
+    if (!post.paired) return null
+    val version =
+        when (post.version) {
+            "video" -> CoreR.string.jrwi_video
+            "audio" -> CoreR.string.jrwi_audio
+            "youtube" -> CoreR.string.jrwi_youtube
+            else -> return null
+        }
+    return stringResource(version)
 }
 
 /** A small label, as the web app's tags next to a post's date. */
 @Composable
-private fun JrwiTag(text: String) {
+internal fun JrwiTag(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelMedium,
@@ -760,67 +784,118 @@ private fun JrwiPill(icon: Int, text: String, onClick: (() -> Unit)? = null) {
     }
 }
 
-/** One of a feed post's first comments, short: who wrote it, when, and the start of it. */
+/**
+ * One of a feed post's first comments, as the web app's feed shows them: the name in its tier's
+ * colour with its badges, Pinned, how long ago and a link to it on the site, the start of the text
+ * with "Read more" to open the rest, its likes, and its replies, which open under it.
+ */
 @Composable
-private fun JrwiFeedComment(comment: JrwiComment) {
-    val author = comment.author
-    val avatar = author.avatar
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-        modifier =
-            Modifier.fillMaxWidth()
-                .padding(
-                    horizontal = MaterialTheme.spacings.medium,
-                    vertical = MaterialTheme.spacings.small,
-                ),
-    ) {
-        if (avatar != null) {
-            JrwiImage(path = avatar, modifier = Modifier.size(28.dp).clip(CircleShape))
-        } else {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(28.dp).clip(CircleShape).background(JrwiColors.LineSoft),
-            ) {
-                Text(
-                    text = author.name.take(1).uppercase().ifEmpty { "?" },
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = JrwiColors.Text,
-                )
-            }
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = author.name,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = cssColor(author.color) ?: JrwiColors.Text,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                (comment.dateText ?: fullDate(comment.date))?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = JrwiColors.Muted,
-                        modifier = Modifier.padding(start = MaterialTheme.spacings.small),
+private fun JrwiFeedComment(comment: JrwiComment, onOpen: (String) -> Unit) {
+    var open by rememberSaveable(comment.id) { mutableStateOf(false) }
+    var cut by remember(comment.id) { mutableStateOf(false) }
+    var replies by rememberSaveable(comment.id) { mutableStateOf(false) }
+    Column {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+            modifier =
+                Modifier.fillMaxWidth()
+                    .padding(
+                        horizontal = MaterialTheme.spacings.medium,
+                        vertical = MaterialTheme.spacings.small,
+                    ),
+        ) {
+            JrwiCommentAvatar(comment.author, 36.dp)
+            Column(modifier = Modifier.weight(1f)) {
+                JrwiCommentHeader(comment, onOpen)
+                if (open) {
+                    JrwiHtmlText(
+                        html = comment.bodyHtml?.takeIf { it.isNotBlank() },
+                        text = comment.bodyText,
                     )
+                } else {
+                    Text(
+                        text = comment.bodyText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = JrwiColors.BodyText,
+                        maxLines = COMMENT_LINES,
+                        overflow = TextOverflow.Ellipsis,
+                        onTextLayout = { cut = it.hasVisualOverflow },
+                    )
+                    if (cut) {
+                        Text(
+                            text = stringResource(CoreR.string.jrwi_read_more),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = JrwiColors.Accent,
+                            modifier = Modifier.clickable { open = true }.padding(vertical = 4.dp),
+                        )
+                    }
+                }
+                // The web feed's foot: likes, and the replies, which open under the comment
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    JrwiCommentCount(
+                        icon = CoreR.drawable.ic_heart,
+                        text = comment.likeCount?.takeIf { it > 0 }?.toString(),
+                    )
+                    val count = comment.replies.size
+                    if (count > 0) {
+                        JrwiCommentCount(
+                            icon = CoreR.drawable.ic_message_square,
+                            text = count.toString(),
+                            action =
+                                stringResource(
+                                    if (replies) CoreR.string.jrwi_hide_replies
+                                    else CoreR.string.jrwi_load_replies
+                                ),
+                            onClick = { replies = !replies },
+                        )
+                    }
                 }
             }
-            Text(
-                text = comment.bodyText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = JrwiColors.BodyText,
-                maxLines = COMMENT_LINES,
-                overflow = TextOverflow.Ellipsis,
-            )
+        }
+        if (replies) {
+            comment.replies.flattenReplies(depth = 1).forEach { (reply, depth) ->
+                JrwiCommentRow(comment = reply, depth = depth, onOpen = onOpen)
+            }
         }
     }
 }
 
 private const val COMMENT_LINES = 3
+
+/** A count under a comment in the feed, with what a tap does, as the web feed's foot. */
+@Composable
+private fun JrwiCommentCount(
+    icon: Int,
+    text: String?,
+    action: String? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier =
+            Modifier.clip(JrwiShape)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(vertical = 4.dp),
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = JrwiColors.Muted,
+            modifier = Modifier.size(14.dp),
+        )
+        text?.let {
+            Text(text = it, style = MaterialTheme.typography.labelMedium, color = JrwiColors.Muted)
+        }
+        action?.let {
+            Text(text = it, style = MaterialTheme.typography.labelMedium, color = JrwiColors.Accent)
+        }
+    }
+}
 
 /** For the JRWI pages before the archiver is set up in Settings. */
 @Composable
@@ -1278,9 +1353,17 @@ private fun JrwiTabList(
     }
 }
 
-/** An item with its picture at the side, as in a show's list. */
+/**
+ * An item with its picture at the side, as in a show's list. [label] goes under its details, such
+ * as which version of its episode a post is.
+ */
 @Composable
-private fun JrwiItemRow(item: JrwiItem, onClick: () -> Unit, otherShow: String? = null) {
+internal fun JrwiItemRow(
+    item: JrwiItem,
+    onClick: () -> Unit,
+    otherShow: String? = null,
+    label: String? = null,
+) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
         modifier = Modifier.fillMaxWidth().clip(JrwiShape).clickable(onClick = onClick),
@@ -1300,6 +1383,7 @@ private fun JrwiItemRow(item: JrwiItem, onClick: () -> Unit, otherShow: String? 
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            label?.let { Box(Modifier.padding(top = 4.dp)) { JrwiTag(it) } }
             if (item.locked) {
                 Text(
                     text = stringResource(CoreR.string.jrwi_locked),
@@ -2035,72 +2119,9 @@ private fun JrwiCommentRow(comment: JrwiComment, depth: Int, onOpen: (String) ->
                     bottom = MaterialTheme.spacings.small,
                 ),
     ) {
-        if (author.avatar != null) {
-            JrwiImage(path = author.avatar, modifier = Modifier.size(avatarSize).clip(CircleShape))
-        } else {
-            // The name's first letter, as the site shows members without a picture
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier =
-                    Modifier.size(avatarSize).clip(CircleShape).background(JrwiColors.LineSoft),
-            ) {
-                Text(
-                    text = author.name.take(1).uppercase().ifEmpty { "?" },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = JrwiColors.Text,
-                )
-            }
-        }
+        JrwiCommentAvatar(author, avatarSize)
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.Top) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(
-                        text = author.name,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = cssColor(author.color) ?: JrwiColors.Text,
-                        modifier = Modifier.align(Alignment.CenterVertically),
-                    )
-                    author.badges.forEach { badge ->
-                        JrwiBadgeLabel(badge, Modifier.align(Alignment.CenterVertically))
-                    }
-                    if (comment.pinned) {
-                        Text(
-                            text = stringResource(CoreR.string.jrwi_pinned),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = JrwiColors.PillText,
-                            modifier =
-                                Modifier.align(Alignment.CenterVertically)
-                                    .background(JrwiColors.Pill, JrwiLabelShape)
-                                    .padding(horizontal = 8.dp, vertical = 1.dp),
-                        )
-                    }
-                }
-                (comment.dateText ?: fullDate(comment.date))?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = MaterialTheme.spacings.small),
-                    )
-                }
-                comment.link?.let { link ->
-                    Icon(
-                        painter = painterResource(CoreR.drawable.ic_external_link),
-                        contentDescription = stringResource(CoreR.string.jrwi_open_comment),
-                        tint = JrwiColors.Muted,
-                        modifier =
-                            Modifier.padding(start = MaterialTheme.spacings.small)
-                                .size(16.dp)
-                                .clickable { onOpen(link) },
-                    )
-                }
-            }
+            JrwiCommentHeader(comment, onOpen)
             JrwiHtmlText(
                 html = comment.bodyHtml?.takeIf { it.isNotBlank() },
                 text = comment.bodyText,
@@ -2125,6 +2146,96 @@ private fun JrwiCommentRow(comment: JrwiComment, depth: Int, onOpen: (String) ->
                         )
                     }
                 }
+        }
+    }
+}
+
+/** A commenter's picture, or the name's first letter, as the site shows members without one. */
+@Composable
+internal fun JrwiCommentAvatar(author: JrwiAuthor, size: Dp) {
+    if (author.avatar != null) {
+        JrwiImage(path = author.avatar, modifier = Modifier.size(size).clip(CircleShape))
+        return
+    }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(size).clip(CircleShape).background(JrwiColors.LineSoft),
+    ) {
+        Text(
+            text = author.name.take(1).uppercase().ifEmpty { "?" },
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = JrwiColors.Text,
+        )
+    }
+}
+
+/**
+ * Who wrote a comment, as the site shows it: the name in its tier's colour, the badges (tier,
+ * months as a member, Verified), Pinned, how long ago, and a link to it on the site.
+ */
+@Composable
+private fun JrwiCommentHeader(comment: JrwiComment, onOpen: (String) -> Unit) {
+    Row(verticalAlignment = Alignment.Top) {
+        JrwiAuthorName(
+            author = comment.author,
+            pinned = comment.pinned,
+            modifier = Modifier.weight(1f),
+        )
+        (comment.dateText ?: fullDate(comment.date))?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = MaterialTheme.spacings.small),
+            )
+        }
+        comment.link?.let { link ->
+            Icon(
+                painter = painterResource(CoreR.drawable.ic_external_link),
+                contentDescription = stringResource(CoreR.string.jrwi_open_comment),
+                tint = JrwiColors.Muted,
+                modifier =
+                    Modifier.padding(start = MaterialTheme.spacings.small).size(16.dp).clickable {
+                        onOpen(link)
+                    },
+            )
+        }
+    }
+}
+
+/** A member's name in their tier's colour, with their badges and, for a comment, Pinned. */
+@Composable
+internal fun JrwiAuthorName(
+    author: JrwiAuthor,
+    modifier: Modifier = Modifier,
+    pinned: Boolean = false,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = modifier,
+    ) {
+        Text(
+            text = author.name,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = cssColor(author.color) ?: JrwiColors.Text,
+            modifier = Modifier.align(Alignment.CenterVertically),
+        )
+        author.badges.forEach { badge ->
+            JrwiBadgeLabel(badge, Modifier.align(Alignment.CenterVertically))
+        }
+        if (pinned) {
+            Text(
+                text = stringResource(CoreR.string.jrwi_pinned),
+                style = MaterialTheme.typography.labelSmall,
+                color = JrwiColors.PillText,
+                modifier =
+                    Modifier.align(Alignment.CenterVertically)
+                        .background(JrwiColors.Pill, JrwiLabelShape)
+                        .padding(horizontal = 8.dp, vertical = 1.dp),
+            )
         }
     }
 }
@@ -2203,19 +2314,28 @@ private val RGB_REGEX =
 // The archiver
 
 /**
- * The server side of the JRWI tab: what the archiver is doing, a check now, and the posts it
- * couldn't fully save. Read again every few seconds while it's shown, so a check can be followed.
+ * The server side of JRWI Home: the archive's numbers, as TubeArchivist's stats on its Home's
+ * server side, what the archiver is doing, a check now, and the posts it couldn't fully save. The
+ * status is read again every few seconds while it's shown, so a check can be followed; the numbers
+ * once they're a few minutes old, or on a pull.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun JrwiServerContent(
+    onShowClick: (String) -> Unit,
+    onItemClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: JrwiServerViewModel = hiltViewModel(),
+    statsViewModel: JrwiStatsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val stats by statsViewModel.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val scope = rememberCoroutineScope()
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            statsViewModel.onShown()
             while (true) {
                 viewModel.refresh()
                 delay(SERVER_REFRESH_MILLIS)
@@ -2225,167 +2345,214 @@ internal fun JrwiServerContent(
     ObserveAsEvents(viewModel.messages) { message ->
         Toast.makeText(context, jrwiMessageText(context, message), Toast.LENGTH_LONG).show()
     }
-    LazyColumn(
-        contentPadding = PaddingValues(MaterialTheme.spacings.medium),
-        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+    PullToRefreshBox(
+        isRefreshing = stats.loading && stats.stats != null,
+        onRefresh = {
+            statsViewModel.refresh()
+            scope.launch { viewModel.refresh() }
+        },
         modifier = modifier,
     ) {
-        state.error?.let { error ->
-            item { Text(text = error, color = MaterialTheme.colorScheme.error) }
-        }
-        state.status?.let { status ->
-            item {
-                // Archivers since 0.9.3 word the detail to stand on its own line
-                val phase =
-                    if (status.step != null) status.phase.orEmpty()
-                    else listOfNotNull(status.phase, status.detail).joinToString(": ")
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
-                ) {
-                    // The site's dot: green while it checks
-                    if (status.running) {
-                        Box(Modifier.size(8.dp).clip(CircleShape).background(JrwiColors.Ok))
-                    }
-                    Text(
-                        text =
-                            if (status.running) {
-                                stringResource(CoreR.string.jrwi_status_running, phase)
-                            } else {
-                                stringResource(CoreR.string.jrwi_status_idle)
-                            },
-                        style = MaterialTheme.typography.titleMedium,
-                        color = JrwiColors.Text,
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = TA_CARD_MIN_WIDTH),
+            contentPadding = PaddingValues(MaterialTheme.spacings.medium),
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            state.error?.let { error ->
+                jrwiWideItem("error") {
+                    Text(text = error, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            jrwiWideItem("hero") { JrwiStatsHero(stats = stats.stats, status = state.status) }
+            state.status?.let { status ->
+                item(key = "status") {
+                    JrwiStatusCard(
+                        status = status,
+                        onCheck = { viewModel.check() },
+                        onFullCheck = { viewModel.check(full = true) },
                     )
                 }
-                if (status.running && status.step != null) {
-                    status.detail
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { detail ->
+            }
+            val numbers = stats.stats
+            when {
+                numbers != null ->
+                    jrwiStatsCards(
+                        stats = numbers,
+                        status = state.status,
+                        onShowClick = onShowClick,
+                        onItemClick = onItemClick,
+                    )
+                stats.error != null ->
+                    jrwiWideItem("stats_error") {
+                        Column {
                             Text(
-                                text = detail,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = JrwiColors.BodyText,
+                                text = stats.error.orEmpty(),
+                                color = MaterialTheme.colorScheme.error,
                             )
+                            TextButton(onClick = { statsViewModel.refresh() }) {
+                                Text(stringResource(CoreR.string.retry))
+                            }
                         }
-                }
-                val progress = status.progress
-                val total = progress?.total ?: 0
-                if (status.running && progress != null && total > 0) {
-                    val done = progress.done ?: 0
-                    // With the file that's downloading now as part of the one being worked on
-                    val fraction = (done + (progress.current ?: 0.0)).toFloat() / total
-                    LinearProgressIndicator(
-                        // In the sheet's own purple
-                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        progress = { fraction.coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    )
-                    // "Post 3 of 12", as the web app shows it
-                    val number = (done + 1).coerceAtMost(total)
-                    Text(
-                        text =
-                            when (progress.unit) {
-                                "post" ->
-                                    stringResource(CoreR.string.jrwi_count_post, number, total)
-                                "episode" ->
-                                    stringResource(CoreR.string.jrwi_count_episode, number, total)
-                                "page" ->
-                                    stringResource(CoreR.string.jrwi_count_page, number, total)
-                                else -> stringResource(CoreR.string.jrwi_count, number, total)
-                            },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            if (status.loginOk == false) {
-                item {
-                    Text(
-                        text = stringResource(CoreR.string.jrwi_login_failed),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    val finished = fullDate(status.lastCheckFinished)
-                    if (finished != null && status.lastResult != null) {
-                        Text(
-                            stringResource(
-                                CoreR.string.jrwi_last_check,
-                                finished,
-                                status.lastResult.orEmpty(),
-                            )
-                        )
                     }
-                    Text(
-                        text =
-                            status.nextCheck?.let {
-                                stringResource(
-                                    CoreR.string.jrwi_next_check,
-                                    fullDate(it) ?: it,
-                                )
-                            } ?: stringResource(CoreR.string.jrwi_next_check_manual)
-                    )
-                    Text(
-                        stringResource(
-                            CoreR.string.jrwi_counts,
-                            status.counts.items,
-                            status.counts.archived,
-                            status.counts.locked,
-                        )
-                    )
-                    val archived = status.disk.archiveBytes
-                    val free = status.disk.freeBytes
-                    if (archived != null && free != null) {
-                        Text(
-                            stringResource(
-                                CoreR.string.jrwi_disk,
-                                formatBytes(archived),
-                                formatBytes(free),
-                            )
-                        )
+                else ->
+                    jrwiWideItem("stats_loading") {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                        }
                     }
-                }
+            }
+            if (state.status != null) {
+                item(key = "problems") { JrwiProblemsCard(state.problems) }
             }
         }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
-                Button(shape = JrwiShape, onClick = { viewModel.check() }) {
-                    Text(stringResource(CoreR.string.jrwi_check_now))
-                }
-                OutlinedButton(
-                    shape = JrwiShape,
-                    border = JrwiGhostBorder,
-                    colors = jrwiGhostButtonColors(),
-                    onClick = { viewModel.check(full = true) },
-                ) {
-                    Text(stringResource(CoreR.string.jrwi_full_check))
-                }
+    }
+}
+
+/**
+ * What the archiver is doing: checking, on which post and how far, or waiting for the next check,
+ * with Check now and Full check.
+ */
+@Composable
+private fun JrwiStatusCard(status: JrwiStatus, onCheck: () -> Unit, onFullCheck: () -> Unit) {
+    JrwiStatsCard(title = stringResource(CoreR.string.jrwi_stats_status)) {
+        // Archivers since 0.9.3 word the detail to stand on its own line
+        val phase =
+            if (status.step != null) status.phase.orEmpty()
+            else listOfNotNull(status.phase, status.detail).joinToString(": ")
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+        ) {
+            // The site's dot: green while it checks
+            if (status.running) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(JrwiColors.Ok))
             }
-        }
-        item {
             Text(
-                text = stringResource(CoreR.string.jrwi_problems),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = MaterialTheme.spacings.medium),
+                text =
+                    if (status.running) {
+                        stringResource(CoreR.string.jrwi_status_running, phase)
+                    } else {
+                        stringResource(CoreR.string.jrwi_status_idle)
+                    },
+                style = MaterialTheme.typography.titleSmall,
+                color = JrwiColors.Text,
             )
         }
-        if (state.problems.isEmpty() && state.status != null) {
-            item { Text(stringResource(CoreR.string.jrwi_no_problems)) }
-        }
-        items(state.problems, key = { it.postId }) { problem ->
-            Column {
-                Text(text = problem.title, style = MaterialTheme.typography.bodyLarge)
-                problem.problems.forEach {
+        if (status.running && status.step != null) {
+            status.detail
+                ?.takeIf { it.isNotBlank() }
+                ?.let { detail ->
                     Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = detail,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = JrwiColors.BodyText,
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-                HorizontalDivider(modifier = Modifier.padding(top = MaterialTheme.spacings.small))
+        }
+        val progress = status.progress
+        val total = progress?.total ?: 0
+        if (status.running && progress != null && total > 0) {
+            val done = progress.done ?: 0
+            // With the file that's downloading now as part of the one being worked on
+            val fraction = (done + (progress.current ?: 0.0)).toFloat() / total
+            LinearProgressIndicator(
+                // In the sheet's own purple
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                progress = { fraction.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            )
+            // "Post 3 of 12", as the web app shows it
+            val number = (done + 1).coerceAtMost(total)
+            Text(
+                text =
+                    when (progress.unit) {
+                        "post" -> stringResource(CoreR.string.jrwi_count_post, number, total)
+                        "episode" -> stringResource(CoreR.string.jrwi_count_episode, number, total)
+                        "page" -> stringResource(CoreR.string.jrwi_count_page, number, total)
+                        else -> stringResource(CoreR.string.jrwi_count, number, total)
+                    },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (status.loginOk == false) {
+            Text(
+                text = stringResource(CoreR.string.jrwi_login_failed),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+            )
+        }
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(vertical = MaterialTheme.spacings.small),
+        ) {
+            val finished = fullDate(status.lastCheckFinished)
+            if (finished != null && status.lastResult != null) {
+                Text(
+                    text =
+                        stringResource(
+                            CoreR.string.jrwi_last_check,
+                            finished,
+                            status.lastResult.orEmpty(),
+                        ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Text(
+                text =
+                    status.nextCheck?.let {
+                        stringResource(CoreR.string.jrwi_next_check, fullDate(it) ?: it)
+                    } ?: stringResource(CoreR.string.jrwi_next_check_manual),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
+            Button(shape = JrwiShape, onClick = onCheck) {
+                Text(stringResource(CoreR.string.jrwi_check_now))
+            }
+            OutlinedButton(
+                shape = JrwiShape,
+                border = JrwiGhostBorder,
+                colors = jrwiGhostButtonColors(),
+                onClick = onFullCheck,
+            ) {
+                Text(stringResource(CoreR.string.jrwi_full_check))
+            }
+        }
+    }
+}
+
+/** The posts the archiver couldn't fully save, and why. */
+@Composable
+private fun JrwiProblemsCard(problems: List<JrwiProblem>) {
+    JrwiStatsCard(title = stringResource(CoreR.string.jrwi_problems)) {
+        if (problems.isEmpty()) {
+            Text(
+                text = stringResource(CoreR.string.jrwi_no_problems),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        problems.forEachIndexed { index, problem ->
+            if (index > 0) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(vertical = MaterialTheme.spacings.small),
+                )
+            }
+            Text(text = problem.title, style = MaterialTheme.typography.bodyLarge)
+            problem.problems.forEach {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
