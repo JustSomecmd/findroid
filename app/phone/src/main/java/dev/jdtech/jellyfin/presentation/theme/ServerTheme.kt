@@ -7,6 +7,8 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -77,12 +79,27 @@ private fun ServerSideColors(step: Int, content: @Composable () -> Unit) {
                 else -> base.blendTo(server, step / COLOR_STEPS.toFloat())
             }
         }
-    MaterialTheme(
-        colorScheme = scheme,
-        shapes = MaterialTheme.shapes,
-        typography = MaterialTheme.typography,
-        content = content,
-    )
+    CompositionLocalProvider(LocalServerSideFraction provides step / COLOR_STEPS.toFloat()) {
+        MaterialTheme(
+            colorScheme = scheme,
+            shapes = MaterialTheme.shapes,
+            typography = MaterialTheme.typography,
+            content = content,
+        )
+    }
+}
+
+/** How far the colors are on their way to the server side's, from 0 to 1. */
+val LocalServerSideFraction = compositionLocalOf { 0f }
+
+/**
+ * A top bar's background: the bar's own color on the phone side, and the page's background on the
+ * server side, as JRWI's server sides have it, moving from one to the other with the colors.
+ */
+@Composable
+fun sideTopBarColor(): Color {
+    val scheme = MaterialTheme.colorScheme
+    return lerp(scheme.surfaceContainer, scheme.background, LocalServerSideFraction.current)
 }
 
 /** The server colors made from this scheme's accent. */

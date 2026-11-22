@@ -84,6 +84,7 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.tube.TaListState
 import dev.jdtech.jellyfin.film.presentation.tube.TaMessages
 import dev.jdtech.jellyfin.presentation.theme.LocalPillShape
+import dev.jdtech.jellyfin.presentation.theme.sideTopBarColor
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.tubearchivist.TaChannel
 import dev.jdtech.jellyfin.tubearchivist.TaNowPlaying
@@ -678,13 +679,16 @@ val LocalInMainPager = staticCompositionLocalOf { false }
 fun Modifier.recalculateWindowInsetsUnlessPaged(): Modifier =
     if (LocalInMainPager.current) this else this.recalculateWindowInsets()
 
-/** Top bar colors with the bar's background always shown, not only once the page scrolls. */
+/**
+ * Top bar colors with the bar's background always shown, not only once the page scrolls. On a
+ * page's server side the bar takes the page's background instead.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun alwaysShownTopAppBarColors(): TopAppBarColors =
     TopAppBarDefaults.topAppBarColors(
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        containerColor = sideTopBarColor(),
+        scrolledContainerColor = sideTopBarColor(),
     )
 
 /**

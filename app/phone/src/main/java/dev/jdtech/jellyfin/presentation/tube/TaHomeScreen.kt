@@ -74,6 +74,7 @@ import dev.jdtech.jellyfin.film.presentation.tube.TaStatsViewModel
 import dev.jdtech.jellyfin.presentation.film.components.HomeHeader
 import dev.jdtech.jellyfin.presentation.film.components.ServerSelectionBottomSheet
 import dev.jdtech.jellyfin.presentation.theme.ServerSideTheme
+import dev.jdtech.jellyfin.presentation.theme.sideTopBarColor
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 import kotlinx.coroutines.delay
@@ -146,8 +147,9 @@ fun TaHomeScreen(
         Scaffold(
             modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged(),
             topBar = {
-                // Findroid's own header with TubeArchivist's logo, its background always shown
-                Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                // Findroid's own header with TubeArchivist's logo, its background always shown: the
+                // bar's own color, or the page's on the server side, as JRWI Home's
+                Surface(color = sideTopBarColor()) {
                     HomeHeader(
                         serverName =
                             servers.jellyfinName ?: stringResource(CoreR.string.ta_tubearchivist),
