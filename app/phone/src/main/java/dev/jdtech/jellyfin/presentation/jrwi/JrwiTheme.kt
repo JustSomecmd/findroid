@@ -26,6 +26,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.presentation.theme.LocalPillShape
@@ -269,24 +270,28 @@ fun JrwiScaffold(
 
 /**
  * The site's glow: an ellipse twice as wide as it's tall, centred above the top of the page, from
- * purple to nothing at 70% of the way out.
+ * purple to nothing at 70% of the way out. It's far wider than the page, so it's kept to the page:
+ * otherwise, mid-swipe in a pager, it would tint the page next to it, such as Home's header while
+ * Shows slides in.
  */
 private fun DrawScope.drawGlow(alpha: Float) {
     if (alpha <= 0f) return
     val radius = 1200.dp.toPx()
     val center = Offset(size.width / 2, -200.dp.toPx())
-    scale(scaleX = 1f, scaleY = 0.5f, pivot = center) {
-        drawCircle(
-            brush =
-                Brush.radialGradient(
-                    0f to JrwiColors.Glow.copy(alpha = JrwiColors.Glow.alpha * alpha),
-                    0.7f to Color.Transparent,
-                    center = center,
-                    radius = radius,
-                ),
-            radius = radius,
-            center = center,
-        )
+    clipRect {
+        scale(scaleX = 1f, scaleY = 0.5f, pivot = center) {
+            drawCircle(
+                brush =
+                    Brush.radialGradient(
+                        0f to JrwiColors.Glow.copy(alpha = JrwiColors.Glow.alpha * alpha),
+                        0.7f to Color.Transparent,
+                        center = center,
+                        radius = radius,
+                    ),
+                radius = radius,
+                center = center,
+            )
+        }
     }
 }
 
