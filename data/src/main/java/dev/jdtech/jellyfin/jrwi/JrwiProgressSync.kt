@@ -228,6 +228,26 @@ class JrwiProgressSync(
         }
     }
 
+    /**
+     * Keeps where the audio is on the phone only, as a save still to be sent: with the next save
+     * that's sent, which then has nothing more to say, or later with the time it was made. For the
+     * regular saves while an episode on the phone plays with nothing showing it, so the phone's
+     * radio can rest between the saves that go to the archiver.
+     */
+    fun audioKept(item: JrwiItem, audioSeconds: Double, durationSeconds: Double?) {
+        val audio = item.audio ?: return
+        val made =
+            JrwiProgress(
+                audio.postId,
+                audioSeconds,
+                audio.duration ?: durationSeconds,
+                false,
+                JrwiProgressStore.now(),
+            )
+        store.remember(item.id, made)
+        store.setPending(item.id, made)
+    }
+
     /** Marks both the video and the audio watched, or both not watched. */
     suspend fun setWatched(item: JrwiItem, watched: Boolean) {
         // The archiver's one record covers both versions, so either post will do

@@ -353,7 +353,8 @@ constructor(
         private const val PARTIAL_CONTENT = 206
         private const val RANGE_NOT_SATISFIABLE = 416
         private const val BUFFER_SIZE = 64 * 1024
-        private const val PROGRESS_INTERVAL_MS = 500L
+        // As often as the video downloads update theirs: each update redraws the notification
+        private const val PROGRESS_INTERVAL_MS = 1000L
         private const val MAX_COMMENT_PAGES = 20
         private const val NOT_FOUND = 404
 

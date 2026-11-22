@@ -222,6 +222,10 @@ constructor(
 
     // Whether the player may hand the sound to the phone's audio chip, until that once fails
     private var offloading = false
+
+    // Whether what plays is a file on the phone, and when a save last went out
+    private var fromPhone = false
+    private var lastSentMs = 0L
     private var sleepJob: Job? = null
     private var lastSaveMs = 0L
     private var pausedAtMs: Long? = null
@@ -870,6 +874,7 @@ constructor(
         val onPhone =
             uri != null && uri.scheme.let { it == null || it == "file" || it == "content" }
         player.setWakeMode(if (onPhone) C.WAKE_MODE_LOCAL else C.WAKE_MODE_NETWORK)
+        fromPhone = onPhone
         lastSaveMs = SystemClock.elapsedRealtime()
         pausedAtMs = null
         player.setMediaItem(mediaItem, startMs)
@@ -1182,7 +1187,22 @@ constructor(
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 }
         val finished = kind == Save.END || (duration != null && position >= duration * WATCHED_PART)
         val linked = linkedJrwi
-        lastSaveMs = SystemClock.elapsedRealtime()
+        val now = SystemClock.elapsedRealtime()
+        lastSaveMs = now
+        // A JRWI episode on the phone with nothing showing it: the regular saves are kept on the
+        // phone, and one goes to the archiver every couple of minutes, so the radio can rest
+        if (
+            episode is AudioEpisode.Jrwi &&
+                kind == Save.TICK &&
+                !finished &&
+                fromPhone &&
+                _state.subscriptionCount.value == 0 &&
+                now - lastSentMs < SEND_EVERY_MS
+        ) {
+            jrwiProgress.audioKept(episode.item, position / 1000.0, duration?.div(1000.0))
+            return null
+        }
+        lastSentMs = now
         return scope.launch {
             // Saved even when the player is closed meanwhile
             withContext(NonCancellable) {
@@ -1288,6 +1308,8 @@ constructor(
         private const val SESSION_ACTIVITY_REQUEST = 7311
         private const val JRWI_ALBUM = "JRWI"
         private const val SAVE_EVERY_MS = 15_000L
+        // How often a save goes to the archiver while an episode on the phone plays unseen
+        private const val SEND_EVERY_MS = 120_000L
         private const val TICK_MS = 250L
 
         /**
