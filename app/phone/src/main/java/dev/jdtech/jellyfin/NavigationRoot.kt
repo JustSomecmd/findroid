@@ -894,12 +894,6 @@ private fun TaMainPager(
                         onShowClick =
                             resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
                         onSearchClick = dropUnlessResumed { navigator.navigate(JrwiSearchRoute) },
-                        onSettingsClick =
-                            dropUnlessResumed {
-                                navigator.navigate(
-                                    SettingsRoute(indexes = listOf(CoreR.string.title_settings))
-                                )
-                            },
                         onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
                         sides = jrwiHomeSides,
                     )
@@ -1423,10 +1417,6 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
             onItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
             onShowClick = resumedAction<String> { navigator.navigate(JrwiShowRoute(it)) },
             onSearchClick = dropUnlessResumed { navigator.navigate(JrwiSearchRoute) },
-            onSettingsClick =
-                dropUnlessResumed {
-                    navigator.navigate(SettingsRoute(indexes = listOf(CoreR.string.title_settings)))
-                },
             onSetUp = dropUnlessResumed { navigator.navigate(JrwiSettingsRoute) },
             sides = rememberSidePagerState(serverFirst = true),
         )

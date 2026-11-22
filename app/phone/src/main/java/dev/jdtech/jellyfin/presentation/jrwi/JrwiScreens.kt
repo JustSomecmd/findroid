@@ -221,7 +221,6 @@ fun JrwiHomeScreen(
     onItemClick: (Long) -> Unit,
     onShowClick: (String) -> Unit,
     onSearchClick: () -> Unit,
-    onSettingsClick: () -> Unit,
     onSetUp: () -> Unit,
     sides: PagerState,
     viewModel: JrwiShowsViewModel = hiltViewModel(),
@@ -269,13 +268,13 @@ fun JrwiHomeScreen(
             modifier = Modifier.fillMaxSize().recalculateWindowInsetsUnlessPaged(),
             topBar = {
                 // As TubeArchivist Home's header: the archiver's pill with the side switch next to
-                // it, and search and settings at the other end, in the side's colours: the
+                // it, and search at the other end, in the side's colours: the
                 // archiver's yellow, or the purple of its server side
                 val header =
                     @Composable {
                         Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
                             HomeHeader(
-                                serverName = stringResource(CoreR.string.jrwi_archiver),
+                                serverName = stringResource(CoreR.string.jrwi_tab),
                                 isLoading =
                                     state.configured &&
                                         state.loading &&
@@ -286,7 +285,8 @@ fun JrwiHomeScreen(
                                 onErrorClick = { serverSheet = true },
                                 onRetryClick = { viewModel.load(force = true) },
                                 onSearchClick = onSearchClick,
-                                onUserClick = onSettingsClick,
+                                // The app's settings are on TubeArchivist's Home
+                                onUserClick = null,
                                 logo = {
                                     Icon(
                                         painter = painterResource(CoreR.drawable.ic_dice),

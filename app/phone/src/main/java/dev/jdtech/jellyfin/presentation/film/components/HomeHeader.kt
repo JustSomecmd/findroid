@@ -43,7 +43,8 @@ fun HomeHeader(
     onErrorClick: () -> Unit,
     onRetryClick: () -> Unit,
     onSearchClick: () -> Unit,
-    onUserClick: () -> Unit,
+    /** The account button at the end; left out when null. */
+    onUserClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     logo: @Composable () -> Unit = { HomeHeaderLogo() },
     /** Shown right after the server pill, such as a switch. */
@@ -157,21 +158,23 @@ fun HomeHeader(
                 }
             }
 
-            Surface(
-                onClick = onUserClick,
-                modifier = Modifier.fillMaxHeight().aspectRatio(1f),
-                shape = pill,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
+            if (onUserClick != null) {
+                Surface(
+                    onClick = onUserClick,
+                    modifier = Modifier.fillMaxHeight().aspectRatio(1f),
+                    shape = pill,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ) {
-                    Icon(
-                        painter = painterResource(CoreR.drawable.ic_user),
-                        contentDescription = null,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            painter = painterResource(CoreR.drawable.ic_user),
+                            contentDescription = null,
+                        )
+                    }
                 }
             }
         }
