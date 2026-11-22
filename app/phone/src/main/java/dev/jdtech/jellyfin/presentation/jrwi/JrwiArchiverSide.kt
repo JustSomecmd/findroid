@@ -176,7 +176,7 @@ internal fun JrwiArchiverContent(
                 }
             }
             val status = state.status ?: return@LazyVerticalGrid
-            item(key = "status") { JrwiStatusCard(status) }
+            item(key = "status") { JrwiStatusCard(status, state.lastRun) }
             item(key = "actions") {
                 JrwiArchiverActions(
                     state = state,

@@ -12,6 +12,14 @@
         <item quantity="one">This deletes %1$d downloaded episode of %2$s and frees %3$s.</item>
         <item quantity="other">This deletes %1$d downloaded episodes of %2$s and frees %3$s.</item>
     </plurals>
+    <plurals name="jrwi_check_new_posts">
+        <item quantity="one">%1$d new post</item>
+        <item quantity="other">%1$d new posts</item>
+    </plurals>
+    <plurals name="jrwi_check_saved">
+        <item quantity="one">%1$d saved</item>
+        <item quantity="other">%1$d saved</item>
+    </plurals>
     <plurals name="jrwi_download_page_title">
         <item quantity="one">Download %1$d episode?</item>
         <item quantity="other">Download %1$d episodes?</item>

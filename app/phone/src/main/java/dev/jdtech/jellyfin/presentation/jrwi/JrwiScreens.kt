@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -79,6 +80,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -142,6 +144,7 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiStatsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.pages
 import dev.jdtech.jellyfin.jrwi.JrwiAuthor
 import dev.jdtech.jellyfin.jrwi.JrwiBadge
+import dev.jdtech.jellyfin.jrwi.JrwiCheckRun
 import dev.jdtech.jellyfin.jrwi.JrwiComment
 import dev.jdtech.jellyfin.jrwi.JrwiContinue
 import dev.jdtech.jellyfin.jrwi.JrwiItem
@@ -169,6 +172,10 @@ import dev.jdtech.jellyfin.presentation.tube.serverSideShown
 import dev.jdtech.jellyfin.presentation.tube.startTaPlayback
 import dev.jdtech.jellyfin.presentation.tube.switchSide
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
+import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -2991,10 +2998,11 @@ internal fun JrwiServerContent(
 
 /**
  * What the archiver is doing: checking, on which post and how far, or waiting for the next check,
- * and how the last one went.
+ * and how the last one went. [lastRun] is the last finished check from the archive's stats, for
+ * what it saved.
  */
 @Composable
-internal fun JrwiStatusCard(status: JrwiStatus) {
+internal fun JrwiStatusCard(status: JrwiStatus, lastRun: JrwiCheckRun? = null) {
     JrwiStatsCard(title = stringResource(CoreR.string.jrwi_stats_status)) {
         // Archivers since 0.9.3 word the detail to stand on its own line
         val phase =
@@ -3064,32 +3072,186 @@ internal fun JrwiStatusCard(status: JrwiStatus) {
                 modifier = Modifier.padding(top = MaterialTheme.spacings.small),
             )
         }
-        Column(
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.padding(vertical = MaterialTheme.spacings.small),
-        ) {
-            val finished = fullDate(status.lastCheckFinished)
-            if (finished != null && status.lastResult != null) {
-                Text(
-                    text =
-                        stringResource(
-                            CoreR.string.jrwi_last_check,
-                            finished,
-                            status.lastResult.orEmpty(),
-                        ),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
+        JrwiCheckTimes(status, lastRun)
+    }
+}
+
+/**
+ * When the running check started, when the last one ran, how long it took, how it went and what it
+ * saved, and when the next one is: as times of day, the phone's way, with how long ago or how soon,
+ * kept up to date while shown.
+ */
+@Composable
+private fun JrwiCheckTimes(status: JrwiStatus, lastRun: JrwiCheckRun?) {
+    val context = LocalContext.current
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(CLOCK_TICK_MILLIS)
+            now = System.currentTimeMillis()
+        }
+    }
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.padding(vertical = MaterialTheme.spacings.small),
+    ) {
+        val started = epochMillis(status.lastCheckStarted)
+        if (status.running && started != null) {
             Text(
                 text =
-                    status.nextCheck?.let {
-                        stringResource(CoreR.string.jrwi_next_check, fullDate(it) ?: it)
-                    } ?: stringResource(CoreR.string.jrwi_next_check_manual),
+                    stringResource(
+                        CoreR.string.jrwi_running_since,
+                        clockTime(context, started, now),
+                        relativeTime(context, started, now),
+                    ),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
+        // The last check that finished: while one runs, the status's start is the running one's
+        val run = lastRun?.takeIf { it.finished != null }
+        val lastStart = if (status.running) epochMillis(run?.started) else started
+        val lastEnd =
+            if (status.running) epochMillis(run?.finished)
+            else epochMillis(status.lastCheckFinished)
+        if (lastEnd != null) {
+            val took =
+                lastStart?.takeIf { it <= lastEnd }?.let { durationText(context, lastEnd - it) }
+            Text(
+                text =
+                    if (took != null) {
+                        stringResource(
+                            CoreR.string.jrwi_last_check_took,
+                            clockTime(context, lastEnd, now),
+                            relativeTime(context, lastEnd, now),
+                            took,
+                        )
+                    } else {
+                        stringResource(
+                            CoreR.string.jrwi_last_check_at,
+                            clockTime(context, lastEnd, now),
+                            relativeTime(context, lastEnd, now),
+                        )
+                    },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            // The stats' run, when it's this one
+            val sameRun = run?.takeIf {
+                epochMillis(it.finished)?.let { end -> abs(end - lastEnd) < SAME_RUN_MILLIS } ==
+                    true
+            }
+            val result = if (status.running) run?.result else status.lastResult ?: run?.result
+            val message =
+                (if (status.running) run?.message else status.message)?.takeIf { it.isNotBlank() }
+            val parts =
+                listOfNotNull(
+                    result?.let { checkResultText(context, it) },
+                    sameRun?.let {
+                        context.resources.getQuantityString(
+                            CoreR.plurals.jrwi_check_new_posts,
+                            it.newItems,
+                            it.newItems,
+                        )
+                    },
+                    sameRun?.let {
+                        context.resources.getQuantityString(
+                            CoreR.plurals.jrwi_check_saved,
+                            it.archived,
+                            it.archived,
+                        )
+                    },
+                    message,
+                )
+            if (parts.isNotEmpty()) {
+                Text(
+                    text = parts.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = muted,
+                )
+            }
+        }
+        val next = epochMillis(status.nextCheck)
+        Text(
+            text =
+                if (next != null) {
+                    stringResource(
+                        CoreR.string.jrwi_next_check_at,
+                        clockTime(context, next, now),
+                        relativeTime(context, next, now),
+                    )
+                } else {
+                    stringResource(CoreR.string.jrwi_next_check_manual)
+                },
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
+
+private fun epochMillis(iso: String?): Long? =
+    try {
+        iso?.let { OffsetDateTime.parse(it).toInstant().toEpochMilli() }
+    } catch (_: Exception) {
+        null
+    }
+
+/** The time of day, the phone's way (24 hours or not), with the day too when it's not today. */
+private fun clockTime(context: Context, millis: Long, now: Long): String {
+    val zone = ZoneId.systemDefault()
+    val day = Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
+    val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    val flags =
+        if (day == today) DateUtils.FORMAT_SHOW_TIME
+        else
+            DateUtils.FORMAT_SHOW_TIME or
+                DateUtils.FORMAT_SHOW_DATE or
+                DateUtils.FORMAT_SHOW_WEEKDAY or
+                DateUtils.FORMAT_ABBREV_WEEKDAY or
+                DateUtils.FORMAT_ABBREV_MONTH
+    return DateUtils.formatDateTime(context, millis, flags)
+}
+
+/** "in 3 hours", "24 minutes ago", or for under a minute either way, now. */
+private fun relativeTime(context: Context, millis: Long, now: Long): String =
+    when {
+        abs(millis - now) < DateUtils.MINUTE_IN_MILLIS ->
+            context.getString(
+                if (millis >= now) CoreR.string.jrwi_any_moment else CoreR.string.jrwi_just_now
+            )
+        else ->
+            DateUtils.getRelativeTimeSpanString(millis, now, DateUtils.MINUTE_IN_MILLIS)
+                .toString()
+                .replaceFirstChar { it.lowercase() }
+    }
+
+/** How long a check took: "1 h 5 min", "4 min 12 s" or "12 s". */
+private fun durationText(context: Context, millis: Long): String {
+    val seconds = millis / 1000
+    val hours = seconds / 3600
+    val minutes = seconds % 3600 / 60
+    return when {
+        hours > 0 -> context.getString(CoreR.string.jrwi_duration_h_min, hours, minutes)
+        minutes > 0 -> context.getString(CoreR.string.jrwi_duration_min_s, minutes, seconds % 60)
+        else -> context.getString(CoreR.string.jrwi_duration_s, seconds)
+    }
+}
+
+/** How a check ended, in words: ok, login_failed, blocked, error or stopped. */
+private fun checkResultText(context: Context, result: String): String =
+    when (result) {
+        "ok" -> context.getString(CoreR.string.jrwi_result_ok)
+        "login_failed" -> context.getString(CoreR.string.jrwi_result_login_failed)
+        "blocked" -> context.getString(CoreR.string.jrwi_result_blocked)
+        "error" -> context.getString(CoreR.string.jrwi_result_error)
+        "stopped" -> context.getString(CoreR.string.jrwi_result_stopped)
+        "running" -> context.getString(CoreR.string.jrwi_result_running)
+        else -> result.replace('_', ' ')
+    }
+
+// How often the times' "ago" and "in" move on while shown
+private const val CLOCK_TICK_MILLIS = 30_000L
+
+// The stats' run and the status's last check are the same one when they ended this close together
+private const val SAME_RUN_MILLIS = 5_000L
 
 /** The posts the archiver couldn't fully save, and why. */
 @Composable

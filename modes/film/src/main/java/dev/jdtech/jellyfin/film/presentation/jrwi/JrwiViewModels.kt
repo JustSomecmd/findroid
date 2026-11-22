@@ -1461,6 +1461,8 @@ data class JrwiServerState(
     /** The archiver tells the app about the podcast feed it reads. */
     val hasPodcast: Boolean = false,
     val podcast: JrwiPodcast? = null,
+    /** The last finished check from the archive's stats, for what it saved. */
+    val lastRun: JrwiCheckRun? = null,
     val error: String? = null,
 )
 
@@ -1571,7 +1573,24 @@ class JrwiServerViewModel @Inject constructor(private val jrwiApi: JrwiApi) : Vi
                     Timber.d(e, "No podcast feed from the archiver")
                     null
                 }
-        _state.update { it.copy(events = events ?: it.events, podcast = podcast ?: it.podcast) }
+        val lastRun =
+            if (jrwiApi.has(JrwiFeature.STATS) == false) null
+            else
+                try {
+                    jrwiApi.getStats().checks.firstOrNull { it.finished != null }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.d(e, "No stats from the archiver")
+                    null
+                }
+        _state.update {
+            it.copy(
+                events = events ?: it.events,
+                podcast = podcast ?: it.podcast,
+                lastRun = lastRun ?: it.lastRun,
+            )
+        }
     }
 
     /**
