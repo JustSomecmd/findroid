@@ -51,7 +51,8 @@ import timber.log.Timber
  *
  * With tunneled playback the phone's video hardware times the picture itself, so neither the player
  * nor this can see or correct it. There, a resync is asked for after each rebuffer, as that's when
- * the hardware is known to lose its place.
+ * sound and picture were seen to come apart. Whether the hardware is what loses its place then
+ * isn't settled: nothing here can measure it.
  */
 class AvSyncGuard(val enabled: Boolean) {
     private val log = SyncLog()
