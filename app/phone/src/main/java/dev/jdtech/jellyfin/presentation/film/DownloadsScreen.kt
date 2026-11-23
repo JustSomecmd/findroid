@@ -48,6 +48,7 @@ import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiTaVideo
+import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiProgress
 import dev.jdtech.jellyfin.models.CollectionSection
 import dev.jdtech.jellyfin.models.FindroidItem
@@ -90,6 +91,7 @@ fun DownloadsScreen(
     val jrwiDownloads by jrwiViewModel.entries.collectAsStateWithLifecycle()
     val jrwiVideoWatch by jrwiViewModel.videoWatch.collectAsStateWithLifecycle()
     val jrwiFromTa by jrwiViewModel.tubeArchivist.collectAsStateWithLifecycle()
+    val jrwiVideoItems by jrwiViewModel.videoItems.collectAsStateWithLifecycle()
 
     LaunchedEffect(scope) {
         viewModel.setScope(scope)
@@ -107,6 +109,7 @@ fun DownloadsScreen(
         jrwiDownloads = if (scope == DownloadsScope.NOT_JRWI) emptyList() else jrwiDownloads,
         jrwiVideoWatch = jrwiVideoWatch,
         jrwiFromTa = if (scope == DownloadsScope.JRWI) jrwiFromTa else emptyMap(),
+        jrwiVideoItems = jrwiVideoItems,
         onJrwiItemClick = onJrwiItemClick,
         onJrwiRemove = jrwiViewModel::remove,
         onActiveDownloadClick = { item -> onItemClick(item) },
@@ -146,6 +149,8 @@ private fun DownloadsScreenLayout(
      * opening on the episode's page.
      */
     jrwiFromTa: Map<String, JrwiTaVideo> = emptyMap(),
+    /** The item kept with each JRWI video, by episode ID, for the versions label on its card. */
+    jrwiVideoItems: Map<String, JrwiItem> = emptyMap(),
     onJrwiItemClick: (Long) -> Unit = {},
     onJrwiRemove: (Long) -> Unit = {},
 ) {
@@ -188,7 +193,15 @@ private fun DownloadsScreenLayout(
 
         val other = stringResource(CoreR.string.jrwi_downloads_other)
         val shows =
-            remember(byShow, state.sections, jrwiDownloads, jrwiVideoWatch, jrwiFromTa, other) {
+            remember(
+                byShow,
+                state.sections,
+                jrwiDownloads,
+                jrwiVideoWatch,
+                jrwiFromTa,
+                jrwiVideoItems,
+                other,
+            ) {
                 if (byShow) {
                     jrwiDownloadsByShow(
                         state.sections,
@@ -196,6 +209,7 @@ private fun DownloadsScreenLayout(
                         other,
                         jrwiVideoWatch,
                         jrwiFromTa,
+                        jrwiVideoItems,
                     )
                 } else {
                     emptyList()

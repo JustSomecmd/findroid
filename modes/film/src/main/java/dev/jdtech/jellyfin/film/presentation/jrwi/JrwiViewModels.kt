@@ -44,7 +44,6 @@ import java.io.IOException
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -128,6 +127,8 @@ data class JrwiDownloadEntry(
     val number: JrwiEpisodeNumber? = null,
     /** How far it was played, as the archive has it, in the audio's timeline; null when unknown. */
     val watch: JrwiProgress? = null,
+    /** The item kept with it, for its versions and their lengths; null until it's on the phone. */
+    val item: JrwiItem? = null,
 )
 
 /** An episode's place in its show, to list it in order with the show's other downloads. */
@@ -1325,8 +1326,8 @@ constructor(
     private val jrwiProgress: JrwiProgressSync,
     private val handOvers: JrwiHandOvers,
 ) : ViewModel() {
-    // Each episode's number, read once from the item kept with its audio
-    private val numbers = ConcurrentHashMap<Long, Optional<JrwiEpisodeNumber>>()
+    // The item kept with each episode's audio, read once it's on the phone
+    private val keptItems = ConcurrentHashMap<Long, JrwiItem>()
 
     // How far each downloaded episode was played: its audio's by JRWI item ID, in the audio's
     // timeline, and its video's by Jellyfin episode ID, in the video's
@@ -1346,6 +1347,14 @@ constructor(
      */
     val tubeArchivist: StateFlow<Map<String, JrwiTaVideo>> = _tubeArchivist.asStateFlow()
 
+    private val _videoItems = MutableStateFlow<Map<String, JrwiItem>>(emptyMap())
+
+    /**
+     * The item kept with each video downloaded through Jellyfin, archived or TubeArchivist's copy,
+     * by Jellyfin episode ID, for the versions it has and their lengths.
+     */
+    val videoItems: StateFlow<Map<String, JrwiItem>> = _videoItems.asStateFlow()
+
     val entries: StateFlow<List<JrwiDownloadEntry>> =
         combine(downloads.downloads, downloads.progress, audioWatch) { list, progress, watch ->
                 list.map {
@@ -1355,6 +1364,7 @@ constructor(
                         picture = downloads.thumbnailUri(it.itemId),
                         number = numberOf(it.itemId),
                         watch = watch[it.itemId],
+                        item = keptItem(it.itemId),
                     )
                 }
             }
@@ -1379,10 +1389,11 @@ constructor(
     }
 
     private suspend fun loadTubeArchivist() {
+        val saved = withContext(Dispatchers.IO) { downloads.savedVideos() }
+        _videoItems.value = saved.associate { it.episodeId to it.item }
         _tubeArchivist.value =
-            withContext(Dispatchers.IO) {
-                downloads
-                    .savedVideos()
+            withContext(Dispatchers.Default) {
+                saved
                     .filter { it.youtubeId != null }
                     .associate { saved ->
                         val item = saved.item
@@ -1449,16 +1460,15 @@ constructor(
             null
         }
 
-    /** The kept item's season and number, once it's on the phone; asked again until it is. */
+    /** The item kept with an episode's audio, once it's on the phone; asked again until it is. */
+    private fun keptItem(itemId: Long): JrwiItem? =
+        keptItems[itemId] ?: downloads.savedItem(itemId)?.also { keptItems[itemId] = it }
+
+    /** The kept item's season and number, once it's on the phone. */
     private fun numberOf(itemId: Long): JrwiEpisodeNumber? {
-        numbers[itemId]?.let {
-            return it.orElse(null)
-        }
-        val item = downloads.savedItem(itemId) ?: return null
+        val item = keptItem(itemId) ?: return null
         val episode = item.episode?.takeIf { "episodes" in item.ownTabs }
-        val number = episode?.let { JrwiEpisodeNumber(item.season ?: 1, it) }
-        numbers[itemId] = Optional.ofNullable(number)
-        return number
+        return episode?.let { JrwiEpisodeNumber(item.season ?: 1, it) }
     }
 
     fun remove(itemId: Long) = downloader.remove(itemId)

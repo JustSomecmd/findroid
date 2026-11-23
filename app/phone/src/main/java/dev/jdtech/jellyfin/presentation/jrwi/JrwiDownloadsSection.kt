@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,10 +45,12 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiDownloadEntry
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiEpisodeNumber
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiTaVideo
+import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiProgress
 import dev.jdtech.jellyfin.models.CollectionSection
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
+import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.presentation.film.components.BaseBadge
 import dev.jdtech.jellyfin.presentation.film.components.CollectionSectionHeader
 import dev.jdtech.jellyfin.presentation.film.components.Direction
@@ -175,7 +178,8 @@ private fun JrwiDownloadListRow(
 sealed interface JrwiDownloadCard {
     val key: String
 
-    data class Video(val item: FindroidItem) : JrwiDownloadCard {
+    /** [jrwi] is the item kept with the video, when the app has it. */
+    data class Video(val item: FindroidItem, val jrwi: JrwiItem? = null) : JrwiDownloadCard {
         override val key: String
             get() = item.id.toString()
     }
@@ -196,7 +200,8 @@ data class JrwiShowDownloads(val name: String, val cards: List<JrwiDownloadCard>
  * show how far the archive has it played ([videoWatch], by episode ID), as its page does, in place
  * of the position kept with its Jellyfin download. TubeArchivist's downloads of JRWI episodes
  * ([tubeArchivist], by episode ID) go under their show with their number, which Jellyfin doesn't
- * know them by, as it files them under the channel.
+ * know them by, as it files them under the channel. [videoItems] gives the item kept with each
+ * video, by episode ID, for the label of the versions on its card.
  */
 fun jrwiDownloadsByShow(
     videos: List<CollectionSection>,
@@ -204,6 +209,7 @@ fun jrwiDownloadsByShow(
     other: String,
     videoWatch: Map<String, JrwiProgress> = emptyMap(),
     tubeArchivist: Map<String, JrwiTaVideo> = emptyMap(),
+    videoItems: Map<String, JrwiItem> = emptyMap(),
 ): List<JrwiShowDownloads> {
     data class Sorted(val number: JrwiEpisodeNumber?, val audio: Boolean, val title: String)
     val byShow = mutableMapOf<String, MutableList<Pair<Sorted, JrwiDownloadCard>>>()
@@ -228,7 +234,7 @@ fun jrwiDownloadsByShow(
                 .getOrPut(show) { mutableListOf() }
                 .add(
                     Sorted(number, false, fromTa?.title ?: item.name) to
-                        JrwiDownloadCard.Video(shown)
+                        JrwiDownloadCard.Video(shown, videoItems[item.id.toString()])
                 )
         }
     audio.forEach { entry ->
@@ -280,7 +286,19 @@ fun LazyGridScope.jrwiShowSections(
                         direction = Direction.HORIZONTAL,
                         onClick = onVideoClick,
                         modifier = Modifier.animateItem(),
-                    )
+                    ) {
+                        card.jrwi?.let { jrwi ->
+                            val video = card.item
+                            JrwiDownloadLabel(
+                                item = jrwi,
+                                videoOnPhone = video.isDownloaded(),
+                                audioOnPhone = null,
+                                duration = jrwi.video?.duration,
+                                // Over the bar for how far it was played, when it has one
+                                raised = video.runtimeTicks > 0 && video.playbackPositionTicks > 0,
+                            )
+                        }
+                    }
                 is JrwiDownloadCard.Audio ->
                     JrwiAudioDownloadCard(
                         entry = card.entry,
@@ -378,6 +396,22 @@ private fun JrwiAudioDownloadCard(
                         }
                     }
                 }
+                entry.item?.let { item ->
+                    val length = watch?.duration?.takeIf { it > 0 }
+                    JrwiDownloadLabel(
+                        item = item,
+                        videoOnPhone = null,
+                        audioOnPhone = download.done,
+                        duration = item.audio?.duration,
+                        // Over the bar while it downloads, or for how far it was played
+                        raised =
+                            (!download.done && !download.failed) ||
+                                (watch != null &&
+                                    !watch.finished &&
+                                    length != null &&
+                                    watch.position > 0),
+                    )
+                }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
                         text = {
@@ -433,3 +467,38 @@ private fun JrwiAudioDownloadCard(
 
 // As wide as the video cards beside them
 private const val AUDIO_CARD_WIDTH = 260
+
+/**
+ * The version label every JRWI post's picture has, on a download's card: a film when [item] has a
+ * video, headphones when it has audio, and the card's own length, each drawn yellow when it's on
+ * the phone. The card's own version says itself whether it's on the phone ([videoOnPhone] or
+ * [audioOnPhone]); for the other, null, the app's record of what's on the phone says. [raised]
+ * lifts it over a bar along the bottom, which on these cards sits a little in from the edge.
+ */
+@Composable
+private fun BoxScope.JrwiDownloadLabel(
+    item: JrwiItem,
+    videoOnPhone: Boolean?,
+    audioOnPhone: Boolean?,
+    duration: Double?,
+    raised: Boolean,
+) {
+    val onPhone = jrwiOnPhone()
+    // The card's own version, whatever the kept item says
+    val video = videoOnPhone != null || item.video != null
+    val audio = audioOnPhone != null || item.audio != null
+    JrwiVersionLabel(
+        video = video,
+        audio = audio,
+        videoOnPhone = video && (videoOnPhone ?: onPhone.videoOnPhone(item.id)),
+        audioOnPhone = audio && (audioOnPhone ?: onPhone.audioOnPhone(item.id)),
+        duration = duration ?: item.duration,
+        // In line with the badges at the top, which sit 8 dp in; the label keeps 6 dp of its own
+        modifier =
+            Modifier.align(Alignment.BottomEnd)
+                .padding(end = 2.dp, bottom = if (raised) LABEL_OVER_BAR else 2.dp),
+    )
+}
+
+// The bar's 8 dp from the bottom and 4 dp height, and a little room above it, less the label's 6 dp
+private val LABEL_OVER_BAR = 10.dp

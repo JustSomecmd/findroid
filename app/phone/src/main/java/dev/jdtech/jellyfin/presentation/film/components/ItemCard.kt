@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin.presentation.film.components
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +31,10 @@ import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.utils.LocalEpisodeTitleFirst
 import dev.jdtech.jellyfin.presentation.utils.episodeTitle
 
+/**
+ * An item's card: its poster with its badges and, laid sideways, a bar for how far it was played,
+ * then its name. [overlay] draws more on the poster, such as JRWI's version label.
+ */
 @Composable
 fun ItemCard(
     item: FindroidItem,
@@ -37,6 +42,7 @@ fun ItemCard(
     onClick: (FindroidItem) -> Unit,
     modifier: Modifier = Modifier,
     showSeriesName: Boolean = false,
+    overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     val width =
         when (direction) {
@@ -70,6 +76,7 @@ fun ItemCard(
                                 .padding(MaterialTheme.spacings.small),
                     )
                 }
+                overlay()
             }
         }
         Spacer(modifier = Modifier.height(MaterialTheme.spacings.extraSmall))
