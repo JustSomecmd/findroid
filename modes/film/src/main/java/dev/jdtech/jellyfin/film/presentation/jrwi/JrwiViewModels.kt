@@ -589,51 +589,7 @@ constructor(
 
     private var showId: String? = null
 
-    // The items whose archived video, or TubeArchivist's copy of it, is downloaded through Jellyfin
-    private val videosOnPhone = MutableStateFlow<Set<Long>>(emptySet())
-
-    /**
-     * The items on the phone, their audio or their video downloaded whole, to mark in the lists as
-     * the Jellyfin and TubeArchivist lists mark downloads.
-     */
-    val onPhone: StateFlow<Set<Long>> =
-        combine(jrwiDownloads.downloads, videosOnPhone) { audio, videos ->
-                audio.filter { it.done }.map { it.itemId }.toSet() + videos
-            }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
-
-    private suspend fun loadVideosOnPhone() {
-        videosOnPhone.value =
-            withContext(Dispatchers.IO) {
-                try {
-                    val downloaded =
-                        repository
-                            .getDownloadedEpisodes()
-                            .filter { it.isDownloaded() }
-                            .map { it.id.toString() }
-                            .toSet()
-                    jrwiDownloads
-                        .savedVideos()
-                        .filter { it.episodeId in downloaded }
-                        .map { it.item.id }
-                        .toSet()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.w(e, "Could not read the downloaded videos")
-                    emptySet()
-                }
-            }
-    }
-
     init {
-        // What's on the phone, and again when a download finishes or is removed
-        viewModelScope.launch {
-            loadVideosOnPhone()
-            MediaChanges.changes.filterIsInstance<MediaChanges.Downloads>().collect {
-                loadVideosOnPhone()
-            }
-        }
         // Marks what's been played since the lists were loaded
         viewModelScope.launch {
             jrwiProgress.changes.collect { change ->

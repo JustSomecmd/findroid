@@ -21,6 +21,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -178,7 +179,6 @@ import dev.jdtech.jellyfin.presentation.tube.TaServerCard
 import dev.jdtech.jellyfin.presentation.tube.TaSidePager
 import dev.jdtech.jellyfin.presentation.tube.TaSideSwitch
 import dev.jdtech.jellyfin.presentation.tube.formatBytes
-import dev.jdtech.jellyfin.presentation.tube.formatDuration
 import dev.jdtech.jellyfin.presentation.tube.fullDate
 import dev.jdtech.jellyfin.presentation.tube.recalculateWindowInsetsUnlessPaged
 import dev.jdtech.jellyfin.presentation.tube.rememberSeparateRowScroll
@@ -1198,8 +1198,7 @@ private fun JrwiContinueCard(entry: JrwiContinue, onClick: () -> Unit, modifier:
             ?: (if (audio) item.audio?.duration else item.video?.duration)
             ?: item.duration
     Column(modifier = modifier.clip(JrwiShape).clickable(onClick = onClick)) {
-        Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(JrwiShape)) {
-            JrwiImage(path = item.thumbnail, modifier = Modifier.fillMaxSize())
+        JrwiThumbnail(item = item, marks = false, modifier = Modifier.fillMaxWidth()) {
             Icon(
                 painter =
                     painterResource(
@@ -1296,10 +1295,10 @@ private fun JrwiShowCard(show: JrwiShow, picture: String?, onClick: () -> Unit) 
 }
 
 /**
- * An item's picture with its length, and whether it has a video, audio or both. With [marks], a
- * check when it was watched and a bar when it was partly played, as in the TubeArchivist lists, and
- * when [downloaded], the download mark the Jellyfin and TubeArchivist lists give what's on the
- * phone. [contentScale] crops the picture to fill its 16:9 box, or fits it whole inside.
+ * An item's picture with its length, and whether it has a video, audio or both, each drawn yellow
+ * when it's on the phone. With [marks], a check when it was watched and a bar when it was partly
+ * played, as in the TubeArchivist lists. [contentScale] crops the picture to fill its 16:9 box, or
+ * fits it whole inside. [overlay] draws more on the picture, such as Continue watching's marks.
  */
 @Composable
 private fun JrwiThumbnail(
@@ -1307,7 +1306,7 @@ private fun JrwiThumbnail(
     modifier: Modifier = Modifier,
     marks: Boolean = true,
     contentScale: ContentScale = ContentScale.Crop,
-    downloaded: Boolean = false,
+    overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     Box(modifier = modifier.aspectRatio(16f / 9f).clip(JrwiShape)) {
         JrwiImage(
@@ -1315,20 +1314,6 @@ private fun JrwiThumbnail(
             contentScale = contentScale,
             modifier = Modifier.fillMaxSize(),
         )
-        if (marks && downloaded) {
-            Icon(
-                painter = painterResource(CoreR.drawable.ic_download),
-                contentDescription = stringResource(CoreR.string.jrwi_on_phone),
-                tint = JrwiColors.AccentInk,
-                modifier =
-                    Modifier.align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .clip(JrwiShape)
-                        .background(JrwiColors.Accent)
-                        .padding(4.dp)
-                        .size(14.dp),
-            )
-        }
         if (marks && item.progress?.finished == true) {
             Icon(
                 painter = painterResource(CoreR.drawable.ic_check),
@@ -1350,42 +1335,8 @@ private fun JrwiThumbnail(
                 Box(Modifier.fillMaxWidth(played).height(4.dp).background(JrwiColors.Accent))
             }
         }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier =
-                Modifier.align(Alignment.BottomEnd)
-                    .padding(6.dp)
-                    .clip(JrwiShape)
-                    .background(Color.Black.copy(alpha = 0.7f))
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-        ) {
-            if (item.video != null) {
-                Icon(
-                    painter = painterResource(CoreR.drawable.ic_film),
-                    contentDescription = stringResource(CoreR.string.jrwi_video),
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-            if (item.audio != null) {
-                Icon(
-                    painter = painterResource(CoreR.drawable.ic_headphones),
-                    contentDescription = stringResource(CoreR.string.jrwi_audio),
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-            item.duration
-                ?.takeIf { it > 0 }
-                ?.let {
-                    Text(
-                        text = formatDuration(it),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                    )
-                }
-        }
+        overlay()
+        JrwiVersionLabel(item = item, modifier = Modifier.align(Alignment.BottomEnd))
     }
 }
 
@@ -1843,7 +1794,6 @@ private fun JrwiTabList(
     val flow = remember(tab) { viewModel.items(tab) }
     val list by flow.collectAsStateWithLifecycle()
     val showNames by viewModel.showNames.collectAsStateWithLifecycle()
-    val onPhone by viewModel.onPhone.collectAsStateWithLifecycle()
     LaunchedEffect(tab) { if (list.page == 0) viewModel.loadMore(tab) }
     val downloadLabel = pageDownloadLabel(tab)
     LazyColumn(
@@ -1868,7 +1818,6 @@ private fun JrwiTabList(
                 // Posts the site's tags place here from another show say which show they're from
                 otherShow = showNames[item.show]?.takeIf { item.show != showId },
                 onClick = { onItemClick(item.id) },
-                downloaded = item.id in onPhone,
             )
         }
         list.error?.let { error ->
@@ -2093,13 +2042,12 @@ internal fun JrwiItemRow(
     onClick: () -> Unit,
     otherShow: String? = null,
     label: String? = null,
-    downloaded: Boolean = false,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
         modifier = Modifier.fillMaxWidth().clip(JrwiShape).clickable(onClick = onClick),
     ) {
-        JrwiThumbnail(item = item, modifier = Modifier.width(160.dp), downloaded = downloaded)
+        JrwiThumbnail(item = item, modifier = Modifier.width(160.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = item.title,

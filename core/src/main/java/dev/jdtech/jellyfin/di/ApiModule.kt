@@ -13,6 +13,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiConfig
 import dev.jdtech.jellyfin.jrwi.JrwiDownloader
 import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiJellyfinLookup
+import dev.jdtech.jellyfin.jrwi.JrwiOnPhone
 import dev.jdtech.jellyfin.jrwi.JrwiProgressStore
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.jrwi.JrwiTranscripts
@@ -140,6 +141,14 @@ object ApiModule {
     @Provides
     fun provideJrwiTranscripts(jrwiApi: JrwiApi, downloads: JrwiDownloads): JrwiTranscripts =
         JrwiTranscripts(jrwiApi, downloads)
+
+    @Singleton
+    @Provides
+    fun provideJrwiOnPhone(
+        downloads: JrwiDownloads,
+        // Online or offline, as it is at the time
+        repository: Provider<JellyfinRepository>,
+    ): JrwiOnPhone = JrwiOnPhone(downloads) { repository.get() }
 
     @Singleton
     @Provides
