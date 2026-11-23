@@ -259,16 +259,7 @@ fun JrwiFileInspector(
                 JrwiPictureViewer(
                     pictures = shown,
                     onClose = { pictures = null },
-                    // The PDF's pages, named after it
-                    onSave = { path ->
-                        val number = PAGE_NUMBER.find(path)?.groupValues?.get(1) ?: "1"
-                        saveFromJrwi(
-                            context,
-                            fileUrl(path),
-                            "${file.name.substringBeforeLast('.')} - page $number.png",
-                            Environment.DIRECTORY_PICTURES,
-                        )
-                    },
+                    fileUrl = fileUrl,
                 )
             }
         }
@@ -383,7 +374,22 @@ private fun JrwiPdf(
                                     Modifier.fillMaxWidth()
                                         .aspectRatio(aspect)
                                         .background(PAGE_BACKGROUND)
-                                        .clickable { onPage(JrwiPictures(urls, index)) },
+                                        .clickable {
+                                            // The PDF's pages, saved named after it
+                                            val name = file.name.substringBeforeLast('.')
+                                            onPage(
+                                                JrwiPictures(
+                                                    urls.mapIndexed { number, url ->
+                                                        JrwiShown.Picture(
+                                                            url,
+                                                            saveName =
+                                                                "$name - page ${number + 1}.png",
+                                                        )
+                                                    },
+                                                    index,
+                                                )
+                                            )
+                                        },
                             )
                         }
                     }
@@ -472,7 +478,7 @@ private fun PdfPage(number: Int, page: @Composable () -> Unit) {
  * A PDF open with Android's renderer, which draws one page at a time, so pages are drawn one after
  * another, and it's closed once no page is being drawn.
  */
-private class PdfPages
+internal class PdfPages
 private constructor(
     private val descriptor: ParcelFileDescriptor,
     private val renderer: PdfRenderer,
@@ -788,5 +794,4 @@ fun saveFromJrwi(context: Context, url: String?, name: String, directory: String
 private const val A4 = 1f / 1.414f
 private const val MAX_PAGE_WIDTH = 1400
 private const val TEXT_LINES = 40
-private val PAGE_NUMBER = Regex("[?&]page=(\\d+)")
 private val PAGE_BACKGROUND = androidx.compose.ui.graphics.Color.White

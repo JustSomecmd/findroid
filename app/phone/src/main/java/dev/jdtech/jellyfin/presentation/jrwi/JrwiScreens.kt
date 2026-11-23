@@ -164,6 +164,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiPostFile
 import dev.jdtech.jellyfin.jrwi.JrwiProblem
 import dev.jdtech.jellyfin.jrwi.JrwiShow
 import dev.jdtech.jellyfin.jrwi.JrwiStatus
+import dev.jdtech.jellyfin.jrwi.asPostFile
 import dev.jdtech.jellyfin.presentation.audio.AudioViewModel
 import dev.jdtech.jellyfin.presentation.components.pageSwipes
 import dev.jdtech.jellyfin.presentation.components.rememberPageSwiper
@@ -312,7 +313,8 @@ fun JrwiHomeScreen(
         JrwiPictureViewer(
             pictures = shown,
             onClose = { pictures = null },
-            onSave = { path -> saveJrwiPicture(context, viewModel.fileUrl(path), path) },
+            fileUrl = viewModel::fileUrl,
+            pdfSource = viewModel::pdfSource,
         )
     }
     LifecycleResumeEffect(Unit) {
@@ -622,6 +624,8 @@ private fun JrwiFeedCard(
 ) {
     val post = entry.post
     val full = entry.full
+    // Its pictures, then its picture files and PDFs, in one viewer, as on the web app's feed
+    val shown = remember(full) { full?.let { jrwiViewerItems(it) }.orEmpty() }
     Column(
         modifier =
             Modifier.fillMaxWidth()
@@ -633,7 +637,10 @@ private fun JrwiFeedCard(
         JrwiFeedMedia(
             post = post,
             pictures = full?.images.orEmpty().map { it.url },
-            onPicture = onPicture,
+            // The post's pictures come first among what the viewer goes through
+            onPicture = { picked ->
+                onPicture(JrwiPictures(shown.ifEmpty { picked.items }, picked.start))
+            },
         )
         Column(
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
@@ -650,7 +657,14 @@ private fun JrwiFeedCard(
             )
             if (full != null) {
                 JrwiFeedText(post = full, modifier = inset)
-                JrwiFeedFiles(post = full, onClick = onClick)
+                JrwiFeedFiles(
+                    post = full,
+                    onClick = onClick,
+                    onShow = { file ->
+                        val at = shown.indexOfFile(file)
+                        if (at >= 0) onPicture(JrwiPictures(shown, at)) else onClick()
+                    },
+                )
                 if (full.tags.isNotEmpty()) JrwiTags(full.tags)
             }
             FlowRow(
@@ -736,7 +750,7 @@ private fun JrwiImageGrid(paths: List<String>, onPicture: (JrwiPictures) -> Unit
             contentScale = ContentScale.Fit,
             modifier =
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f).clickable {
-                    onPicture(JrwiPictures(paths, 0))
+                    onPicture(jrwiPictures(paths, 0))
                 },
         )
         return
@@ -774,7 +788,7 @@ private fun JrwiGridPicture(
 ) {
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.clickable { onPicture(JrwiPictures(paths, index)) },
+        modifier = modifier.clickable { onPicture(jrwiPictures(paths, index)) },
     ) {
         JrwiImage(
             path = paths[index],
@@ -889,20 +903,28 @@ private fun JrwiFeedText(post: JrwiItem, modifier: Modifier = Modifier) {
 
 private const val PREVIEW_LINES = 4
 
-/** A feed post's attachments and documents, which open on its page, the first few listed. */
+/**
+ * A feed post's attachments and documents, the first few listed: pictures and PDFs open in the
+ * picture viewer ([onShow]), the rest on the post's page.
+ */
 @Composable
-private fun JrwiFeedFiles(post: JrwiItem, onClick: () -> Unit) {
+private fun JrwiFeedFiles(post: JrwiItem, onClick: () -> Unit, onShow: (JrwiPostFile) -> Unit) {
     val files =
-        (post.attachments.map { it to "other" } + post.documents.map { it to "document" })
-            .distinctBy { it.first.url }
+        (post.attachments.map { it.asPostFile("attachment") } +
+                post.documents.map { it.asPostFile("document") })
+            .distinctBy { it.url }
     if (files.isEmpty()) return
     Column {
-        files.take(FEED_FILES).forEach { (file, type) ->
+        files.take(FEED_FILES).forEach { file ->
             JrwiLinkRow(
-                icon = jrwiFileIcon(type),
+                icon =
+                    jrwiFileIcon(
+                        if (file.type == "other" && file.role == "document") "document"
+                        else file.type
+                    ),
                 text = file.name,
                 detail = file.size?.let { formatBytes(it) },
-                onClick = onClick,
+                onClick = { onShow(file) },
             )
         }
         if (files.size > FEED_FILES) {
@@ -1275,8 +1297,9 @@ private fun JrwiShowCard(show: JrwiShow, picture: String?, onClick: () -> Unit) 
 
 /**
  * An item's picture with its length, and whether it has a video, audio or both. With [marks], a
- * check when it was watched and a bar when it was partly played, as in the TubeArchivist lists.
- * [contentScale] crops the picture to fill its 16:9 box, or fits it whole inside.
+ * check when it was watched and a bar when it was partly played, as in the TubeArchivist lists, and
+ * when [downloaded], the download mark the Jellyfin and TubeArchivist lists give what's on the
+ * phone. [contentScale] crops the picture to fill its 16:9 box, or fits it whole inside.
  */
 @Composable
 private fun JrwiThumbnail(
@@ -1284,6 +1307,7 @@ private fun JrwiThumbnail(
     modifier: Modifier = Modifier,
     marks: Boolean = true,
     contentScale: ContentScale = ContentScale.Crop,
+    downloaded: Boolean = false,
 ) {
     Box(modifier = modifier.aspectRatio(16f / 9f).clip(JrwiShape)) {
         JrwiImage(
@@ -1291,6 +1315,20 @@ private fun JrwiThumbnail(
             contentScale = contentScale,
             modifier = Modifier.fillMaxSize(),
         )
+        if (marks && downloaded) {
+            Icon(
+                painter = painterResource(CoreR.drawable.ic_download),
+                contentDescription = stringResource(CoreR.string.jrwi_on_phone),
+                tint = JrwiColors.AccentInk,
+                modifier =
+                    Modifier.align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(JrwiShape)
+                        .background(JrwiColors.Accent)
+                        .padding(4.dp)
+                        .size(14.dp),
+            )
+        }
         if (marks && item.progress?.finished == true) {
             Icon(
                 painter = painterResource(CoreR.drawable.ic_check),
@@ -1805,6 +1843,7 @@ private fun JrwiTabList(
     val flow = remember(tab) { viewModel.items(tab) }
     val list by flow.collectAsStateWithLifecycle()
     val showNames by viewModel.showNames.collectAsStateWithLifecycle()
+    val onPhone by viewModel.onPhone.collectAsStateWithLifecycle()
     LaunchedEffect(tab) { if (list.page == 0) viewModel.loadMore(tab) }
     val downloadLabel = pageDownloadLabel(tab)
     LazyColumn(
@@ -1829,6 +1868,7 @@ private fun JrwiTabList(
                 // Posts the site's tags place here from another show say which show they're from
                 otherShow = showNames[item.show]?.takeIf { item.show != showId },
                 onClick = { onItemClick(item.id) },
+                downloaded = item.id in onPhone,
             )
         }
         list.error?.let { error ->
@@ -2053,12 +2093,13 @@ internal fun JrwiItemRow(
     onClick: () -> Unit,
     otherShow: String? = null,
     label: String? = null,
+    downloaded: Boolean = false,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.medium),
         modifier = Modifier.fillMaxWidth().clip(JrwiShape).clickable(onClick = onClick),
     ) {
-        JrwiThumbnail(item = item, modifier = Modifier.width(160.dp))
+        JrwiThumbnail(item = item, modifier = Modifier.width(160.dp), downloaded = downloaded)
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = item.title,
@@ -2192,12 +2233,23 @@ fun JrwiItemScreen(
             JrwiPictureViewer(
                 pictures = shown,
                 onClose = { pictures = null },
-                onSave = { path -> saveJrwiPicture(context, viewModel.fileUrl(path), path) },
+                fileUrl = viewModel::fileUrl,
+                pdfSource = viewModel::pdfSource,
+                // Through a copy in the app, so the other app gets no token
+                onOpenElsewhere = { file ->
+                    openJrwiFileElsewhere(context, scope, file, viewModel::fileOnPhone)
+                },
             )
         }
         val playsAudio = state.playsAudio
         // The picked version's own post, or the whole item when there's one version
         val post = state.content.post
+        // Its pictures, then its picture files and PDFs, in one viewer (decision 19)
+        val shownFiles = state.content.files
+        val viewerItems =
+            remember(post, shownFiles) {
+                post?.let { jrwiViewerItems(it, shownFiles, viewModel::showFrom) }.orEmpty()
+            }
 
         JrwiScaffold(
             topBar = {
@@ -2354,9 +2406,16 @@ fun JrwiItemScreen(
                             post = post,
                             files = state.content.files,
                             onOpen = { openUrl(context, it) },
-                            onPicture = { pictures = it },
+                            // The post's pictures come first among what the viewer goes through
+                            onPicture = { picked ->
+                                pictures =
+                                    JrwiPictures(viewerItems.ifEmpty { picked.items }, picked.start)
+                            },
                             onFile = { file ->
+                                val shownAt = viewerItems.indexOfFile(file)
                                 when {
+                                    shownAt >= 0 && (file.type == "image" || file.type == "pdf") ->
+                                        pictures = JrwiPictures(viewerItems, shownAt)
                                     file.type == "youtube" -> file.youtubeId?.let(onOpenYoutube)
                                     file.type == "link" -> openUrl(context, file.source)
                                     // The episode's own video and audio play as Play does
@@ -2364,7 +2423,7 @@ fun JrwiItemScreen(
                                     file.role == "audio" -> viewModel.playAudio()
                                     file.type == "image" ->
                                         viewModel.showFrom(file)?.let {
-                                            pictures = JrwiPictures(listOf(it), 0)
+                                            pictures = jrwiPictures(listOf(it), 0)
                                         }
                                     // Other sound and video open in another app, which gets
                                     // the file itself and not the archiver's token
@@ -2495,7 +2554,7 @@ private fun LazyListScope.jrwiPostContent(
                                 .aspectRatio(1f, matchHeightConstraintsFirst = true)
                                 .clip(JrwiShape)
                                 .clickable {
-                                    onPicture(JrwiPictures(post.images.map { it.url }, index))
+                                    onPicture(jrwiPictures(post.images.map { it.url }, index))
                                 },
                     )
                 }

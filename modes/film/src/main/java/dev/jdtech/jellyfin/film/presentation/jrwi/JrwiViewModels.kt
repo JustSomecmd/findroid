@@ -19,6 +19,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiEvent
 import dev.jdtech.jellyfin.jrwi.JrwiFeature
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiPage
+import dev.jdtech.jellyfin.jrwi.JrwiPdfSource
 import dev.jdtech.jellyfin.jrwi.JrwiPodcast
 import dev.jdtech.jellyfin.jrwi.JrwiPostFile
 import dev.jdtech.jellyfin.jrwi.JrwiPreview
@@ -203,8 +204,11 @@ data class JrwiFeedPost(
 @HiltViewModel
 class JrwiShowsViewModel
 @Inject
-constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgressSync) :
-    ViewModel() {
+constructor(
+    private val jrwiApi: JrwiApi,
+    private val jrwiProgress: JrwiProgressSync,
+    private val jrwiDownloads: JrwiDownloads,
+) : ViewModel() {
     private val _state = MutableStateFlow(JrwiShowsState(configured = jrwiApi.isConfigured))
     val state = _state.asStateFlow()
 
@@ -425,6 +429,24 @@ constructor(private val jrwiApi: JrwiApi, private val jrwiProgress: JrwiProgress
     fun fileUrl(path: String?): String? = jrwiApi.fileUrlWithToken(path)
 
     /**
+     * Where the picture viewer gets the pages of a feed post's PDF: the archiver's pictures of
+     * them, or else a copy fetched now and drawn on the phone.
+     */
+    suspend fun pdfSource(file: JrwiPostFile): JrwiPdfSource {
+        val preview =
+            try {
+                file.preview?.let { jrwiApi.getPreview(it) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.d(e, "No page pictures for ${file.name}")
+                null
+            }
+        return jrwiPdfSource(preview)
+            ?: JrwiPdfSource.Phone(jrwiCachedCopy(jrwiApi, jrwiDownloads, file))
+    }
+
+    /**
      * Continue watching after progress was saved from the app: the episode goes first with its new
      * progress, or leaves the row once it's finished. One not in the row yet comes with the next
      * load, when the tab is shown again.
@@ -567,7 +589,51 @@ constructor(
 
     private var showId: String? = null
 
+    // The items whose archived video, or TubeArchivist's copy of it, is downloaded through Jellyfin
+    private val videosOnPhone = MutableStateFlow<Set<Long>>(emptySet())
+
+    /**
+     * The items on the phone, their audio or their video downloaded whole, to mark in the lists as
+     * the Jellyfin and TubeArchivist lists mark downloads.
+     */
+    val onPhone: StateFlow<Set<Long>> =
+        combine(jrwiDownloads.downloads, videosOnPhone) { audio, videos ->
+                audio.filter { it.done }.map { it.itemId }.toSet() + videos
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    private suspend fun loadVideosOnPhone() {
+        videosOnPhone.value =
+            withContext(Dispatchers.IO) {
+                try {
+                    val downloaded =
+                        repository
+                            .getDownloadedEpisodes()
+                            .filter { it.isDownloaded() }
+                            .map { it.id.toString() }
+                            .toSet()
+                    jrwiDownloads
+                        .savedVideos()
+                        .filter { it.episodeId in downloaded }
+                        .map { it.item.id }
+                        .toSet()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not read the downloaded videos")
+                    emptySet()
+                }
+            }
+    }
+
     init {
+        // What's on the phone, and again when a download finishes or is removed
+        viewModelScope.launch {
+            loadVideosOnPhone()
+            MediaChanges.changes.filterIsInstance<MediaChanges.Downloads>().collect {
+                loadVideosOnPhone()
+            }
+        }
         // Marks what's been played since the lists were loaded
         viewModelScope.launch {
             jrwiProgress.changes.collect { change ->
@@ -1127,28 +1193,28 @@ constructor(
      * fetched now into the cache.
      */
     suspend fun fileOnPhone(file: JrwiPostFile): File =
-        withContext(Dispatchers.IO) {
-            localCopy(file)?.let {
-                return@withContext it
-            }
-            val url = file.url ?: throw IOException("This file isn't in the archive")
-            val target = jrwiDownloads.cacheFileFor(file.path ?: url)
-            if (!target.isFile || (file.size != null && target.length() != file.size)) {
-                jrwiApi.openFile(url).use { response ->
-                    if (!response.isSuccessful) {
-                        throw JrwiApiException(
-                            response.code,
-                            "The archiver answered ${response.code}",
-                        )
-                    }
-                    target.parentFile?.mkdirs()
-                    val temp = File(target.path + ".part")
-                    temp.outputStream().use { out -> response.body.byteStream().copyTo(out) }
-                    if (!temp.renameTo(target)) throw IOException("Could not keep ${file.name}")
-                }
-            }
-            target
+        localCopy(file) ?: jrwiCachedCopy(jrwiApi, jrwiDownloads, file)
+
+    /**
+     * Where the picture viewer gets a PDF's pages: drawn on the phone from the copy kept with the
+     * download, or the archiver's pictures of them, or else drawn from a copy fetched now when the
+     * archiver can't draw them.
+     */
+    suspend fun pdfSource(file: JrwiPostFile): JrwiPdfSource {
+        localCopy(file)?.let {
+            return JrwiPdfSource.Phone(it)
         }
+        val preview =
+            try {
+                preview(file)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.d(e, "No page pictures for ${file.name}")
+                null
+            }
+        return jrwiPdfSource(preview) ?: JrwiPdfSource.Phone(fileOnPhone(file))
+    }
 
     /** The copy of a file kept with the episode's download, if there's one. */
     fun localCopy(file: JrwiPostFile): File? =
@@ -1722,3 +1788,36 @@ constructor(private val appPreferences: AppPreferences, private val jrwiApi: Jrw
         else "http://$trimmed"
     }
 }
+
+/** The archiver's pictures of a PDF's pages, when its preview has them. */
+private fun jrwiPdfSource(preview: JrwiPreview?): JrwiPdfSource.Archiver? {
+    val pageUrl = preview?.pageUrl ?: return null
+    val pages = preview.pages ?: 0
+    return if (pages > 0) JrwiPdfSource.Archiver(pageUrl, pages) else null
+}
+
+/**
+ * A copy of one of the archive's files in the app's cache, fetched now unless it's there already,
+ * for drawing a PDF on the phone or handing a file to another app.
+ */
+private suspend fun jrwiCachedCopy(
+    jrwiApi: JrwiApi,
+    jrwiDownloads: JrwiDownloads,
+    file: JrwiPostFile,
+): File =
+    withContext(Dispatchers.IO) {
+        val url = file.url ?: throw IOException("This file isn't in the archive")
+        val target = jrwiDownloads.cacheFileFor(file.path ?: url)
+        if (!target.isFile || (file.size != null && target.length() != file.size)) {
+            jrwiApi.openFile(url).use { response ->
+                if (!response.isSuccessful) {
+                    throw JrwiApiException(response.code, "The archiver answered ${response.code}")
+                }
+                target.parentFile?.mkdirs()
+                val temp = File(target.path + ".part")
+                temp.outputStream().use { out -> response.body.byteStream().copyTo(out) }
+                if (!temp.renameTo(target)) throw IOException("Could not keep ${file.name}")
+            }
+        }
+        target
+    }

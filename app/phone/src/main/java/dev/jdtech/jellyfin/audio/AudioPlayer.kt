@@ -27,6 +27,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.models.FindroidEpisode
+import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.player.core.domain.models.PlayerItem
 import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.local.domain.PlaylistManager
@@ -523,8 +524,10 @@ constructor(
 
     /**
      * Goes on from a JRWI episode's video, the archiver's item [itemId], at [videoPositionMs]: in
-     * the episode's audio at the same moment. An episode without audio plays the video's own sound,
-     * from its Jellyfin episode [episodeId].
+     * the episode's audio at the same moment, from the phone when it's downloaded. When it isn't,
+     * and the video is on the phone, the downloaded video's own sound plays rather than the audio
+     * being streamed, as it does for an episode without audio: from its Jellyfin episode
+     * [episodeId].
      */
     fun playJrwiFromVideo(itemId: Long, episodeId: UUID, videoPositionMs: Long) {
         loadJob?.cancel()
@@ -541,7 +544,8 @@ constructor(
                         ?: jrwiDownloads.savedVideoForEpisode(episodeId.toString())?.item
                 }
             val audio = item?.audio
-            if (item == null || audio == null) {
+            val audioOnPhone = audio != null && jrwiDownloads.forAudio(audio.postId) != null
+            if (item == null || audio == null || (!audioOnPhone && videoOnPhone(episodeId))) {
                 loadVideo(
                     itemId = episodeId,
                     kind = BaseItemKind.EPISODE,
@@ -562,6 +566,17 @@ constructor(
             }
         }
     }
+
+    /** Whether the Jellyfin episode [episodeId] is downloaded to the phone. */
+    private suspend fun videoOnPhone(episodeId: UUID): Boolean =
+        try {
+            repositories.get().getEpisode(episodeId).isDownloaded()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.d(e, "Could not look up the episode $episodeId")
+            false
+        }
 
     /**
      * Plays the sound of the Jellyfin video [itemId], a movie or an episode ([kind]): from

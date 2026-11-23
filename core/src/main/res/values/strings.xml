@@ -543,6 +543,12 @@
     <string name="jrwi_nothing_here">Nothing here yet</string>
     <string name="jrwi_side_archive">Archive</string>
     <string name="jrwi_picture_save">Save to Pictures</string>
+    <!-- The picture viewer going through a post's pictures and PDFs (decision 19) -->
+    <string name="jrwi_on_phone">On the phone</string>
+    <string name="jrwi_viewer_previous">Previous</string>
+    <string name="jrwi_viewer_next">Next</string>
+    <string name="jrwi_viewer_page">%1$s · page %2$d of %3$d</string>
+    <string name="jrwi_viewer_pdf_failed">%1$s couldn\'t be shown.</string>
     <string name="jrwi_picture_close">Close</string>
     <string name="jrwi_picture_saving">Saving %1$s to Pictures/JRWI</string>
     <string name="jrwi_file_pdf">PDF</string>
