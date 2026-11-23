@@ -91,7 +91,10 @@ data class JrwiArchiveStats(
     /** Members-only videos kept in the archive (and in Jellyfin). */
     val videos: JrwiTotals = JrwiTotals(),
     val audio: JrwiTotals = JrwiTotals(),
-    /** Videos only on YouTube, which play from TubeArchivist. */
+    /**
+     * Videos only on YouTube, which play from TubeArchivist, with the size of TubeArchivist's
+     * copies and their length, as the archiver has them from TubeArchivist since 0.14.9.
+     */
     val youtube: JrwiTotals = JrwiTotals(),
     /** Members-only videos deleted since TubeArchivist has them from YouTube. */
     val handedOver: Int = 0,
@@ -312,7 +315,7 @@ internal fun archiveStats(
             videos += JrwiTotals(1, video.size ?: 0L, video.duration ?: 0.0)
             video.height?.let { heights[it] = (heights[it] ?: 0) + 1 }
         } else if (video != null && video.youtubeId != null) {
-            youtube += JrwiTotals(1, 0, video.duration ?: 0.0)
+            youtube += JrwiTotals(1, video.size ?: 0L, video.duration ?: 0.0)
         }
         post.audio?.let { audio += JrwiTotals(1, it.size ?: 0L, it.duration ?: 0.0) }
     }

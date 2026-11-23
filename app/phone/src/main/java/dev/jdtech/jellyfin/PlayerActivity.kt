@@ -128,6 +128,8 @@ class PlayerActivity : BasePlayerActivity() {
 
     // Whether a JRWI episode's transcript is open beside the video, and where and how big it is
     private var transcriptOpen by mutableStateOf(false)
+    // The screen lock, for the transcript panel, which doesn't take taps while it's on
+    private var controlsLocked by mutableStateOf(false)
     private var transcriptSpace by mutableStateOf(TranscriptSpace(wide = true, size = 0))
 
     // How far the video is moved over for the transcript now, and the animation doing it
@@ -210,6 +212,7 @@ class PlayerActivity : BasePlayerActivity() {
         val lockedControls = binding.playerView.findViewById<View>(R.id.locked_player_view)
 
         isControlsLocked = false
+        controlsLocked = false
 
         configureInsets(playerControls)
         configureInsets(lockedControls)
@@ -526,6 +529,7 @@ class PlayerActivity : BasePlayerActivity() {
             lockedLayout.visibility = View.VISIBLE
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
             isControlsLocked = true
+            controlsLocked = true
         }
 
         unlockButton.setOnClickListener {
@@ -533,6 +537,7 @@ class PlayerActivity : BasePlayerActivity() {
             lockedLayout.visibility = View.GONE
             requestedOrientation = playerOrientation()
             isControlsLocked = false
+            controlsLocked = false
         }
 
         // Turns captions on and off; holding it, or Captions in the menu, picks the track
@@ -1023,6 +1028,7 @@ class PlayerActivity : BasePlayerActivity() {
                             },
                             onClose = { closeTranscript() },
                             slideMillis = TRANSCRIPT_SLIDE_MS.toInt(),
+                            locked = controlsLocked,
                         )
                     }
                 }

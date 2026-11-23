@@ -310,11 +310,20 @@ private fun JrwiContentsCard(stats: JrwiArchiveStats, status: JrwiStatus?) {
         if (stats.youtube.count > 0) {
             JrwiStatLine(
                 label = stringResource(CoreR.string.jrwi_stats_youtube),
+                // Their sizes are TubeArchivist's copies', from archivers since 0.14.9
                 detail =
-                    stringResource(
-                        CoreR.string.jrwi_stats_youtube_detail,
-                        formatPlaytime(stats.youtube.seconds.toLong()),
-                    ),
+                    if (stats.youtube.bytes > 0) {
+                        stringResource(
+                            CoreR.string.jrwi_stats_youtube_detail_size,
+                            formatBytes(stats.youtube.bytes),
+                            formatPlaytime(stats.youtube.seconds.toLong()),
+                        )
+                    } else {
+                        stringResource(
+                            CoreR.string.jrwi_stats_youtube_detail,
+                            formatPlaytime(stats.youtube.seconds.toLong()),
+                        )
+                    },
                 value = formatNumber(stats.youtube.count.toLong()),
             )
         }

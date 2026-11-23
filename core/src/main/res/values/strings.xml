@@ -699,6 +699,7 @@
     <string name="jrwi_stats_audio">Audio</string>
     <string name="jrwi_stats_youtube">Videos on YouTube</string>
     <string name="jrwi_stats_youtube_detail">%1$s · played from TubeArchivist</string>
+    <string name="jrwi_stats_youtube_detail_size">%1$s · %2$s · played from TubeArchivist</string>
     <string name="jrwi_stats_handed_over">Handed over to TubeArchivist</string>
     <string name="jrwi_stats_text_posts">Text posts</string>
     <string name="jrwi_stats_locked">Above your tier</string>

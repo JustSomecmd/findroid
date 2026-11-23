@@ -34,6 +34,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
@@ -50,7 +52,8 @@ import dev.jdtech.jellyfin.presentation.theme.spacings
  * A JRWI episode's transcript beside the video, in the archiver's colours as the JRWI pages have
  * them: at the side when the screen is wider than tall, at the bottom otherwise, [size] wide or
  * tall. It takes up its own part of the screen rather than lying over the video, which the player
- * keeps whole in the rest. It slides in as long as [slideMillis], as the video makes room.
+ * keeps whole in the rest. It slides in as long as [slideMillis], as the video makes room. While
+ * the player's screen is [locked], it takes no taps or scrolls.
  */
 @Composable
 fun PlayerTranscriptPanel(
@@ -63,6 +66,7 @@ fun PlayerTranscriptPanel(
     onPlayFrom: (positionMs: Long) -> Unit,
     onClose: () -> Unit,
     slideMillis: Int,
+    locked: Boolean = false,
 ) {
     BackHandler(enabled = open, onBack = onClose)
     val slide = tween<IntOffset>(durationMillis = slideMillis, easing = FastOutSlowInEasing)
@@ -128,6 +132,22 @@ fun PlayerTranscriptPanel(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
+                    }
+                    // With the player's screen locked, taps and scrolls on the lines do nothing,
+                    // as on the rest of the player; the lines still follow what plays
+                    if (locked) {
+                        Box(
+                            modifier =
+                                Modifier.fillMaxSize().pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent(PointerEventPass.Initial)
+                                                .changes
+                                                .forEach { it.consume() }
+                                        }
+                                    }
+                                }
+                        )
                     }
                 }
             }
