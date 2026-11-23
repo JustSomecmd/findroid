@@ -140,6 +140,29 @@ class JrwiProgressSync(
         }
     }
 
+    /**
+     * The post whose transcript lines to show for a TubeArchivist video that's the YouTube upload
+     * of an episode whose members-only video is archived too, as [itemForYoutube] leaves those out:
+     * its progress stays with the archived video, but its lines can follow the YouTube upload. Null
+     * when the episode has no transcript, or the video isn't one of the archive's.
+     */
+    suspend fun transcriptPostForYoutube(youtubeId: String): Long? {
+        if (!jrwiApi.isConfigured) return null
+        return try {
+            // The YouTube post itself; older archivers ignore the filter, which this skips
+            jrwiApi
+                .getPosts(youtubeId = youtubeId, pageSize = 5)
+                .items
+                .firstOrNull { it.video?.youtubeId == youtubeId && it.transcript }
+                ?.id
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Could not get the JRWI post of YouTube video $youtubeId")
+            null
+        }
+    }
+
     /** Jellyfin's copy of the item's archived video, or null when Jellyfin doesn't have it. */
     suspend fun episodeId(item: JrwiItem): UUID? {
         val video = item.video?.takeIf { !it.isYoutube } ?: return null

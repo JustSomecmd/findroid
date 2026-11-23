@@ -770,13 +770,19 @@ constructor(
                         jrwiApi.isConfigured
                     }
                     ?: videoId?.let { jrwiProgress.itemForYoutube(it) }
+            // The YouTube upload of an episode whose members-only video is archived too: only its
+            // lines, as its progress stays with that video
+            val transcriptPost =
+                item?.transcriptPost(audio = false)
+                    ?: if (item == null) videoId?.let { jrwiProgress.transcriptPostForYoutube(it) }
+                    else null
             if (isCurrent()) {
                 linkedJrwi = item
                 _state.update {
                     it.copy(
                         linkedJrwiId = item?.id,
                         // The video's own sound, so the lines timed for the video
-                        transcriptPostId = item?.transcriptPost(audio = false),
+                        transcriptPostId = transcriptPost,
                     )
                 }
             }

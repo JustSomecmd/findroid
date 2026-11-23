@@ -578,13 +578,20 @@ constructor(
 
     /**
      * Looks up whether a TubeArchivist video is one of the archiver's YouTube-only videos, so its
-     * progress goes to the archive as well.
+     * progress goes to the archive as well. The YouTube upload of an episode whose members-only
+     * video is archived too only gets its transcript, as its progress stays with that video.
      */
     private suspend fun loadJrwiYoutubeInfo(itemId: UUID, videoId: String) {
-        val item = jrwiProgress.itemForYoutube(videoId) ?: return
-        if (player.currentMediaItem?.mediaId == itemId.toString() && jrwiItem == null) {
-            jrwiItem = item
+        val isCurrent = {
+            player.currentMediaItem?.mediaId == itemId.toString() && jrwiItem == null
         }
+        val item = jrwiProgress.itemForYoutube(videoId)
+        if (item != null) {
+            if (isCurrent()) jrwiItem = item
+            return
+        }
+        val transcriptPost = jrwiProgress.transcriptPostForYoutube(videoId) ?: return
+        if (isCurrent()) _uiState.update { it.copy(transcriptPostId = transcriptPost) }
     }
 
     /**

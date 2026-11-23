@@ -190,6 +190,7 @@ class JrwiApi(private val config: JrwiConfig) {
         show: String? = null,
         tab: String? = null,
         tag: String? = null,
+        youtubeId: String? = null,
     ): JrwiPage<JrwiItem> =
         decode(
             get("api/posts") {
@@ -197,6 +198,7 @@ class JrwiApi(private val config: JrwiConfig) {
                 show?.let { addQueryParameter("show", it) }
                 tab?.let { addQueryParameter("tab", it) }
                 tag?.let { addQueryParameter("tag", it) }
+                youtubeId?.let { addQueryParameter("youtube_id", it) }
                 addQueryParameter("order", order)
                 addQueryParameter("page", page.toString())
                 addQueryParameter("page_size", pageSize.toString())
