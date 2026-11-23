@@ -286,6 +286,8 @@ fun LazyGridScope.jrwiShowSections(
                         direction = Direction.HORIZONTAL,
                         onClick = onVideoClick,
                         modifier = Modifier.animateItem(),
+                        // The version label in the corner says it's on the phone, in yellow
+                        downloadedBadge = card.jrwi == null,
                     ) {
                         card.jrwi?.let { jrwi ->
                             val video = card.item
@@ -352,7 +354,8 @@ private fun JrwiAudioDownloadCard(
                         Modifier.align(Alignment.TopEnd).padding(MaterialTheme.spacings.small),
                     horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
                 ) {
-                    if (download.done) DownloadedBadge()
+                    // On the phone or not, the version label in the corner says, in yellow
+                    if (download.done && entry.item == null) DownloadedBadge()
                     // Watched, as the video cards beside it show it
                     if (watch?.finished == true) PlayedBadge()
                     BaseBadge {

@@ -33,7 +33,8 @@ import dev.jdtech.jellyfin.presentation.utils.episodeTitle
 
 /**
  * An item's card: its poster with its badges and, laid sideways, a bar for how far it was played,
- * then its name. [overlay] draws more on the poster, such as JRWI's version label.
+ * then its name. [overlay] draws more on the poster, such as JRWI's version label, and
+ * [downloadedBadge] can leave out the badge for a download where that label already says so.
  */
 @Composable
 fun ItemCard(
@@ -42,6 +43,7 @@ fun ItemCard(
     onClick: (FindroidItem) -> Unit,
     modifier: Modifier = Modifier,
     showSeriesName: Boolean = false,
+    downloadedBadge: Boolean = true,
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     val width =
@@ -64,7 +66,7 @@ fun ItemCard(
                         Modifier.align(Alignment.TopEnd).padding(MaterialTheme.spacings.small),
                     horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
                 ) {
-                    if (item.isDownloaded()) DownloadedBadge()
+                    if (downloadedBadge && item.isDownloaded()) DownloadedBadge()
                     if (item.played) PlayedBadge()
                     item.unplayedItemCount?.takeIf { it > 0 }?.let { ItemCountBadge(it) }
                 }
