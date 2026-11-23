@@ -412,8 +412,7 @@ class PlayerActivity : BasePlayerActivity() {
                             // Subtitles: hidden when the video has none
                             subtitleButton.isVisible = hasSubtitles
 
-                            // A JRWI episode's transcript, as captions: only when it has one, and
-                            // dimmed while it's closed
+                            // A JRWI episode's transcript: only when it has one
                             transcriptButton.isVisible = transcriptPostId != null
                             if (transcriptPostId == null && transcriptOpen) closeTranscript()
                             updateTranscriptButton(transcriptButton)
@@ -1063,8 +1062,12 @@ class PlayerActivity : BasePlayerActivity() {
         }
     }
 
+    /**
+     * As bright as the buttons beside it whether the lines are open or not, as a dimmed one reads
+     * as unavailable; the panel itself shows they're open.
+     */
     private fun updateTranscriptButton(button: ImageButton) {
-        button.imageAlpha = if (transcriptOpen) 255 else 120
+        button.imageAlpha = 255
         button.contentDescription =
             getString(
                 if (transcriptOpen) CoreR.string.jrwi_transcript_hide
