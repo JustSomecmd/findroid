@@ -582,16 +582,19 @@ constructor(
      * video is archived too only gets its transcript, as its progress stays with that video.
      */
     private suspend fun loadJrwiYoutubeInfo(itemId: UUID, videoId: String) {
-        val isCurrent = {
-            player.currentMediaItem?.mediaId == itemId.toString() && jrwiItem == null
-        }
+        val isCurrent = { player.currentMediaItem?.mediaId == itemId.toString() }
         val item = jrwiProgress.itemForYoutube(videoId)
         if (item != null) {
-            if (isCurrent()) jrwiItem = item
+            // Over the copy kept with a download of TubeArchivist's video too, which can be from
+            // before the episode had a transcript
+            val kept = jrwiItem
+            if (isCurrent() && (kept == null || kept.id == item.id)) jrwiItem = item
             return
         }
         val transcriptPost = jrwiProgress.transcriptPostForYoutube(videoId) ?: return
-        if (isCurrent()) _uiState.update { it.copy(transcriptPostId = transcriptPost) }
+        if (isCurrent() && jrwiItem == null) {
+            _uiState.update { it.copy(transcriptPostId = transcriptPost) }
+        }
     }
 
     /**

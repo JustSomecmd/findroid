@@ -766,10 +766,12 @@ constructor(
         try {
             val item =
                 jrwiProgress.itemForEpisode(itemId)
+                    // Before the copy kept with a download, which can be from before the episode
+                    // had a transcript; that copy is for when the archive can't be reached
+                    ?: videoId?.let { jrwiProgress.itemForYoutube(it) }
                     ?: jrwiDownloads.savedVideoForEpisode(itemId.toString())?.item?.takeIf {
                         jrwiApi.isConfigured
                     }
-                    ?: videoId?.let { jrwiProgress.itemForYoutube(it) }
             // The YouTube upload of an episode whose members-only video is archived too: only its
             // lines, as its progress stays with that video
             val transcriptPost =
