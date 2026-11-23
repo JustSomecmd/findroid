@@ -9,9 +9,10 @@ import timber.log.Timber
 
 /**
  * Episodes' transcripts for the players (v0.23): from the archiver, or without a connection the
- * copy kept with a download. The last two read are kept for a while, so opening the lines again, or
- * the other player, doesn't ask again. A copy on the phone is brought up to date whenever the
- * archiver gives the lines again, such as once it has timed them.
+ * copy kept with a download. The last two read are kept for 10 minutes, so opening the lines again,
+ * or the other player, doesn't ask again, while lines the archiver has timed again since (on a PC,
+ * say) show the next time they're opened after that. A copy on the phone is brought up to date
+ * whenever the archiver gives the lines again.
  */
 class JrwiTranscripts(private val jrwiApi: JrwiApi, private val downloads: JrwiDownloads) {
     private class Kept(val transcript: JrwiTranscript, val at: Long)
@@ -72,12 +73,12 @@ class JrwiTranscripts(private val jrwiApi: JrwiApi, private val downloads: JrwiD
     private suspend fun saved(postId: Long): JrwiTranscript? =
         withContext(Dispatchers.IO) { downloads.savedTranscript(postId) }
 
-    // Lines not timed yet are asked for again after a while, as the archiver may have timed them
+    // Asked for again after a while, as the archiver may have timed them, or timed them again
     @Synchronized
     private fun keptFor(postId: Long): JrwiTranscript? {
         val entry = kept[postId] ?: return null
         val age = SystemClock.elapsedRealtime() - entry.at
-        if (!entry.transcript.aligned && age > UNTIMED_KEPT_MS) {
+        if (age > KEPT_MS) {
             kept.remove(postId)
             return null
         }
@@ -98,6 +99,6 @@ class JrwiTranscripts(private val jrwiApi: JrwiApi, private val downloads: JrwiD
         const val NOT_FOUND = 404
         // A three-hour episode's lines are about 250 KB of text
         const val KEPT = 2
-        const val UNTIMED_KEPT_MS = 10 * 60_000L
+        const val KEPT_MS = 10 * 60_000L
     }
 }
