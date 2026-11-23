@@ -154,6 +154,7 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiStatsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.pages
 import dev.jdtech.jellyfin.jrwi.JrwiAuthor
+import dev.jdtech.jellyfin.jrwi.JrwiBackground
 import dev.jdtech.jellyfin.jrwi.JrwiBadge
 import dev.jdtech.jellyfin.jrwi.JrwiCheckRun
 import dev.jdtech.jellyfin.jrwi.JrwiComment
@@ -3167,10 +3168,10 @@ internal fun JrwiServerContent(
 }
 
 /**
- * Reads the archiver's status while a page shows it: every few seconds while a check runs, to
- * follow it, and once a minute while the archiver waits, to see a check start. A check started from
- * the page is followed from then on. [onShown] runs each time the page shows. With [details], the
- * page's problems, events and podcast feed too, once a check has finished.
+ * Reads the archiver's status while a page shows it: every few seconds while a check or work in the
+ * background runs, to follow it, and once a minute while the archiver waits, to see a check start.
+ * A check started from the page is followed from then on. [onShown] runs each time the page shows.
+ * With [details], the page's problems, events and podcast feed too, once a check has finished.
  */
 @Composable
 internal fun FollowArchiver(
@@ -3184,8 +3185,10 @@ internal fun FollowArchiver(
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             shown()
             viewModel.refresh(details = details)
+            // Every few seconds too while the archiver times transcripts, which reports how far
+            // it has got every few seconds
             viewModel.state
-                .map { it.status?.running == true }
+                .map { it.status?.running == true || it.status?.background != null }
                 .distinctUntilChanged()
                 .collectLatest { running ->
                     while (true) {
@@ -3266,21 +3269,9 @@ internal fun JrwiStatusCard(status: JrwiStatus, lastRun: JrwiCheckRun? = null) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        // Work between checks, such as timing transcripts (v0.23), which isn't a check
-        status.background?.let { background ->
-            val text =
-                listOfNotNull(background.phase, background.detail)
-                    .filter { it.isNotBlank() }
-                    .joinToString(": ")
-            if (text.isNotEmpty()) {
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = JrwiColors.BodyText,
-                    modifier = Modifier.padding(top = MaterialTheme.spacings.small),
-                )
-            }
-        }
+        // Work in the background, such as timing transcripts (v0.23): not a check, and since the
+        // archiver's 0.13.0 alongside one, under it, as the admin page has it
+        status.background?.let { JrwiBackgroundWork(it) }
         if (status.loginOk == false) {
             Text(
                 text = stringResource(CoreR.string.jrwi_login_failed),
@@ -3289,6 +3280,67 @@ internal fun JrwiStatusCard(status: JrwiStatus, lastRun: JrwiCheckRun? = null) {
             )
         }
         JrwiCheckTimes(status, lastRun)
+    }
+}
+
+/**
+ * What the archiver does in the background, as the top of its admin page shows it: what it is,
+ * which of how many it's on, what it's doing to that one, and a bar for how far that one has got,
+ * or for how many are done when it doesn't say.
+ */
+@Composable
+private fun JrwiBackgroundWork(background: JrwiBackground) {
+    Column(modifier = Modifier.padding(top = MaterialTheme.spacings.small)) {
+        val progress = background.progress
+        val total = progress?.total ?: 0
+        val done = progress?.done ?: 0
+        val number = (done + 1).coerceAtMost(total)
+        val count =
+            if (total > 0) {
+                when (progress?.unit) {
+                    "episode" -> stringResource(CoreR.string.jrwi_count_episode, number, total)
+                    "post" -> stringResource(CoreR.string.jrwi_count_post, number, total)
+                    "page" -> stringResource(CoreR.string.jrwi_count_page, number, total)
+                    else -> stringResource(CoreR.string.jrwi_count, number, total)
+                }
+            } else null
+        Text(
+            text =
+                listOfNotNull(background.phase?.takeIf { it.isNotBlank() }, count)
+                    .joinToString(" · "),
+            style = MaterialTheme.typography.titleSmall,
+            color = JrwiColors.Text,
+        )
+        background.detail
+            ?.takeIf { it.isNotBlank() }
+            ?.let { detail ->
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = JrwiColors.BodyText,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        val current = progress?.current
+        val fraction =
+            when {
+                current != null -> current.toFloat()
+                total > 0 -> done.toFloat() / total
+                else -> null
+            }
+        if (fraction != null) {
+            LinearProgressIndicator(
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                progress = { fraction.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            )
+        } else {
+            // Under way, with no length to show yet
+            LinearProgressIndicator(
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            )
+        }
     }
 }
 
