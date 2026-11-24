@@ -2130,8 +2130,8 @@ fun JrwiItemScreen(
                         event.episodeId,
                         startFromBeginning = event.fromStart,
                         positionSeconds = event.positionSeconds,
+                        videoId = event.videoId,
                     )
-                is JrwiItemEvent.PlayYoutube -> onOpenYoutube(event.videoId)
                 // In the app's own audio player, which opens with it
                 is JrwiItemEvent.PlayAudio -> {
                     audioViewModel.player.playJrwi(event.postId, event.fromStart)
@@ -2212,6 +2212,21 @@ fun JrwiItemScreen(
                         }
                     },
                     actions = {
+                        // An episode on YouTube plays from here; its TubeArchivist page is a
+                        // button of its own
+                        item
+                            ?.video
+                            ?.takeIf { it.isYoutube }
+                            ?.youtubeId
+                            ?.let { youtubeId ->
+                                IconButton(onClick = { onOpenYoutube(youtubeId) }) {
+                                    Icon(
+                                        painterResource(CoreR.drawable.ic_tubedroid_head),
+                                        contentDescription =
+                                            stringResource(CoreR.string.jrwi_open_ta_page),
+                                    )
+                                }
+                            }
                         // The shown version's post in the archiver's web app, as a TubeArchivist
                         // video's page opens it in TubeArchivist
                         if (item != null) {

@@ -531,6 +531,8 @@
     <string name="jrwi_open_in_archiver">Open in the archiver</string>
     <string name="jrwi_youtube_only">This video is only on YouTube, so it plays from TubeArchivist.</string>
     <string name="jrwi_not_in_jellyfin">Jellyfin doesn\'t have this video yet</string>
+    <string name="jrwi_open_ta_page">Its TubeArchivist page</string>
+    <string name="ta_open_jrwi_page">Its JRWI page</string>
     <string name="jrwi_locked">Your tier can\'t see this post</string>
     <string name="jrwi_not_archived">Not saved yet</string>
     <string name="jrwi_files">Files</string>

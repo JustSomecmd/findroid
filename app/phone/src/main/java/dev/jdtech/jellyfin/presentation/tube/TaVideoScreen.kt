@@ -82,6 +82,8 @@ fun TaVideoScreen(
     videoId: String,
     onVideoClick: (videoId: String) -> Unit,
     onChannelClick: (channelId: String) -> Unit,
+    /** Opens the JRWI page of the episode the video is the YouTube version of. */
+    onJrwiItemClick: (itemId: Long) -> Unit,
     navigateBack: () -> Unit,
     /** The playlist the video was opened from, whose next videos then play after it. */
     playlistId: String? = null,
@@ -162,6 +164,16 @@ fun TaVideoScreen(
                             localIcon = CoreR.drawable.ic_play,
                             localLabel = stringResource(CoreR.string.ta_side_video),
                         )
+                        // A JRWI episode's YouTube version has a way to the episode's page
+                        state.jrwiItemId?.let { itemId ->
+                            IconButton(onClick = { onJrwiItemClick(itemId) }) {
+                                Icon(
+                                    painterResource(CoreR.drawable.ic_dice),
+                                    contentDescription =
+                                        stringResource(CoreR.string.ta_open_jrwi_page),
+                                )
+                            }
+                        }
                         TaOpenInWebButton(path = "/video/$videoId")
                     },
                     windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),

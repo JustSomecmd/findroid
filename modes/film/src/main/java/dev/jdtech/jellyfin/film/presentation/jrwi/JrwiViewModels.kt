@@ -36,6 +36,9 @@ import dev.jdtech.jellyfin.models.isDownloading
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
+import dev.jdtech.jellyfin.tubearchivist.TaApi
+import dev.jdtech.jellyfin.tubearchivist.TaJellyfinLookup
+import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
 import dev.jdtech.jellyfin.tubearchivist.TaPage
 import dev.jdtech.jellyfin.tubearchivist.TaPaginate
 import dev.jdtech.jellyfin.utils.Downloader
@@ -838,14 +841,16 @@ data class JrwiItemContent(
 
 /** What the item page asks the screen to do. */
 sealed interface JrwiItemEvent {
-    /** [positionSeconds] is where the archive says the episode was left, in the video. */
+    /**
+     * [positionSeconds] is where the archive says the episode was left, in the video. [videoId] is
+     * the TubeArchivist video of an episode on YouTube, which plays through TubeArchivist.
+     */
     data class PlayVideo(
         val episodeId: java.util.UUID,
         val fromStart: Boolean,
         val positionSeconds: Double?,
+        val videoId: String? = null,
     ) : JrwiItemEvent
-
-    data class PlayYoutube(val videoId: String) : JrwiItemEvent
 
     data class PlayAudio(val postId: Long, val fromStart: Boolean) : JrwiItemEvent
 
@@ -866,6 +871,10 @@ constructor(
     private val jrwiDownloader: JrwiDownloader,
     // Online or offline, as it is at the time
     private val repository: JellyfinRepository,
+    // For an episode on YouTube, played through TubeArchivist's copy in Jellyfin
+    private val taApi: TaApi,
+    private val taJellyfinLookup: TaJellyfinLookup,
+    private val taOfflineStore: TaOfflineStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(JrwiItemState())
     val state = _state.asStateFlow()
@@ -1032,6 +1041,46 @@ constructor(
                 ?.takeIf { it.youtubeId == null }
                 ?.episodeId
                 ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+
+    // Jellyfin's copy of the episode's TubeArchivist video, once looked up
+    private var youtubeEpisode: Pair<String, UUID>? = null
+
+    /**
+     * Jellyfin's copy of TubeArchivist's video [youtubeId]: a download's, which also plays without
+     * a connection, or else looked up by its title and channel, as its TubeArchivist page does.
+     */
+    private suspend fun youtubeEpisodeId(item: JrwiItem, youtubeId: String): UUID? {
+        youtubeEpisode
+            ?.takeIf { it.first == youtubeId }
+            ?.let {
+                return it.second
+            }
+        val downloaded =
+            (taOfflineStore.load(youtubeId)?.itemId
+                    ?: jrwiDownloads
+                        .savedVideo(item.id)
+                        ?.takeIf { it.youtubeId == youtubeId }
+                        ?.episodeId)
+                ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+        val episodeId =
+            downloaded
+                ?: try {
+                    val video = taApi.getVideo(youtubeId)
+                    taJellyfinLookup.findEpisodeId(
+                        videoId = youtubeId,
+                        title = video.title,
+                        channelId = video.channel?.id,
+                        channelName = video.channel?.name,
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not find TubeArchivist video $youtubeId in Jellyfin")
+                    null
+                }
+        if (episodeId != null) youtubeEpisode = youtubeId to episodeId
+        return episodeId
+    }
 
     /** Looks at the episode again, once its download has finished or been removed. */
     fun reloadEpisode() {
@@ -1264,14 +1313,23 @@ constructor(
         val item = _state.value.item ?: return
         val video = item.video ?: return
         viewModelScope.launch {
-            video.youtubeId
-                ?.takeIf { video.isYoutube }
-                ?.let {
-                    _events.send(JrwiItemEvent.PlayYoutube(it))
-                    return@launch
-                }
+            // On YouTube, it plays here too, through TubeArchivist's copy in Jellyfin
+            val youtubeId = video.youtubeId?.takeIf { video.isYoutube }
             _state.update { it.copy(lookingUp = true) }
             if (freshPosition) refreshProgress(item)
+            if (youtubeId != null) {
+                val episodeId = youtubeEpisodeId(item, youtubeId)
+                _state.update { it.copy(lookingUp = false) }
+                if (episodeId == null) {
+                    _events.send(JrwiItemEvent.Message(JrwiMessages.NOT_IN_JELLYFIN))
+                } else {
+                    val state = _state.value
+                    val position =
+                        state.videoPosition.takeIf { !fromStart && !state.finished && it > 0 }
+                    _events.send(JrwiItemEvent.PlayVideo(episodeId, fromStart, position, youtubeId))
+                }
+                return@launch
+            }
             val episodeId = episodeIdOf(item)
             _state.update { it.copy(lookingUp = false, episodeId = episodeId) }
             if (episodeId == null) {

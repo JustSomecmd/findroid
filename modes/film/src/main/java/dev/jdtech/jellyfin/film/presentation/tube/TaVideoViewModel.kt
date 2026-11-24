@@ -3,6 +3,8 @@ package dev.jdtech.jellyfin.film.presentation.tube
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.jdtech.jellyfin.jrwi.JrwiDownloads
+import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.repository.MediaChanges
@@ -17,12 +19,14 @@ import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 data class TaVideoState(
@@ -36,6 +40,8 @@ data class TaVideoState(
     val similar: List<TaVideo> = emptyList(),
     /** Shown from what was saved with the download, as TubeArchivist can't be reached. */
     val offline: Boolean = false,
+    /** The JRWI item the video is an episode's YouTube version of, for a button to its page. */
+    val jrwiItemId: Long? = null,
 )
 
 @HiltViewModel
@@ -47,6 +53,8 @@ constructor(
     private val repository: JellyfinRepository,
     private val taOfflineStore: TaOfflineStore,
     private val appPreferences: AppPreferences,
+    private val jrwiProgress: JrwiProgressSync,
+    private val jrwiDownloads: JrwiDownloads,
 ) : ViewModel() {
     private val _state = MutableStateFlow(TaVideoState())
     val state = _state.asStateFlow()
@@ -61,6 +69,7 @@ constructor(
         this.videoId = videoId
         viewModelScope.launch {
             // In offline mode the saved copy is all there is
+            if (firstLoad) launch { findJrwiItem(videoId) }
             if (appPreferences.getValue(appPreferences.offlineMode) && loadSaved(videoId)) {
                 return@launch
             }
@@ -249,6 +258,21 @@ constructor(
             )
         }
         return true
+    }
+
+    /**
+     * The JRWI episode the video is the YouTube version of, from the archive, or from what was kept
+     * with the video's download when the archive can't be reached.
+     */
+    private suspend fun findJrwiItem(videoId: String) {
+        val itemId =
+            jrwiProgress.itemIdForYoutube(videoId)
+                ?: withContext(Dispatchers.IO) {
+                    taOfflineStore.load(videoId)?.itemId?.let {
+                        jrwiDownloads.savedVideoForEpisode(it)?.item?.id
+                    }
+                }
+        if (itemId != null) _state.update { it.copy(jrwiItemId = itemId) }
     }
 
     private suspend fun findEpisode(video: TaVideo) {

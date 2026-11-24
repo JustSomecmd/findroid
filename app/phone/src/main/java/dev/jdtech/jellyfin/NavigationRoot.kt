@@ -1600,6 +1600,7 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
             playlistId = key.playlistId,
             onVideoClick = resumedAction<String> { openVideo(it) },
             onChannelClick = resumedAction<String> { openChannel(it) },
+            onJrwiItemClick = resumedAction<Long> { navigator.navigate(JrwiItemRoute(it)) },
             navigateBack = dropUnlessResumed { navigator.goBack() },
         )
     }

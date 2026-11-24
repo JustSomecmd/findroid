@@ -163,6 +163,28 @@ class JrwiProgressSync(
         }
     }
 
+    /**
+     * The item a TubeArchivist video is the YouTube version of: an episode only on YouTube, handed
+     * over, or uploaded there while its members-only video is archived too. Null when the video
+     * isn't one of the archive's, or the archive can't be reached.
+     */
+    suspend fun itemIdForYoutube(youtubeId: String): Long? {
+        if (!jrwiApi.isConfigured) return null
+        return try {
+            // The YouTube post itself; older archivers ignore the filter, which this skips
+            jrwiApi
+                .getPosts(youtubeId = youtubeId, pageSize = 5)
+                .items
+                .firstOrNull { it.video?.youtubeId == youtubeId }
+                ?.let { it.itemId ?: it.id }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Could not get the JRWI item of YouTube video $youtubeId")
+            null
+        }
+    }
+
     /** Jellyfin's copy of the item's archived video, or null when Jellyfin doesn't have it. */
     suspend fun episodeId(item: JrwiItem): UUID? {
         val video = item.video?.takeIf { !it.isYoutube } ?: return null
