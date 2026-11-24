@@ -46,10 +46,12 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.viewModels
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
@@ -132,6 +134,9 @@ class PlayerActivity : BasePlayerActivity() {
     private var transcriptOpen by mutableStateOf(false)
     // The screen lock, for the transcript panel, which doesn't take taps while it's on
     private var controlsLocked by mutableStateOf(false)
+
+    // The accent on the progress bar, with what goes on it, for the transcript to take
+    private var playerAccent by mutableStateOf<Pair<Int, Int>?>(null)
     private var transcriptSpace by mutableStateOf(TranscriptSpace(wide = true, size = 0))
 
     // How far the video is moved over for the transcript now, and the animation doing it
@@ -1037,6 +1042,12 @@ class PlayerActivity : BasePlayerActivity() {
                             },
                             onClose = { closeTranscript() },
                             slideMillis = TRANSCRIPT_SLIDE_MS.toInt(),
+                            accent =
+                                playerAccent?.let { ComposeColor(it.first) }
+                                    ?: MaterialTheme.colorScheme.primary,
+                            onAccent =
+                                playerAccent?.let { ComposeColor(it.second) }
+                                    ?: MaterialTheme.colorScheme.onPrimary,
                             locked = controlsLocked,
                         )
                     }
@@ -1553,6 +1564,13 @@ class PlayerActivity : BasePlayerActivity() {
                 plain.upNextText?.let { upNext?.setTextColor(it) }
                 delete?.buttonTintList = plain.deleteTint
                 delete?.buttonIconTintList = plain.deleteIconTint
+                val onPlayed = TypedValue()
+                theme.resolveAttribute(
+                    com.google.android.material.R.attr.colorOnPrimary,
+                    onPlayed,
+                    true,
+                )
+                playerAccent = plain.played to onPlayed.data
             }
             return
         }
@@ -1586,6 +1604,7 @@ class PlayerActivity : BasePlayerActivity() {
             setPlayedColor(accent)
             setScrubberColor(accent)
         }
+        playerAccent = accent to onAccent
         upNext?.apply {
             backgroundTintList = ColorStateList.valueOf(accent)
             setTextColor(onAccent)

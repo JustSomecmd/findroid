@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -60,6 +62,38 @@ import dev.jdtech.jellyfin.jrwi.JrwiTranscripts
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
+
+/**
+ * How the lines are drawn: [accent] for the speakers, the line being spoken, its bar and the
+ * buttons, with [onAccent] on them; [text] and [muted] for what's said and the notes; [lineShape]
+ * for the line being spoken and [buttonShape] for the button back to it.
+ */
+@Immutable
+data class TranscriptLook(
+    val accent: Color,
+    val onAccent: Color,
+    val text: Color,
+    val muted: Color,
+    val lineShape: Shape,
+    val buttonShape: Shape,
+) {
+    // The accent behind the line being spoken, as the web app's rgba(244, 228, 52, .14)
+    val nowBackground: Color
+        get() = accent.copy(alpha = NOW_ALPHA)
+
+    companion object {
+        /** The archiver's colours, as on the JRWI pages and in the audio player. */
+        val Jrwi =
+            TranscriptLook(
+                accent = JrwiColors.Accent,
+                onAccent = JrwiColors.AccentInk,
+                text = JrwiColors.BodyText,
+                muted = JrwiColors.Muted,
+                lineShape = JrwiShape,
+                buttonShape = JrwiShape,
+            )
+    }
+}
 
 /** What there is to show of an episode's transcript. */
 private sealed interface TranscriptLoad {
@@ -89,6 +123,7 @@ fun JrwiTranscriptLines(
     modifier: Modifier = Modifier,
     textStyle: TextStyle = MaterialTheme.typography.bodyLarge,
     contentPadding: PaddingValues = PaddingValues(MaterialTheme.spacings.small),
+    look: TranscriptLook = TranscriptLook.Jrwi,
 ) {
     var attempt by remember(postId) { mutableIntStateOf(0) }
     val load by
@@ -106,18 +141,18 @@ fun JrwiTranscriptLines(
     Box(modifier = modifier) {
         when (val shown = load) {
             TranscriptLoad.Loading ->
-                Message(stringResource(CoreR.string.jrwi_transcript_loading)) {
+                Message(stringResource(CoreR.string.jrwi_transcript_loading), look) {
                     CircularProgressIndicator(
-                        color = JrwiColors.Accent,
+                        color = look.accent,
                         strokeWidth = 2.dp,
                         modifier = Modifier.size(24.dp),
                     )
                 }
-            TranscriptLoad.None -> Message(stringResource(CoreR.string.jrwi_transcript_none))
+            TranscriptLoad.None -> Message(stringResource(CoreR.string.jrwi_transcript_none), look)
             TranscriptLoad.Failed ->
-                Message(stringResource(CoreR.string.jrwi_transcript_failed)) {
+                Message(stringResource(CoreR.string.jrwi_transcript_failed), look) {
                     TextButton(onClick = { attempt++ }) {
-                        Text(stringResource(CoreR.string.retry), color = JrwiColors.Accent)
+                        Text(stringResource(CoreR.string.retry), color = look.accent)
                     }
                 }
             is TranscriptLoad.Shown ->
@@ -127,13 +162,18 @@ fun JrwiTranscriptLines(
                     onPlayFrom = onPlayFrom,
                     textStyle = textStyle,
                     contentPadding = contentPadding,
+                    look = look,
                 )
         }
     }
 }
 
 @Composable
-private fun Message(text: String, extra: (@Composable () -> Unit)? = null) {
+private fun Message(
+    text: String,
+    look: TranscriptLook,
+    extra: (@Composable () -> Unit)? = null,
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement =
@@ -141,7 +181,7 @@ private fun Message(text: String, extra: (@Composable () -> Unit)? = null) {
         modifier = Modifier.fillMaxSize().padding(MaterialTheme.spacings.medium),
     ) {
         extra?.invoke()
-        Text(text = text, style = MaterialTheme.typography.bodyMedium, color = JrwiColors.Muted)
+        Text(text = text, style = MaterialTheme.typography.bodyMedium, color = look.muted)
     }
 }
 
@@ -152,6 +192,7 @@ private fun TranscriptList(
     onPlayFrom: (Long) -> Unit,
     textStyle: TextStyle,
     contentPadding: PaddingValues,
+    look: TranscriptLook,
 ) {
     val times = remember(transcript) { JrwiTranscriptTimes(transcript) }
     val lines = transcript.lines
@@ -191,7 +232,7 @@ private fun TranscriptList(
             Text(
                 text = stringResource(CoreR.string.jrwi_transcript_untimed),
                 style = MaterialTheme.typography.bodySmall,
-                color = JrwiColors.Muted,
+                color = look.muted,
                 modifier =
                     Modifier.padding(
                         horizontal = MaterialTheme.spacings.medium,
@@ -214,6 +255,7 @@ private fun TranscriptList(
                         untimed = transcript.aligned && line.start == null,
                         now = index == current,
                         textStyle = textStyle,
+                        look = look,
                         onClick = {
                             line.start?.let { start ->
                                 follow = true
@@ -233,8 +275,12 @@ private fun TranscriptList(
             ) {
                 Button(
                     onClick = { follow = true },
-                    shape = JrwiShape,
-                    colors = jrwiButtonColors(),
+                    shape = look.buttonShape,
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor = look.accent,
+                            contentColor = look.onAccent,
+                        ),
                 ) {
                     Text(stringResource(CoreR.string.jrwi_transcript_follow))
                 }
@@ -255,20 +301,21 @@ private fun TranscriptLine(
     untimed: Boolean,
     now: Boolean,
     textStyle: TextStyle,
+    look: TranscriptLook,
     onClick: () -> Unit,
 ) {
     val text =
-        remember(line) {
+        remember(line, look) {
             buildAnnotatedString {
                 val speaker = line.speaker
                 if (speaker != null) {
-                    withStyle(SpanStyle(color = JrwiColors.Accent, fontWeight = FontWeight.Bold)) {
+                    withStyle(SpanStyle(color = look.accent, fontWeight = FontWeight.Bold)) {
                         append(speaker)
                     }
                     append(" ")
                     append(line.text)
                 } else {
-                    withStyle(SpanStyle(color = JrwiColors.Muted, fontStyle = FontStyle.Italic)) {
+                    withStyle(SpanStyle(color = look.muted, fontStyle = FontStyle.Italic)) {
                         append(line.text)
                     }
                 }
@@ -277,14 +324,14 @@ private fun TranscriptLine(
     Text(
         text = text,
         style = textStyle.copy(lineHeight = 1.45.em),
-        color = JrwiColors.BodyText.copy(alpha = if (untimed) UNTIMED_ALPHA else 1f),
+        color = look.text.copy(alpha = if (untimed) UNTIMED_ALPHA else 1f),
         modifier =
             Modifier.fillMaxWidth()
-                .clip(JrwiShape)
+                .clip(look.lineShape)
                 .then(
                     if (now)
-                        Modifier.background(NowBackground).drawBehind {
-                            drawRect(JrwiColors.Accent, size = Size(NOW_BAR.toPx(), size.height))
+                        Modifier.background(look.nowBackground).drawBehind {
+                            drawRect(look.accent, size = Size(NOW_BAR.toPx(), size.height))
                         }
                     else Modifier
                 )
@@ -322,8 +369,7 @@ private suspend fun LazyListState.bringToThird(index: Int, animate: Boolean) {
     }
 }
 
-// The accent behind the line being spoken, as the web app's rgba(244, 228, 52, .14)
-private val NowBackground = Color(0x24F4E434)
+private const val NOW_ALPHA = 0.14f
 private val NOW_BAR = 3.dp
 private const val UNTIMED_ALPHA = 0.65f
 private const val POSITION_EVERY_MS = 250L
