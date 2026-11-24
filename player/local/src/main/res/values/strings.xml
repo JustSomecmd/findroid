@@ -58,6 +58,8 @@
     </plurals>
     <string name="player_up_next_play">Play now</string>
     <string name="player_up_next_cancel">Cancel</string>
+    <string name="player_up_next_delete">Delete the download once it has played</string>
+    <string name="player_download_deleted">Deleted the download of %1$s</string>
     <string name="player_pip_pause">Pause</string>
     <string name="player_menu">Player settings</string>
     <string name="player_captions">Captions</string>

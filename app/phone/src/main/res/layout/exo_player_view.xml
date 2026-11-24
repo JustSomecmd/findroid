@@ -149,6 +149,19 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- For a downloaded video: whether its download goes once it has played. Off unless ticked -->
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/up_next_delete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="-6dp"
+            android:layout_marginTop="4dp"
+            android:text="@string/player_up_next_delete"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:textColor="@android:color/white"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

@@ -37,6 +37,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.PathInterpolator
 import android.widget.Button
+import android.widget.CompoundButton
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -68,6 +69,7 @@ import androidx.media3.ui.PlayerControlView
 import androidx.media3.ui.PlayerView
 import androidx.navigation3.runtime.NavKey
 import coil3.load
+import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.audio.AudioPlayer
@@ -257,6 +259,7 @@ class PlayerActivity : BasePlayerActivity() {
         val upNextLabel = binding.playerView.findViewById<TextView>(R.id.up_next_label)
         val upNextTitle = binding.playerView.findViewById<TextView>(R.id.up_next_title)
         val upNextThumbnail = binding.playerView.findViewById<ImageView>(R.id.up_next_thumbnail)
+        val upNextDelete = binding.playerView.findViewById<CompoundButton>(R.id.up_next_delete)
         // The picture asked for last, so it's loaded once rather than on every update. Empty
         // before the first, so a missing picture hides the thumbnail then too
         var upNextImage: String? = ""
@@ -284,6 +287,7 @@ class PlayerActivity : BasePlayerActivity() {
         binding.playerView.findViewById<View>(R.id.up_next_cancel).setOnClickListener {
             viewModel.cancelUpNext()
         }
+        upNextDelete.setOnClickListener { viewModel.setDeleteAfter(upNextDelete.isChecked) }
 
         // Sits between the picture and the controls
         val audioOnlyOverlay =
@@ -372,6 +376,10 @@ class PlayerActivity : BasePlayerActivity() {
                                 upNextLabel.text =
                                     getString(PlayerR.string.player_up_next_in, next.secondsLeft)
                                 upNextTitle.text = next.title
+                                upNextDelete.isVisible = next.canDelete
+                                if (upNextDelete.isChecked != next.deleteAfter) {
+                                    upNextDelete.isChecked = next.deleteAfter
+                                }
                                 if (next.image != upNextImage) {
                                     upNextImage = next.image
                                     upNextThumbnail.isVisible = next.image != null
@@ -1499,6 +1507,8 @@ class PlayerActivity : BasePlayerActivity() {
         val played: Int,
         val upNextTint: ColorStateList?,
         val upNextText: ColorStateList?,
+        val deleteTint: ColorStateList?,
+        val deleteIconTint: ColorStateList?,
     )
 
     /**
@@ -1521,10 +1531,18 @@ class PlayerActivity : BasePlayerActivity() {
         val accentControls = appPreferences.getValue(appPreferences.playerAccentControls)
         val timeBar = binding.playerView.findViewById<DefaultTimeBar>(R.id.exo_progress)
         val upNext = binding.playerView.findViewById<Button>(R.id.up_next_play)
+        val delete = binding.playerView.findViewById<MaterialCheckBox>(R.id.up_next_delete)
         if (plainColors == null) {
             val played = TypedValue()
             theme.resolveAttribute(androidx.appcompat.R.attr.colorPrimary, played, true)
-            plainColors = PlainColors(played.data, upNext?.backgroundTintList, upNext?.textColors)
+            plainColors =
+                PlainColors(
+                    played.data,
+                    upNext?.backgroundTintList,
+                    upNext?.textColors,
+                    delete?.buttonTintList,
+                    delete?.buttonIconTintList,
+                )
         }
         if (!accentControls && !jrwiLook) {
             // As the layout has them
@@ -1533,6 +1551,8 @@ class PlayerActivity : BasePlayerActivity() {
                 timeBar?.setScrubberColor(DefaultTimeBar.DEFAULT_SCRUBBER_COLOR)
                 upNext?.backgroundTintList = plain.upNextTint
                 plain.upNextText?.let { upNext?.setTextColor(it) }
+                delete?.buttonTintList = plain.deleteTint
+                delete?.buttonIconTintList = plain.deleteIconTint
             }
             return
         }
@@ -1569,6 +1589,14 @@ class PlayerActivity : BasePlayerActivity() {
         upNext?.apply {
             backgroundTintList = ColorStateList.valueOf(accent)
             setTextColor(onAccent)
+        }
+        delete?.apply {
+            buttonTintList =
+                ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(accent, UNCHECKED_BOX_COLOR),
+                )
+            buttonIconTintList = ColorStateList.valueOf(onAccent)
         }
     }
 
@@ -1751,6 +1779,9 @@ private const val PIP_CONTROL_BACKGROUND = 3
 // The empty button in the small window's row, which does nothing
 private const val PIP_CONTROL_NONE = 0
 private const val CONTROLS_FADE_IN_MS = 150L
+
+// The Up next card's checkbox outline while it's not ticked, white as the card's text is
+private const val UNCHECKED_BOX_COLOR = 0xB3FFFFFF.toInt()
 
 /** Where the transcript is beside the video, and how wide or tall in pixels. */
 private data class TranscriptSpace(val wide: Boolean, val size: Int)

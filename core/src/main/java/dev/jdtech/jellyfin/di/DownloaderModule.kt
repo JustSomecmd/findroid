@@ -10,6 +10,7 @@ import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.tubearchivist.TaOfflineStore
+import dev.jdtech.jellyfin.utils.DownloadRemover
 import dev.jdtech.jellyfin.utils.Downloader
 import dev.jdtech.jellyfin.utils.DownloaderImpl
 import javax.inject.Singleton
@@ -36,4 +37,6 @@ object DownloaderModule {
             taOfflineStore,
         )
     }
+
+    @Provides fun provideDownloadRemover(downloader: Downloader): DownloadRemover = downloader
 }

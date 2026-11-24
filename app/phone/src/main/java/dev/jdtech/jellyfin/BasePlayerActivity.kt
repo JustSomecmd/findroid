@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
+import android.os.PowerManager
 import android.view.View
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
@@ -89,6 +90,11 @@ abstract class BasePlayerActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
 
+        // The screen went off with the small window showing, which stops it too. With background
+        // playback on, it plays on with the sound only, and the window comes back with the screen.
+        // Closing it later still ends playback.
+        val screenOffInPip = wasPip && backgroundPlayback && !isFinishing && !isScreenOn()
+
         // Closing picture-in-picture normally ends playback; this keeps it going instead
         if (wasPip && continueInBackgroundAfterPip) {
             wasPip = false
@@ -97,16 +103,19 @@ abstract class BasePlayerActivity : AppCompatActivity() {
 
         if (!backgroundPlayback || isFinishing) {
             releaseSession()
-        } else if (!wasPip) {
+        } else if (!wasPip || screenOffInPip) {
             // Nothing is shown, so stop decoding video and only play the sound
             viewModel.setVideoEnabled(false)
             viewModel.onPlayerHidden()
         }
 
-        if (wasPip) {
+        if (wasPip && !screenOffInPip) {
             finish()
         }
     }
+
+    private fun isScreenOn(): Boolean =
+        (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
 
     override fun onDestroy() {
         releaseSession()

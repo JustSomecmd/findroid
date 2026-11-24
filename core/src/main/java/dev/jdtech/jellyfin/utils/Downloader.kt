@@ -6,7 +6,7 @@ import dev.jdtech.jellyfin.models.UiText
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 
-interface Downloader {
+interface Downloader : DownloadRemover {
     /** Prepares a download and queues the media file. Returns an error, or null on success. */
     suspend fun downloadItem(item: FindroidItem, sourceId: String, storageIndex: Int = 0): UiText?
 

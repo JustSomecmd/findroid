@@ -19,8 +19,10 @@ import dev.jdtech.jellyfin.models.FindroidSourceType
 import dev.jdtech.jellyfin.models.FindroidSources
 import dev.jdtech.jellyfin.models.FindroidTrickplayInfo
 import dev.jdtech.jellyfin.models.UiText
+import dev.jdtech.jellyfin.models.toFindroidEpisode
 import dev.jdtech.jellyfin.models.toFindroidEpisodeDto
 import dev.jdtech.jellyfin.models.toFindroidMediaStreamDto
+import dev.jdtech.jellyfin.models.toFindroidMovie
 import dev.jdtech.jellyfin.models.toFindroidMovieDto
 import dev.jdtech.jellyfin.models.toFindroidSeasonDto
 import dev.jdtech.jellyfin.models.toFindroidSegmentsDto
@@ -340,6 +342,31 @@ class DownloaderImpl(
     override suspend fun deleteItem(item: FindroidItem, source: FindroidSource) {
         withContext(Dispatchers.IO) { deleteItemFiles(item, source) }
     }
+
+    override suspend fun deleteDownload(itemId: UUID): Boolean =
+        scope
+            .async {
+                val source =
+                    database
+                        .getSources(itemId)
+                        .firstOrNull { it.type == FindroidSourceType.LOCAL }
+                        ?.toFindroidSource(database) ?: return@async false
+                val userId = jellyfinRepository.getUserId()
+                val item: FindroidItem =
+                    try {
+                        database.getEpisode(itemId).toFindroidEpisode(database, userId)
+                    } catch (e: Exception) {
+                        try {
+                            database.getMovie(itemId).toFindroidMovie(database, userId)
+                        } catch (e: Exception) {
+                            Timber.w(e, "The download of $itemId is neither a movie nor an episode")
+                            return@async false
+                        }
+                    }
+                deleteItemFiles(item, source)
+                true
+            }
+            .await()
 
     private suspend fun deleteItemFiles(item: FindroidItem, source: FindroidSource) {
         MediaDownloadQueue.remove(context, item.id)

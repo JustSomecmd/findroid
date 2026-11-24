@@ -22,6 +22,7 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.jrwi.JrwiApi
+import dev.jdtech.jellyfin.jrwi.JrwiDownloader
 import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
@@ -50,6 +51,7 @@ import dev.jdtech.jellyfin.tubearchivist.TaPlaylistCache
 import dev.jdtech.jellyfin.tubearchivist.TaPlaylistSessions
 import dev.jdtech.jellyfin.tubearchivist.TaVideo
 import dev.jdtech.jellyfin.tubearchivist.loadPlaylist
+import dev.jdtech.jellyfin.utils.DownloadRemover
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
@@ -60,6 +62,7 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -71,6 +74,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jellyfin.sdk.model.api.BaseItemKind
 import timber.log.Timber
 
@@ -91,6 +95,8 @@ constructor(
     private val jrwiApi: JrwiApi,
     private val jrwiProgress: JrwiProgressSync,
     private val jrwiDownloads: JrwiDownloads,
+    private val jrwiDownloader: JrwiDownloader,
+    private val downloadRemover: DownloadRemover,
 ) : ViewModel(), Player.Listener {
     val player: Player
 
@@ -156,9 +162,16 @@ constructor(
 
     /**
      * The video that's about to play, in how many seconds, and a picture of it to load: a
-     * downloaded copy or one on the server.
+     * downloaded copy or one on the server. [canDelete] when the one playing is downloaded, and
+     * [deleteAfter] when its download is to be deleted once it has played, as asked on the card.
      */
-    data class UpNext(val title: String, val secondsLeft: Int, val image: String? = null)
+    data class UpNext(
+        val title: String,
+        val secondsLeft: Int,
+        val image: String? = null,
+        val canDelete: Boolean = false,
+        val deleteAfter: Boolean = false,
+    )
 
     /** When the sleep timer stops playback. */
     sealed interface SleepTimer {
@@ -200,6 +213,9 @@ constructor(
     // Whether the next video plays when one ends, and the video for which that was called off
     private var autoplay = appPreferences.getValue(appPreferences.playerAutoplay)
     private var upNextCancelledFor: String? = null
+
+    // The downloaded video whose download goes once it has played, as asked on the Up next card
+    private var deleteAfterFor: String? = null
 
     // Whether the playlist starts over after its last video, as on YouTube. Only for this time
     // the player is open
@@ -1003,6 +1019,7 @@ constructor(
                     Timber.e(e)
                 }
                 endedVideoId?.let { MediaChanges.watched(videoId = it) }
+                val deleteEnded = mediaId != null && mediaId == deleteAfterFor
                 val cancelled = upNextCancelledFor == mediaId
                 // The sleep timer was set to stop here
                 val sleep = _uiState.value.sleepTimer == SleepTimer.EndOfVideo
@@ -1027,6 +1044,7 @@ constructor(
                     }
                     eventsChannel.trySend(PlayerEvents.NavigateBack)
                 }
+                if (deleteEnded && mediaId != null) deletePlayedDownload(mediaId)
             }
         }
     }
@@ -1161,32 +1179,113 @@ constructor(
         // A looping playlist's first video comes after its last
         val startOver = loopsAfter(mediaId)
         val upNext =
-            if (
-                autoplay &&
-                    _uiState.value.sleepTimer != SleepTimer.EndOfVideo &&
-                    mediaId != null &&
-                    mediaId != upNextCancelledFor &&
-                    (player.hasNextMediaItem() || startOver) &&
-                    duration > 0 &&
-                    remaining in 0..UP_NEXT_MS
-            ) {
-                if (player.hasNextMediaItem()) {
-                    val next = player.getMediaItemAt(player.nextMediaItemIndex)
-                    UpNext(
-                        title = next.mediaMetadata.title?.toString().orEmpty(),
-                        secondsLeft = ceil(remaining / 1000.0).toInt(),
-                        image = upNextImage(next.mediaId),
-                    )
+            (if (
+                    autoplay &&
+                        _uiState.value.sleepTimer != SleepTimer.EndOfVideo &&
+                        mediaId != null &&
+                        mediaId != upNextCancelledFor &&
+                        (player.hasNextMediaItem() || startOver) &&
+                        duration > 0 &&
+                        remaining in 0..UP_NEXT_MS
+                ) {
+                    if (player.hasNextMediaItem()) {
+                        val next = player.getMediaItemAt(player.nextMediaItemIndex)
+                        UpNext(
+                            title = next.mediaMetadata.title?.toString().orEmpty(),
+                            secondsLeft = ceil(remaining / 1000.0).toInt(),
+                            image = upNextImage(next.mediaId),
+                        )
+                    } else {
+                        UpNext(
+                            title = playlistManager.firstTaTitle.orEmpty(),
+                            secondsLeft = ceil(remaining / 1000.0).toInt(),
+                        )
+                    }
                 } else {
-                    UpNext(
-                        title = playlistManager.firstTaTitle.orEmpty(),
-                        secondsLeft = ceil(remaining / 1000.0).toInt(),
+                    null
+                })
+                ?.let { card ->
+                    val canDelete =
+                        !isJrwiAudio(mediaId) &&
+                            items.firstOrNull { it.itemId.toString() == mediaId }?.isLocal == true
+                    card.copy(
+                        canDelete = canDelete,
+                        deleteAfter = canDelete && mediaId == deleteAfterFor,
                     )
                 }
-            } else {
-                null
-            }
         if (upNext != _uiState.value.upNext) _uiState.update { it.copy(upNext = upNext) }
+    }
+
+    /**
+     * Whether the download of the video playing is deleted once it has played: when it ends, or
+     * when the next one is played from the Up next card. Asked on that card, and off unless ticked.
+     */
+    fun setDeleteAfter(delete: Boolean) {
+        val mediaId = player.currentMediaItem?.mediaId ?: return
+        deleteAfterFor = if (delete) mediaId else null
+        _uiState.update { state ->
+            state.copy(upNext = state.upNext?.copy(deleteAfter = delete && state.upNext.canDelete))
+        }
+    }
+
+    /**
+     * Deletes the download of the video [mediaId] once it has played, with what's kept with it,
+     * such as a JRWI episode's item and transcript. It finishes even when the player closes. The
+     * video then streams from the server if it's played again from the player's queue.
+     */
+    private fun deletePlayedDownload(mediaId: String) {
+        deleteAfterFor = null
+        val itemId =
+            try {
+                UUID.fromString(mediaId)
+            } catch (e: IllegalArgumentException) {
+                return
+            }
+        val title = items.firstOrNull { it.itemId == itemId }?.name
+        viewModelScope.launch {
+            val deleted =
+                withContext(NonCancellable + Dispatchers.IO) {
+                    val deleted =
+                        try {
+                            downloadRemover.deleteDownload(itemId)
+                        } catch (e: Exception) {
+                            Timber.e(e, "Could not delete the played download of $mediaId")
+                            false
+                        }
+                    if (deleted) {
+                        jrwiDownloads.savedVideoForEpisode(mediaId)?.let {
+                            jrwiDownloader.forgetVideo(it.item.id)
+                        }
+                    }
+                    deleted
+                }
+            if (!deleted) return@launch
+            Toast.makeText(
+                    application,
+                    application.getString(R.string.player_download_deleted, title.orEmpty()),
+                    Toast.LENGTH_SHORT,
+                )
+                .show()
+            val item = items.firstOrNull { it.itemId == itemId } ?: return@launch
+            val reloaded =
+                try {
+                    playlistManager.reloadPlayerItem(item)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "The deleted video can't be streamed")
+                    null
+                }
+            val index = items.indexOfFirst { it.itemId == itemId }
+            if (index < 0 || index == player.currentMediaItemIndex) return@launch
+            if (reloaded != null && !reloaded.isLocal) {
+                items[index] = reloaded
+                player.replaceMediaItem(index, reloaded.toMediaItem())
+            } else {
+                items.removeAt(index)
+                player.removeMediaItem(index)
+            }
+        }
     }
 
     // The picture found for the next video, kept so the files aren't looked at on every update
@@ -1255,6 +1354,7 @@ constructor(
             player.seekToNextMediaItem()
             player.play()
         }
+        if (mediaId != null && mediaId == deleteAfterFor) deletePlayedDownload(mediaId)
     }
 
     /**
@@ -1309,6 +1409,7 @@ constructor(
     /** Lets this video end without the next one playing after it. */
     fun cancelUpNext() {
         upNextCancelledFor = player.currentMediaItem?.mediaId
+        deleteAfterFor = null
         _uiState.update { it.copy(upNext = null) }
     }
 
