@@ -677,7 +677,8 @@ class PlayerActivity : BasePlayerActivity() {
 
     /**
      * Goes on with only the sound in the app's audio player, from the same moment, and closes this
-     * one. A JRWI episode plays its audio, a TubeArchivist video the rest of its playlist after it,
+     * one. A JRWI episode plays its audio, archived or played through TubeArchivist, unless it
+     * plays from a TubeArchivist playlist; a TubeArchivist video the rest of its playlist after it;
      * and any other video its sound.
      */
     private fun listenInAudioPlayer() {
@@ -696,12 +697,12 @@ class PlayerActivity : BasePlayerActivity() {
             is PlayerViewModel.ItemPage.Jrwi ->
                 audioPlayer.playJrwiFromVideo(page.postId, itemId, position)
             is PlayerViewModel.ItemPage.TubeArchivist ->
-                audioPlayer.playVideoSound(
+                audioPlayer.playTaVideoSound(
                     itemId = itemId,
-                    kind = BaseItemKind.EPISODE,
                     videoId = page.videoId,
                     positionMs = position,
                     playlistId = page.playlistId,
+                    jrwiItemId = page.jrwiItemId,
                 )
             is PlayerViewModel.ItemPage.Jellyfin ->
                 audioPlayer.playVideoSound(

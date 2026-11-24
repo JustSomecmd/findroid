@@ -527,43 +527,93 @@ constructor(
      * the episode's audio at the same moment, from the phone when it's downloaded. When it isn't,
      * and the video is on the phone, the downloaded video's own sound plays rather than the audio
      * being streamed, as it does for an episode without audio: from its Jellyfin episode
-     * [episodeId].
+     * [episodeId], whose TubeArchivist ID is [videoId] when it plays through TubeArchivist. The
+     * video's sound is in the archiver's look too.
      */
-    fun playJrwiFromVideo(itemId: Long, episodeId: UUID, videoPositionMs: Long) {
+    fun playJrwiFromVideo(
+        itemId: Long,
+        episodeId: UUID,
+        videoPositionMs: Long,
+        videoId: String? = null,
+    ) {
+        loadJob?.cancel()
+        loadJob = scope.launch { loadJrwiFromVideo(itemId, episodeId, videoPositionMs, videoId) }
+    }
+
+    /**
+     * Goes on from a TubeArchivist video, [videoId] or the Jellyfin item [itemId], at [positionMs].
+     * A JRWI episode that's only on YouTube, or handed over, goes on in its audio, as an archived
+     * episode's video does, unless it plays from the playlist [playlistId], whose next videos then
+     * follow its sound. [jrwiItemId] is its archiver item when the video player has it; otherwise
+     * it's looked up.
+     */
+    fun playTaVideoSound(
+        itemId: UUID,
+        videoId: String,
+        positionMs: Long,
+        playlistId: String?,
+        jrwiItemId: Long?,
+    ) {
+        if (playlistId != null) {
+            playVideoSound(itemId, BaseItemKind.EPISODE, videoId, positionMs, playlistId)
+            return
+        }
         loadJob?.cancel()
         loadJob = scope.launch {
-            val item =
-                try {
-                    jrwiApi.getItem(itemId)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    // Without a connection, what was kept with a download of either version
-                    Timber.w(e, "Could not load JRWI item $itemId, trying the phone's copy")
-                    jrwiDownloads.savedItem(itemId)
-                        ?: jrwiDownloads.savedVideoForEpisode(episodeId.toString())?.item
-                }
-            val audio = item?.audio
-            val audioOnPhone = audio != null && jrwiDownloads.forAudio(audio.postId) != null
-            if (item == null || audio == null || (!audioOnPhone && videoOnPhone(episodeId))) {
+            val jrwiId = jrwiItemId ?: jrwiProgress.itemForYoutube(videoId)?.id
+            if (jrwiId != null) {
+                loadJrwiFromVideo(jrwiId, itemId, positionMs, videoId)
+            } else {
                 loadVideo(
-                    itemId = episodeId,
+                    itemId = itemId,
                     kind = BaseItemKind.EPISODE,
-                    knownVideoId = null,
-                    positionMs = videoPositionMs,
+                    knownVideoId = videoId,
+                    positionMs = positionMs,
                     playlistId = null,
                     fromStart = false,
                 )
-                return@launch
             }
-            val audioMs = (item.audioSeconds(videoPositionMs / 1000.0) * 1000).toLong()
-            val player = exo
-            if (player != null && _state.value.jrwiItem?.audio?.postId == audio.postId) {
-                player.seekTo(audioMs)
-                player.play()
-            } else {
-                loadJrwi(audio.postId, fromStart = false, startAt = audioMs)
+        }
+    }
+
+    private suspend fun loadJrwiFromVideo(
+        itemId: Long,
+        episodeId: UUID,
+        videoPositionMs: Long,
+        videoId: String?,
+    ) {
+        val item =
+            try {
+                jrwiApi.getItem(itemId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Without a connection, what was kept with a download of either version
+                Timber.w(e, "Could not load JRWI item $itemId, trying the phone's copy")
+                jrwiDownloads.savedItem(itemId)
+                    ?: jrwiDownloads.savedVideoForEpisode(episodeId.toString())?.item
             }
+        val audio = item?.audio
+        val audioOnPhone = audio != null && jrwiDownloads.forAudio(audio.postId) != null
+        if (item == null || audio == null || (!audioOnPhone && videoOnPhone(episodeId))) {
+            loadVideo(
+                itemId = episodeId,
+                kind = BaseItemKind.EPISODE,
+                knownVideoId = videoId,
+                positionMs = videoPositionMs,
+                playlistId = null,
+                fromStart = false,
+                jrwiLook = true,
+            )
+            return
+        }
+        val audioMs = (item.audioSeconds(videoPositionMs / 1000.0) * 1000).toLong()
+        val player = exo
+        if (player != null && _state.value.jrwiItem?.audio?.postId == audio.postId) {
+            player.seekTo(audioMs)
+            player.play()
+        } else {
+            loadJrwi(audio.postId, fromStart = false, startAt = audioMs)
         }
     }
 
@@ -615,11 +665,12 @@ constructor(
         positionMs: Long?,
         playlistId: String?,
         fromStart: Boolean,
+        jrwiLook: Boolean = false,
     ) {
         if (_state.value.episode != null) save(Save.LEAVE)
         forgetVideo()
         _state.update {
-            AudioState(loading = true, appLook = true, speed = it.speed, sleep = it.sleep)
+            AudioState(loading = true, appLook = !jrwiLook, speed = it.speed, sleep = it.sleep)
         }
         exo?.pause()
         // Only the sound, converted by Jellyfin; a download plays from the phone
@@ -645,7 +696,14 @@ constructor(
         }
         playlist = manager
         val startMs = if (fromStart) 0L else positionMs ?: item.playbackPosition
-        startVideo(item, kind, knownVideoId ?: manager.currentTaVideoId, startMs, playlistId)
+        startVideo(
+            item,
+            kind,
+            knownVideoId ?: manager.currentTaVideoId,
+            startMs,
+            playlistId,
+            appLook = !jrwiLook,
+        )
     }
 
     /** The playlist's other videos, as the video player has them: the downloaded ones in order. */
@@ -667,13 +725,18 @@ constructor(
         taPlaylistName = playlist.name
     }
 
-    /** Starts one of the videos: the first, or one after it in the playlist or show. */
+    /**
+     * Starts one of the videos: the first, or one after it in the playlist or show. A JRWI
+     * episode's sound is in the archiver's look rather than the app's ([appLook]), as the video
+     * player has it; [loadVideoExtras] corrects it once the archive has said whether it is one.
+     */
     private suspend fun startVideo(
         item: PlayerItem,
         kind: BaseItemKind,
         knownVideoId: String?,
         startMs: Long,
         playlistId: String?,
+        appLook: Boolean,
     ) {
         val details =
             try {
@@ -723,7 +786,7 @@ constructor(
                 episode = AudioEpisode.Video(item.itemId, kind, videoId, item.name, playlistId),
                 subtitle = subtitle,
                 picture = picture,
-                appLook = true,
+                appLook = appLook,
                 loading = false,
                 fromPhone = item.isLocal,
                 error = null,
@@ -783,6 +846,7 @@ constructor(
                 _state.update {
                     it.copy(
                         linkedJrwiId = item?.id,
+                        appLook = item == null,
                         // The video's own sound, so the lines timed for the video
                         transcriptPostId = transcriptPost,
                     )
@@ -890,6 +954,7 @@ constructor(
                 manager.currentTaVideoId,
                 next.playbackPosition,
                 current.playlistId,
+                appLook = _state.value.appLook,
             )
         }
     }

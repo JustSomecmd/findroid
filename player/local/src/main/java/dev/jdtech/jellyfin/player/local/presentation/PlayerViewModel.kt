@@ -537,7 +537,14 @@ constructor(
     sealed interface ItemPage {
         data class Jrwi(val postId: Long) : ItemPage
 
-        data class TubeArchivist(val videoId: String, val playlistId: String?) : ItemPage
+        /**
+         * [jrwiItemId] is the archiver's item of a JRWI episode that plays through TubeArchivist.
+         */
+        data class TubeArchivist(
+            val videoId: String,
+            val playlistId: String?,
+            val jrwiItemId: Long? = null,
+        ) : ItemPage
 
         data class Jellyfin(val itemId: UUID, val isEpisode: Boolean) : ItemPage
     }
@@ -551,7 +558,7 @@ constructor(
         val jrwi = jrwiItem
         if (jrwi != null && taVideoId == null) return ItemPage.Jrwi(jrwi.id)
         taVideoId?.let {
-            return ItemPage.TubeArchivist(it, _uiState.value.taPlaylistId)
+            return ItemPage.TubeArchivist(it, _uiState.value.taPlaylistId, jrwi?.id)
         }
         val mediaId = player.currentMediaItem?.mediaId ?: return null
         val item = items.firstOrNull { it.itemId.toString() == mediaId } ?: return null
