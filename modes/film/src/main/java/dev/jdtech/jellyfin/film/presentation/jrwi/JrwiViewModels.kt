@@ -732,7 +732,9 @@ constructor(
                 val existing = jrwiDownloads.get(item.id)
                 // On the phone or on its way; a failed one is tried again
                 if (existing != null && !existing.failed) return@forEach
-                jrwiDownloader.download(item, withFiles)
+                // The page's show, unless the post is from another show
+                val showName = _show.value?.takeIf { it.id == item.show }?.name
+                jrwiDownloader.download(item, withFiles, showName)
                 added++
             }
         return if (added == 0) JrwiPageDownloadResult.AllThere
@@ -1114,7 +1116,10 @@ constructor(
 
     /** Downloads the audio, to listen to without a connection, and the post's files if asked. */
     fun downloadAudio(withFiles: Boolean) {
-        _state.value.item?.let { jrwiDownloader.download(it, withFiles) }
+        _state.value.item?.let { item ->
+            val showName = _state.value.show?.takeIf { it.id == item.show }?.name
+            jrwiDownloader.download(item, withFiles, showName)
+        }
     }
 
     /** Stops the audio's download, or takes it off the phone. */

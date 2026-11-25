@@ -57,7 +57,9 @@ import dev.jdtech.jellyfin.presentation.film.components.ActiveDownloadRow
 import dev.jdtech.jellyfin.presentation.film.components.CollectionGrid
 import dev.jdtech.jellyfin.presentation.film.components.ReorderableDownloadQueue
 import dev.jdtech.jellyfin.presentation.jrwi.JrwiDownloadsSection
+import dev.jdtech.jellyfin.presentation.jrwi.JrwiQueueRow
 import dev.jdtech.jellyfin.presentation.jrwi.jrwiDownloadsByShow
+import dev.jdtech.jellyfin.presentation.jrwi.jrwiQueued
 import dev.jdtech.jellyfin.presentation.jrwi.jrwiShowSections
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
@@ -191,6 +193,8 @@ private fun DownloadsScreenLayout(
             }
         }
 
+        // JRWI audio still to come waits in the queue at the top, with the video downloads
+        val jrwiQueue = remember(jrwiDownloads) { jrwiQueued(jrwiDownloads) }
         val other = stringResource(CoreR.string.jrwi_downloads_other)
         val shows =
             remember(
@@ -222,7 +226,7 @@ private fun DownloadsScreenLayout(
             gridState = gridState,
             plainHeaders = true,
             header = {
-                if (activeDownloads.isNotEmpty()) {
+                if (activeDownloads.isNotEmpty() || jrwiQueue.isNotEmpty()) {
                     item(key = "active_downloads", span = { GridItemSpan(maxLineSpan) }) {
                         // Grows and shrinks smoothly as downloads start, finish or leave the list
                         Column(
@@ -252,7 +256,8 @@ private fun DownloadsScreenLayout(
                                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                     ) {
                                         Text(
-                                            text = activeDownloads.size.toString(),
+                                            text =
+                                                (activeDownloads.size + jrwiQueue.size).toString(),
                                             modifier =
                                                 Modifier.padding(
                                                     horizontal = 8.dp,
@@ -291,6 +296,12 @@ private fun DownloadsScreenLayout(
                                         onClick = { onActiveDownloadClick(download.item) },
                                     )
                                 }
+                            jrwiQueue.forEach { entry ->
+                                JrwiQueueRow(
+                                    entry = entry,
+                                    onClick = { onJrwiItemClick(entry.download.itemId) },
+                                )
+                            }
                         }
                     }
                 }
@@ -305,10 +316,10 @@ private fun DownloadsScreenLayout(
                         onAudioClick = onJrwiItemClick,
                         onAudioRemove = onJrwiRemove,
                     )
-                } else if (jrwiDownloads.isNotEmpty()) {
+                } else if (jrwiDownloads.any { it.download.done }) {
                     item(key = "jrwi_downloads", span = { GridItemSpan(maxLineSpan) }) {
                         JrwiDownloadsSection(
-                            entries = jrwiDownloads,
+                            entries = jrwiDownloads.filter { it.download.done },
                             onClick = onJrwiItemClick,
                             onRemove = onJrwiRemove,
                         )

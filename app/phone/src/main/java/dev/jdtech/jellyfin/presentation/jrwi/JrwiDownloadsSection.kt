@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -60,6 +61,7 @@ import dev.jdtech.jellyfin.presentation.film.components.PlayedBadge
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.formatBytes
 import dev.jdtech.jellyfin.presentation.utils.LocalEpisodeTitleFirst
+import kotlin.math.roundToInt
 
 /**
  * The JRWI episodes whose audio is on the phone, or on its way, on the Downloads page. Tapping one
@@ -237,13 +239,19 @@ fun jrwiDownloadsByShow(
                         JrwiDownloadCard.Video(shown, videoItems[item.id.toString()])
                 )
         }
-    audio.forEach { entry ->
-        byShow
-            .getOrPut(entry.download.showName?.takeIf { it.isNotBlank() } ?: other) {
-                mutableListOf()
-            }
-            .add(Sorted(entry.number, true, entry.download.title) to JrwiDownloadCard.Audio(entry))
-    }
+    // Those still to come are in the queue at the top, until they're on the phone
+    audio
+        .filter { it.download.done }
+        .forEach { entry ->
+            byShow
+                .getOrPut(entry.download.showName?.takeIf { it.isNotBlank() } ?: other) {
+                    mutableListOf()
+                }
+                .add(
+                    Sorted(entry.number, true, entry.download.title) to
+                        JrwiDownloadCard.Audio(entry)
+                )
+        }
     val order =
         compareBy<Pair<Sorted, JrwiDownloadCard>>(
             { it.first.number == null },
@@ -505,3 +513,104 @@ private fun BoxScope.JrwiDownloadLabel(
 
 // The bar's 8 dp from the bottom and 4 dp height, and a little room above it, less the label's 6 dp
 private val LABEL_OVER_BAR = 10.dp
+
+/**
+ * The JRWI audio still to come, for the queue at the top of Downloads: the one downloading first,
+ * then those waiting in the queue's order, then those that failed.
+ */
+fun jrwiQueued(entries: List<JrwiDownloadEntry>): List<JrwiDownloadEntry> =
+    entries
+        .filter { !it.download.done }
+        .sortedWith(
+            compareBy<JrwiDownloadEntry>({
+                    when {
+                        it.download.failed -> 2
+                        it.progress != null -> 0
+                        else -> 1
+                    }
+                })
+                .thenBy { it.download.addedAt }
+        )
+
+/**
+ * A JRWI episode's audio in the queue at the top of Downloads, as the video downloads there are:
+ * its picture (headphones until it has one), title, show, and how it's going, with a bar while it
+ * downloads. A tap opens its page, where it's tried again or removed.
+ */
+@Composable
+fun JrwiQueueRow(entry: JrwiDownloadEntry, onClick: () -> Unit) {
+    val download = entry.download
+    val progress = entry.progress
+    val status =
+        when {
+            download.failed -> stringResource(CoreR.string.download_failed)
+            progress != null ->
+                stringResource(CoreR.string.download_downloading) +
+                    " · ${(progress * 100).roundToInt()}%"
+            else -> stringResource(CoreR.string.download_queued)
+        }
+    Row(
+        modifier =
+            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier =
+                Modifier.height(64.dp)
+                    .aspectRatio(16f / 9f)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            if (entry.picture != null) {
+                AsyncImage(
+                    model = entry.picture,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.matchParentSize(),
+                )
+            } else {
+                Icon(
+                    painter = painterResource(CoreR.drawable.ic_headphones),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(MaterialTheme.spacings.medium))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.extraSmall),
+        ) {
+            Text(
+                text = download.title.ifBlank { stringResource(CoreR.string.jrwi_audio) },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            download.showName
+                ?.takeIf { it.isNotBlank() }
+                ?.let {
+                    Text(
+                        text = it,
+                        modifier = Modifier.alpha(0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            Text(
+                text = status,
+                color =
+                    if (download.failed) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                // Digits of equal width, so the line doesn't shift as the numbers change
+                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+            )
+            if (progress != null && !download.failed) {
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+}

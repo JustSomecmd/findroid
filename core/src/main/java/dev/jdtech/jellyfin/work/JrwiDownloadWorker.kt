@@ -470,7 +470,7 @@ constructor(
 /** Starts and removes JRWI downloads with [JrwiDownloadWorker]. */
 class JrwiDownloaderImpl(private val context: Context, private val downloads: JrwiDownloads) :
     JrwiDownloader {
-    override fun download(item: JrwiItem, withFiles: Boolean) {
+    override fun download(item: JrwiItem, withFiles: Boolean, showName: String?) {
         val audio = item.audio ?: return
         val download =
             downloads.get(item.id)
@@ -482,6 +482,7 @@ class JrwiDownloaderImpl(private val context: Context, private val downloads: Jr
         downloads.put(
             download.copy(
                 title = item.title,
+                showName = showName?.takeIf { it.isNotBlank() } ?: download.showName,
                 mime = audio.mime,
                 failed = false,
                 withFiles = withFiles,

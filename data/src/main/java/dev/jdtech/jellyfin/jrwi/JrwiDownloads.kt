@@ -69,9 +69,10 @@ data class JrwiSavedVideo(
 interface JrwiDownloader {
     /**
      * Downloads the audio of [item], with what's needed to show its page without a connection, and
-     * the post's files unless [withFiles] is false.
+     * the post's files unless [withFiles] is false. [showName] is its show's, when known, so it's
+     * listed under it while it waits in the queue.
      */
-    fun download(item: JrwiItem, withFiles: Boolean = true)
+    fun download(item: JrwiItem, withFiles: Boolean = true, showName: String? = null)
 
     /** Stops a download, if it's still going, and takes the episode off the phone. */
     fun remove(itemId: Long)
