@@ -58,6 +58,7 @@
                     android:maxLines="1"
                     android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
                     android:textColor="@android:color/white"
+                    android:textSize="18sp"
                     tools:text="The Dawn of Despair" />
 
                 <TextView
@@ -68,6 +69,7 @@
                     android:maxLines="1"
                     android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                     android:textColor="?attr/colorPrimary"
+                    android:textSize="12sp"
                     android:visibility="gone"
                     tools:text="Byte Sized Builds"
                     tools:visibility="visible" />
