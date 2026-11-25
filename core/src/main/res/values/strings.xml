@@ -532,6 +532,32 @@
     <string name="jrwi_youtube_only">This video is only on YouTube, so it plays from TubeArchivist.</string>
     <string name="jrwi_not_in_jellyfin">Jellyfin doesn\'t have this video yet</string>
     <string name="jrwi_open_ta_page">Its TubeArchivist page</string>
+    <string name="jrwi_transcripts_check_title">Downloaded transcripts</string>
+    <string name="jrwi_transcripts_check_summary">Checks the transcripts kept with your JRWI downloads against the archive, and saves any whose text or timings changed. A download that kept the post\'s files gets a changed transcript PDF too.</string>
+    <string name="jrwi_transcripts_check">Check for updates</string>
+    <string name="jrwi_transcripts_checking">Checking %1$d of %2$d</string>
+    <string name="jrwi_transcripts_nothing">There are no JRWI downloads to check.</string>
+    <string name="jrwi_transcripts_up_to_date">Every transcript is up to date.</string>
+    <plurals name="jrwi_transcripts_checked">
+        <item quantity="one">Checked %d download.</item>
+        <item quantity="other">Checked %d downloads.</item>
+    </plurals>
+    <plurals name="jrwi_transcripts_updated">
+        <item quantity="one">%d transcript updated</item>
+        <item quantity="other">%d transcripts updated</item>
+    </plurals>
+    <plurals name="jrwi_transcripts_added">
+        <item quantity="one">%d new transcript saved</item>
+        <item quantity="other">%d new transcripts saved</item>
+    </plurals>
+    <plurals name="jrwi_transcripts_documents">
+        <item quantity="one">%d transcript PDF saved again</item>
+        <item quantity="other">%d transcript PDFs saved again</item>
+    </plurals>
+    <plurals name="jrwi_transcripts_failed">
+        <item quantity="one">%d couldn\'t be checked</item>
+        <item quantity="other">%d couldn\'t be checked</item>
+    </plurals>
     <string name="ta_open_jrwi_page">Its JRWI page</string>
     <string name="jrwi_locked">Your tier can\'t see this post</string>
     <string name="jrwi_not_archived">Not saved yet</string>

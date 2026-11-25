@@ -37,6 +37,12 @@ data class JrwiDownload(
 )
 
 /**
+ * A post a download plays, [postId] of the item [itemId], whose transcript is kept with it.
+ * [withFiles] when the download keeps the post's files, the transcript's PDF among them.
+ */
+data class JrwiTranscriptTarget(val itemId: Long, val postId: Long, val withFiles: Boolean)
+
+/**
  * A JRWI episode whose archived video was downloaded through Jellyfin, as its other downloads are.
  * The episode is kept with the Jellyfin episode's ID, so the video's progress still goes to the
  * archive, and its page still opens, without a connection. With [withFiles] the post's files are
@@ -183,6 +189,19 @@ class JrwiDownloads(context: Context) {
 
     // An episode's transcript, kept by the post whose timeline its lines are in: the audio's with
     // the audio's download, the video's with the video's
+
+    /**
+     * Every post a download on the phone plays, whose transcript is kept with it: the audio's with
+     * the audio's download, the video's with the video's.
+     */
+    fun transcriptTargets(): List<JrwiTranscriptTarget> =
+        (_downloads.value.map { JrwiTranscriptTarget(it.itemId, it.audioPostId, it.withFiles) } +
+                savedVideos().mapNotNull { video ->
+                    video.item.video?.postId?.let {
+                        JrwiTranscriptTarget(video.item.id, it, video.withFiles)
+                    }
+                })
+            .distinctBy { it.postId }
 
     /** Whether a download on the phone plays the post [postId], so its transcript is kept. */
     fun keepsTranscript(postId: Long): Boolean =

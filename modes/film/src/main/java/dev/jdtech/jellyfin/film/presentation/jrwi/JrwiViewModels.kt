@@ -29,6 +29,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiProgressChange
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.jrwi.JrwiShow
 import dev.jdtech.jellyfin.jrwi.JrwiStatus
+import dev.jdtech.jellyfin.jrwi.JrwiTranscripts
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.UiText
 import dev.jdtech.jellyfin.models.isDownloaded
@@ -1759,8 +1760,20 @@ data class JrwiSettingsState(
 @HiltViewModel
 class JrwiSettingsViewModel
 @Inject
-constructor(private val appPreferences: AppPreferences, private val jrwiApi: JrwiApi) :
-    ViewModel() {
+constructor(
+    private val appPreferences: AppPreferences,
+    private val jrwiApi: JrwiApi,
+    private val transcripts: JrwiTranscripts,
+) : ViewModel() {
+    /** How the check of the transcripts kept with downloads went, or is going. */
+    val transcriptsCheck = transcripts.check
+
+    /**
+     * Checks every transcript kept with a download against the archive, saving the lines again
+     * where their text or timings changed. It goes on when this page is left.
+     */
+    fun checkTranscripts() = transcripts.checkKept()
+
     private val _state =
         MutableStateFlow(
             JrwiSettingsState(

@@ -165,6 +165,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiPostFile
 import dev.jdtech.jellyfin.jrwi.JrwiProblem
 import dev.jdtech.jellyfin.jrwi.JrwiShow
 import dev.jdtech.jellyfin.jrwi.JrwiStatus
+import dev.jdtech.jellyfin.jrwi.JrwiTranscriptsCheck
 import dev.jdtech.jellyfin.jrwi.asPostFile
 import dev.jdtech.jellyfin.presentation.audio.AudioViewModel
 import dev.jdtech.jellyfin.presentation.components.pageSwipes
@@ -3707,7 +3708,88 @@ fun JrwiSettingsScreen(
                         }
                     }
                 }
+                if (state.connected) {
+                    val check by viewModel.transcriptsCheck.collectAsStateWithLifecycle()
+                    TranscriptsCheck(check = check, onCheck = viewModel::checkTranscripts)
+                }
             }
         }
+    }
+}
+
+/**
+ * A button that checks the transcripts kept with downloads against the archive, with how far it has
+ * got while it runs, and what it found once it's done.
+ */
+@Composable
+private fun TranscriptsCheck(check: JrwiTranscriptsCheck?, onCheck: () -> Unit) {
+    val running = check?.running == true
+    Column(
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+        modifier = Modifier.padding(top = MaterialTheme.spacings.medium),
+    ) {
+        HorizontalDivider(color = JrwiColors.LineSoft)
+        Text(
+            text = stringResource(CoreR.string.jrwi_transcripts_check_title),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+        )
+        Text(
+            text = stringResource(CoreR.string.jrwi_transcripts_check_summary),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Button(shape = JrwiShape, onClick = onCheck, enabled = !running) {
+            if (running) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(MaterialTheme.spacings.small))
+                Text(
+                    if (check.total == 0) stringResource(CoreR.string.jrwi_transcripts_check)
+                    else
+                        stringResource(
+                            CoreR.string.jrwi_transcripts_checking,
+                            minOf(check.done + 1, check.total),
+                            check.total,
+                        )
+                )
+            } else {
+                Text(stringResource(CoreR.string.jrwi_transcripts_check))
+            }
+        }
+        if (check != null && !check.running) {
+            Text(text = transcriptsCheckText(check), style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+/** What a finished check found, such as "Checked 40 downloads. 3 transcripts updated." */
+@Composable
+private fun transcriptsCheckText(check: JrwiTranscriptsCheck): String {
+    if (check.total == 0) return stringResource(CoreR.string.jrwi_transcripts_nothing)
+    val checked =
+        pluralStringResource(CoreR.plurals.jrwi_transcripts_checked, check.total, check.total)
+    val found =
+        listOfNotNull(
+            check.updated
+                .takeIf { it > 0 }
+                ?.let { pluralStringResource(CoreR.plurals.jrwi_transcripts_updated, it, it) },
+            check.added
+                .takeIf { it > 0 }
+                ?.let { pluralStringResource(CoreR.plurals.jrwi_transcripts_added, it, it) },
+            check.documents
+                .takeIf { it > 0 }
+                ?.let { pluralStringResource(CoreR.plurals.jrwi_transcripts_documents, it, it) },
+            check.failed
+                .takeIf { it > 0 }
+                ?.let { pluralStringResource(CoreR.plurals.jrwi_transcripts_failed, it, it) },
+        )
+    return if (found.isEmpty()) {
+        "$checked ${stringResource(CoreR.string.jrwi_transcripts_up_to_date)}"
+    } else {
+        "$checked ${found.joinToString(", ")}."
     }
 }
