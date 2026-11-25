@@ -324,6 +324,25 @@
             tools:visibility="visible"
             android:contentDescription="@string/player_trickplay" />
 
+        <!-- The name of the chapter the scrubber is in, while the seek bar is dragged -->
+        <TextView
+            android:id="@+id/chapter_note"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/chapter_note_background"
+            android:ellipsize="end"
+            android:maxWidth="280dp"
+            android:maxLines="1"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
+            android:textColor="@android:color/white"
+            android:visibility="gone"
+            tools:text="The Dragon's Lair"
+            tools:visibility="visible" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

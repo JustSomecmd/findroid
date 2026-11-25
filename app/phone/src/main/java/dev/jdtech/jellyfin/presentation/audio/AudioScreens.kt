@@ -78,6 +78,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -112,6 +114,7 @@ import dev.jdtech.jellyfin.presentation.jrwi.jrwiGhostButtonColors
 import dev.jdtech.jellyfin.presentation.jrwi.jrwiTopBarColors
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.tube.formatDuration
+import dev.jdtech.jellyfin.utils.chapterName
 import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -784,23 +787,31 @@ private fun SeekBar(
     var held by remember { mutableStateOf<Float?>(null) }
     val duration = state.durationMs
     Column(modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
-        Slider(
-            value = held ?: state.fraction(),
-            onValueChange = { held = it },
-            onValueChangeFinished = {
-                held?.let { onSeek((it * duration).toLong()) }
-                held = null
-            },
-            enabled = duration > 0,
-            colors =
-                SliderDefaults.colors(
-                    thumbColor = look.accent,
-                    activeTrackColor = look.accent,
-                    inactiveTrackColor = look.track,
-                    disabledThumbColor = look.muted,
-                    disabledInactiveTrackColor = look.track,
-                ),
-        )
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Slider(
+                value = held ?: state.fraction(),
+                onValueChange = { held = it },
+                onValueChangeFinished = {
+                    held?.let { onSeek((it * duration).toLong()) }
+                    held = null
+                },
+                enabled = duration > 0,
+                colors =
+                    SliderDefaults.colors(
+                        thumbColor = look.accent,
+                        activeTrackColor = look.accent,
+                        inactiveTrackColor = look.track,
+                        disabledThumbColor = look.muted,
+                        disabledInactiveTrackColor = look.track,
+                    ),
+            )
+            // The name of the chapter under the finger, over the thumb, while it's held
+            held?.let { fraction ->
+                chapterName(state.chapters, (fraction * duration).toLong())?.let { name ->
+                    ChapterNote(name = name, fraction = fraction)
+                }
+            }
+        }
         val shownMs = held?.let { (it * duration).toLong() } ?: state.positionMs
         Row(modifier = Modifier.fillMaxWidth()) {
             val labelStyle = MaterialTheme.typography.labelMedium
@@ -822,6 +833,43 @@ private fun SeekBar(
         }
     }
 }
+
+/**
+ * The chapter's name in a small note over the seek bar, centred on where the thumb is ([fraction]
+ * along it) and kept inside the bar's width, square or round as the look has it.
+ */
+@Composable
+private fun ChapterNote(name: String, fraction: Float) {
+    val look = LocalPlayerLook.current
+    val inset = with(LocalDensity.current) { SLIDER_THUMB_INSET.roundToPx() }
+    val gap = with(LocalDensity.current) { CHAPTER_NOTE_GAP.roundToPx() }
+    Surface(
+        shape = look.buttonShape,
+        color = MaterialTheme.colorScheme.inverseSurface,
+        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+        modifier =
+            Modifier.layout { measurable, constraints ->
+                val note = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                val width = constraints.maxWidth
+                val thumb = inset + (width - 2 * inset) * fraction
+                val x = (thumb - note.width / 2f).toInt().coerceIn(0, maxOf(0, width - note.width))
+                // Above the bar, over what's above it, without moving anything
+                layout(0, 0) { note.placeRelative(x, -note.height - gap) }
+            },
+    ) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 280.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+// How far in from the slider's ends its thumb's centre goes, and how far above it the note sits
+private val SLIDER_THUMB_INSET = 10.dp
+private val CHAPTER_NOTE_GAP = 4.dp
 
 /**
  * Play or pause in the buttons' colour, square or round as the look has it, with a spinner while it

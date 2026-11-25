@@ -100,6 +100,7 @@ import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.PlayerButton
 import dev.jdtech.jellyfin.settings.domain.PlayerButtonLayout
 import dev.jdtech.jellyfin.settings.domain.PlayerButtonPlacement
+import dev.jdtech.jellyfin.utils.ChapterScrubListener
 import dev.jdtech.jellyfin.utils.PlayerGestureHelper
 import dev.jdtech.jellyfin.utils.PreviewScrubListener
 import java.lang.ref.WeakReference
@@ -161,6 +162,8 @@ class PlayerActivity : BasePlayerActivity() {
         else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 
     private var previewScrubListener: PreviewScrubListener? = null
+
+    private var chapterScrubListener: ChapterScrubListener? = null
     private var wasZoom: Boolean = false
     private var skipButtonTimeoutExpired: Boolean = true
     private var hasCurrentSegment: Boolean = false
@@ -426,6 +429,7 @@ class PlayerActivity : BasePlayerActivity() {
 
                             // Trickplay
                             previewScrubListener?.let { it.currentTrickplay = currentTrickplay }
+                            chapterScrubListener?.chapters = currentChapters
 
                             playerGestureHelper?.let { it.currentTrickplay = currentTrickplay }
 
@@ -634,6 +638,15 @@ class PlayerActivity : BasePlayerActivity() {
         // Set marker color
         val timeBar = binding.playerView.findViewById<DefaultTimeBar>(R.id.exo_progress)
         timeBar.setAdMarkerColor(Color.WHITE)
+
+        // The chapter's name over the bar while it's dragged, with or without trickplay pictures
+        chapterScrubListener =
+            ChapterScrubListener(
+                binding.playerView.findViewById(R.id.chapter_note),
+                timeBar,
+                viewModel.player,
+            )
+        timeBar.addListener(chapterScrubListener!!)
 
         if (appPreferences.getValue(appPreferences.playerTrickplay)) {
             val imagePreview = binding.playerView.findViewById<ImageView>(R.id.image_preview)

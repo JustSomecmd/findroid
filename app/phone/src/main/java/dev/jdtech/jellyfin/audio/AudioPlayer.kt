@@ -33,6 +33,7 @@ import dev.jdtech.jellyfin.jrwi.JrwiItem
 import dev.jdtech.jellyfin.jrwi.JrwiProgressSync
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.isDownloaded
+import dev.jdtech.jellyfin.player.core.domain.models.PlayerChapter
 import dev.jdtech.jellyfin.player.core.domain.models.PlayerItem
 import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
 import dev.jdtech.jellyfin.player.local.R as PlayerR
@@ -139,6 +140,8 @@ data class AudioState(
      * or the video of the JRWI episode whose sound this is. Null without a transcript (v0.23).
      */
     val transcriptPostId: Long? = null,
+    /** The chapters of the video whose sound this is, to name while the bar is dragged. */
+    val chapters: List<PlayerChapter> = emptyList(),
 ) {
     /** Something is loaded, playing or not, which the mini player shows. */
     val active: Boolean
@@ -570,6 +573,8 @@ constructor(
         _state.update {
             it.copy(
                 episode = AudioEpisode.Jrwi(item),
+                // The archive has no chapters
+                chapters = emptyList(),
                 subtitle = showName,
                 picture = picture,
                 loading = false,
@@ -925,6 +930,7 @@ constructor(
                 hasNext = playlist?.nextTaVideoId != null,
                 linkedJrwiId = null,
                 transcriptPostId = null,
+                chapters = item.chapters,
             )
         }
         start(mediaItem, startMs)
