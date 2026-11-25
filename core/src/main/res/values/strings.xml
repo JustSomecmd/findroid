@@ -521,6 +521,10 @@
     <string name="jrwi_downloads_other">Other posts</string>
     <string name="jrwi_video">Video</string>
     <string name="jrwi_audio">Audio</string>
+    <plurals name="jrwi_downloads_waiting">
+        <item quantity="one">%d more waiting</item>
+        <item quantity="other">%d more waiting</item>
+    </plurals>
     <string name="jrwi_play">Play</string>
     <string name="jrwi_resume">Resume</string>
     <string name="jrwi_resume_at">Resume at %1$s</string>

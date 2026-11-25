@@ -25,8 +25,10 @@ import coil3.request.crossfade
 import coil3.svg.SvgDecoder
 import com.google.android.material.color.DynamicColors
 import dagger.hilt.android.HiltAndroidApp
+import dev.jdtech.jellyfin.jrwi.JrwiDownloads
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.models.Preference
+import dev.jdtech.jellyfin.work.JrwiDownloadWorker
 import dev.jdtech.jellyfin.work.NewItemsWorker
 import dev.jdtech.jellyfin.work.SyncWorker
 import dev.jdtech.jellyfin.work.TaBotCheckWorker
@@ -44,6 +46,8 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
     @Inject lateinit var appPreferences: AppPreferences
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
+
+    @Inject lateinit var jrwiDownloads: JrwiDownloads
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
@@ -75,6 +79,8 @@ class BaseApplication : Application(), Configuration.Provider, SingletonImageLoa
         scheduleUserDataSync(workManager)
         scheduleNewItemsCheck(workManager)
         scheduleTaBotCheck(workManager)
+        // JRWI downloads waiting from before they had a queue go one at a time too
+        JrwiDownloadWorker.moveToQueue(applicationContext, jrwiDownloads)
         // Turning the setting on or off takes effect right away
         appPreferences.sharedPreferences.registerOnSharedPreferenceChangeListener(
             newItemsSettingListener

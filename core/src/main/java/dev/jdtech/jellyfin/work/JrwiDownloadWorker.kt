@@ -37,6 +37,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -50,6 +51,12 @@ import timber.log.Timber
  * its page shown without a connection. A stopped download goes on where it stopped with a Range
  * request, and the finished audio is checked against the size the archiver gives. Run for a video's
  * download through Jellyfin, it keeps only the post's files.
+ *
+ * The downloads wait in one queue and run one at a time, in the order they were asked for, as the
+ * app's video downloads do. So that one going wrong doesn't take the rest of the queue with it, a
+ * run always ends as done: a download that can't be had is marked failed, for Try again, and one
+ * taken off the phone meanwhile is skipped, or stopped where it is, rather than cancelled, which
+ * would cancel everything after it too.
  */
 @HiltWorker
 class JrwiDownloadWorker
@@ -75,17 +82,23 @@ constructor(
             Result.success()
         } catch (e: CancellationException) {
             throw e
+        } catch (e: Removed) {
+            Result.success()
         } catch (e: JrwiApiException) {
             Timber.e(e, "Could not download JRWI episode $itemId")
             if (e.code in 400..499) {
                 downloads.update(itemId) { it.copy(failed = true) }
-                Result.failure()
+                Result.success()
             } else {
                 Result.retry()
             }
         } catch (e: IOException) {
             Timber.w(e, "JRWI download $itemId stopped, to go on later")
             Result.retry()
+        } catch (e: Exception) {
+            Timber.e(e, "Could not download JRWI episode $itemId")
+            downloads.update(itemId) { it.copy(failed = true) }
+            Result.success()
         } finally {
             downloads.setProgress(itemId, null)
             // Taken off the phone while it ran, so nothing of it stays behind
@@ -110,10 +123,13 @@ constructor(
             throw e
         } catch (e: JrwiApiException) {
             Timber.e(e, "Could not keep the files of JRWI episode $itemId")
-            if (e.code in 400..499) Result.failure() else Result.retry()
+            if (e.code in 400..499) Result.success() else Result.retry()
         } catch (e: IOException) {
             Timber.w(e, "Keeping the files of JRWI episode $itemId stopped, to go on later")
             Result.retry()
+        } catch (e: Exception) {
+            Timber.e(e, "Could not keep the files of JRWI episode $itemId")
+            Result.success()
         } finally {
             // The video's download was removed while this ran
             downloads.dropUnwantedFiles(itemId)
@@ -280,6 +296,8 @@ constructor(
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastReport >= PROGRESS_INTERVAL_MS) {
                         lastReport = now
+                        // Taken off the phone while it downloads: stopped here, for the next
+                        if (downloads.get(itemId) == null) throw Removed()
                         report(itemId, title, done, total)
                     }
                 }
@@ -324,6 +342,7 @@ constructor(
                     }
                 )
                 .setProgress(100, percent(done, total), total == null || total <= 0)
+                .setSubText(waitingText(itemId))
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setSilent(true)
@@ -333,6 +352,21 @@ constructor(
                 .also { ensureNotificationChannel() },
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
+
+    // How many more wait in the queue after this one, or null when none do
+    private fun waitingText(itemId: Long): String? {
+        val waiting =
+            downloads.downloads.value.count { !it.done && !it.failed && it.itemId != itemId }
+        if (waiting == 0) return null
+        return appContext.resources.getQuantityString(
+            CoreR.plurals.jrwi_downloads_waiting,
+            waiting,
+            waiting,
+        )
+    }
+
+    // A download taken off the phone while it ran
+    private class Removed : Exception()
 
     private fun percent(done: Long, total: Long?): Int =
         if (total != null && total > 0) (done * 100 / total).toInt().coerceIn(0, 100) else 0
@@ -369,8 +403,14 @@ constructor(
         private const val MAX_COMMENT_PAGES = 20
         private const val NOT_FOUND = 404
 
+        // The one queue every JRWI download waits in, run one at a time
+        private const val QUEUE = "jrwi_downloads"
+        private const val QUEUE_PREFS = "jrwi_download_queue"
+        private const val KEY_MOVED = "moved"
+
         private fun workName(itemId: Long) = "jrwi_download_$itemId"
 
+        /** Puts the episode's download at the end of the queue. */
         fun enqueue(context: Context, itemId: Long) {
             val request =
                 OneTimeWorkRequestBuilder<JrwiDownloadWorker>()
@@ -379,13 +419,33 @@ constructor(
                         Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
                     )
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                    .addTag(workName(itemId))
                     .build()
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(workName(itemId), ExistingWorkPolicy.KEEP, request)
+                .enqueueUniqueWork(QUEUE, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
 
-        fun cancel(context: Context, itemId: Long) {
-            WorkManager.getInstance(context).cancelUniqueWork(workName(itemId))
+        /**
+         * Moves the downloads that were waiting as jobs of their own, which ran all at once (before
+         * 1.2.0-custom.129), into the queue. Once, away from the main thread.
+         */
+        fun moveToQueue(context: Context, downloads: JrwiDownloads) {
+            val prefs = context.getSharedPreferences(QUEUE_PREFS, Context.MODE_PRIVATE)
+            if (prefs.getBoolean(KEY_MOVED, false)) return
+            prefs.edit().putBoolean(KEY_MOVED, true).apply()
+            thread(name = "jrwi-download-queue") {
+                val workManager = WorkManager.getInstance(context)
+                for (download in downloads.downloads.value) {
+                    workManager.cancelUniqueWork(workName(download.itemId))
+                    if (!download.done && !download.failed) enqueue(context, download.itemId)
+                }
+                for (video in downloads.savedVideos()) {
+                    workManager.cancelUniqueWork(filesWorkName(video.item.id))
+                    if (downloads.videoKeepsFiles(video.item.id)) {
+                        enqueueFiles(context, video.item.id)
+                    }
+                }
+            }
         }
 
         private fun filesWorkName(itemId: Long) = "jrwi_files_$itemId"
@@ -399,13 +459,10 @@ constructor(
                         Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
                     )
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                    .addTag(filesWorkName(itemId))
                     .build()
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(filesWorkName(itemId), ExistingWorkPolicy.KEEP, request)
-        }
-
-        fun cancelFiles(context: Context, itemId: Long) {
-            WorkManager.getInstance(context).cancelUniqueWork(filesWorkName(itemId))
+                .enqueueUniqueWork(QUEUE, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
     }
 }
@@ -435,8 +492,9 @@ class JrwiDownloaderImpl(private val context: Context, private val downloads: Jr
         JrwiDownloadWorker.enqueue(context, item.id)
     }
 
+    // Its turn in the queue is skipped, or a running download stops where it is: cancelling it
+    // would cancel every download queued after it too
     override fun remove(itemId: Long) {
-        JrwiDownloadWorker.cancel(context, itemId)
         downloads.delete(itemId)
     }
 
@@ -450,7 +508,6 @@ class JrwiDownloaderImpl(private val context: Context, private val downloads: Jr
     }
 
     override fun forgetVideo(itemId: Long) {
-        JrwiDownloadWorker.cancelFiles(context, itemId)
         downloads.deleteVideo(itemId)
     }
 }
