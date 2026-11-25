@@ -8,6 +8,8 @@ enum class PlayerButton(val key: String, val defaultPlacement: PlayerButtonPlace
     // Opens the TubeArchivist playlist playing; only there while one plays
     PLAYLIST("playlist", PlayerButtonPlacement.MENU),
     AUTOPLAY("autoplay", PlayerButtonPlacement.TOP),
+    // Starts the video over when it ends, in this player only
+    LOOP("loop", PlayerButtonPlacement.MENU),
     // Goes on with only the sound, in the app's audio player
     LISTEN("listen", PlayerButtonPlacement.TOP),
     QUALITY("quality", PlayerButtonPlacement.MENU),

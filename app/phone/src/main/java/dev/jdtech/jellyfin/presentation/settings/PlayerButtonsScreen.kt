@@ -187,6 +187,7 @@ private fun PlayerButtonRow(
 private fun PlayerButton.nameRes(): Int =
     when (this) {
         PlayerButton.AUTOPLAY -> SettingsR.string.player_button_autoplay
+        PlayerButton.LOOP -> SettingsR.string.player_button_loop
         PlayerButton.LOCK -> SettingsR.string.player_button_lock
         PlayerButton.PIP -> SettingsR.string.player_button_pip
         PlayerButton.CHAPTERS -> SettingsR.string.player_button_chapters
@@ -205,6 +206,7 @@ private fun PlayerButton.nameRes(): Int =
 private fun PlayerButton.iconRes(): Int =
     when (this) {
         PlayerButton.AUTOPLAY -> CoreR.drawable.ic_autoplay_on
+        PlayerButton.LOOP -> CoreR.drawable.ic_loop_on
         PlayerButton.LOCK -> CoreR.drawable.ic_lock
         PlayerButton.PIP -> CoreR.drawable.ic_picture_in_picture
         PlayerButton.CHAPTERS -> CoreR.drawable.ic_list_chapters

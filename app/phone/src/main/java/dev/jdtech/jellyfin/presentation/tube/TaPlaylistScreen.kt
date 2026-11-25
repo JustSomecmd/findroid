@@ -248,8 +248,11 @@ fun TaPlaylistScreen(
                                                 )
                                             }
                                     }
+                                    // TubeArchivist keeps false as the description of a
+                                    // playlist made by hand, and hands it out as the word
+                                    // "False" until it restarts
                                     playlist.description
-                                        ?.takeIf { it.isNotBlank() }
+                                        ?.takeIf { it.isNotBlank() && it != "False" }
                                         ?.let { description ->
                                             Text(
                                                 text = rememberLinkedText(description),

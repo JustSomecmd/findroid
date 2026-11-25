@@ -138,6 +138,8 @@ constructor(
         val isAudioOnly: Boolean = false,
         /** Whether the next video plays on its own when this one ends. */
         val autoplay: Boolean = true,
+        /** Whether the video starts over when it ends, for this player only. */
+        val loopVideo: Boolean = false,
         /** The video that plays next, shown while the current one is about to end. */
         val upNext: UpNext? = null,
         /** The sleep timer, when one is set. */
@@ -212,6 +214,9 @@ constructor(
 
     // Whether the next video plays when one ends, and the video for which that was called off
     private var autoplay = appPreferences.getValue(appPreferences.playerAutoplay)
+
+    // Asked for in this player only, and not kept for the next one
+    private var loopVideo = false
     private var upNextCancelledFor: String? = null
 
     // The downloaded video whose download goes once it has played, as asked on the Up next card
@@ -908,6 +913,8 @@ constructor(
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         Timber.d("Playing MediaItem: ${mediaItem?.mediaId}")
+        // A looping video starting over: the same video, with nothing to look up again
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) return
         // The same video loaded again, as in another quality, has the same thumbnails
         if (mediaItem?.mediaId != trickplayMediaId) clearTrickplay()
         // A video that plays straight on from the last one doesn't pause in between
@@ -1161,6 +1168,30 @@ constructor(
         taPlaylistSessions.update(playlistId, taPlaylistName, videoId)
     }
 
+    /**
+     * Turns starting the video over when it ends on or off, for whatever this player plays next
+     * too, until it's closed. While it's on, nothing plays after it and there's no Up next card. It
+     * starts over from its beginning without a gap, as ExoPlayer repeats it; a sleep timer set to
+     * the end of the video comes first, so the video then stops there.
+     */
+    fun setLoopVideo(enabled: Boolean) {
+        loopVideo = enabled
+        _uiState.update { it.copy(loopVideo = enabled) }
+        applyLoop()
+        updateUpNext()
+    }
+
+    /**
+     * Has ExoPlayer repeat the video while it loops, with nothing waiting at its end; otherwise the
+     * player pauses at the end of each video, for autoplay, the playlist and the sleep timer to
+     * decide what comes next.
+     */
+    private fun applyLoop() {
+        val loop = loopVideo && _uiState.value.sleepTimer != SleepTimer.EndOfVideo
+        (player as? ExoPlayer)?.pauseAtEndOfMediaItems = !loop
+        player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+    }
+
     /** Turns playing the next video on its own on or off, for this and later videos. */
     fun setAutoplay(enabled: Boolean) {
         autoplay = enabled
@@ -1181,6 +1212,7 @@ constructor(
         val upNext =
             (if (
                     autoplay &&
+                        !loopVideo &&
                         _uiState.value.sleepTimer != SleepTimer.EndOfVideo &&
                         mediaId != null &&
                         mediaId != upNextCancelledFor &&
@@ -1365,6 +1397,7 @@ constructor(
         sleepJob?.cancel()
         val endsAt = SystemClock.elapsedRealtime() + minutes * 60_000L
         _uiState.update { it.copy(sleepTimer = SleepTimer.At(endsAt), upNext = null) }
+        applyLoop()
         sleepJob = viewModelScope.launch {
             // Only players that let their volume be set fade out
             val canFade = player.isCommandAvailable(Player.COMMAND_SET_VOLUME)
@@ -1398,12 +1431,14 @@ constructor(
         sleepJob?.cancel()
         sleepJob = null
         _uiState.update { it.copy(sleepTimer = SleepTimer.EndOfVideo, upNext = null) }
+        applyLoop()
     }
 
     fun cancelSleepTimer() {
         sleepJob?.cancel()
         sleepJob = null
         _uiState.update { it.copy(sleepTimer = null) }
+        applyLoop()
     }
 
     /** Lets this video end without the next one playing after it. */

@@ -169,6 +169,7 @@
     <string name="player_button_placement_menu">Menu</string>
     <string name="player_button_placement_hidden">Hidden</string>
     <string name="player_button_autoplay">Autoplay</string>
+    <string name="player_button_loop">Loop this video</string>
     <string name="player_button_sleep_timer">Sleep timer</string>
     <string name="player_button_lock">Lock controls</string>
     <string name="player_button_pip">Picture-in-picture</string>

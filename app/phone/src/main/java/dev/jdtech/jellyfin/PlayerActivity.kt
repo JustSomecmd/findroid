@@ -257,6 +257,7 @@ class PlayerActivity : BasePlayerActivity() {
         val rotateButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotate)
         val playlistButton = binding.playerView.findViewById<ImageButton>(R.id.btn_playlist)
         val autoplayButton = binding.playerView.findViewById<ImageButton>(R.id.btn_autoplay)
+        val loopButton = binding.playerView.findViewById<ImageButton>(R.id.btn_loop)
         val sleepTimerButton = binding.playerView.findViewById<ImageButton>(R.id.btn_sleep_timer)
         val listenButton = binding.playerView.findViewById<ImageButton>(R.id.btn_listen)
         val menuButton = binding.playerView.findViewById<ImageButton>(R.id.btn_menu)
@@ -276,6 +277,16 @@ class PlayerActivity : BasePlayerActivity() {
                     this,
                     if (enabled) PlayerR.string.player_autoplay_on
                     else PlayerR.string.player_autoplay_off,
+                    Toast.LENGTH_SHORT,
+                )
+                .show()
+        }
+        loopButton.setOnClickListener {
+            val enabled = !viewModel.uiState.value.loopVideo
+            viewModel.setLoopVideo(enabled)
+            Toast.makeText(
+                    this,
+                    if (enabled) PlayerR.string.player_loop_on else PlayerR.string.player_loop_off,
                     Toast.LENGTH_SHORT,
                 )
                 .show()
@@ -305,6 +316,7 @@ class PlayerActivity : BasePlayerActivity() {
         applyButtonLayout(
             mapOf(
                 PlayerButton.AUTOPLAY to autoplayButton,
+                PlayerButton.LOOP to loopButton,
                 PlayerButton.LISTEN to listenButton,
                 PlayerButton.LOCK to lockButton,
                 PlayerButton.PIP to pipButton,
@@ -365,6 +377,15 @@ class PlayerActivity : BasePlayerActivity() {
                                 getString(
                                     if (autoplay) PlayerR.string.player_autoplay_on
                                     else PlayerR.string.player_autoplay_off
+                                )
+                            loopButton.setImageResource(
+                                if (loopVideo) CoreR.drawable.ic_loop_on
+                                else CoreR.drawable.ic_loop_off
+                            )
+                            loopButton.contentDescription =
+                                getString(
+                                    if (loopVideo) PlayerR.string.player_loop_on
+                                    else PlayerR.string.player_loop_off
                                 )
                             // Filled in while the sleep timer runs
                             sleepTimerButton.setImageResource(
@@ -1204,6 +1225,16 @@ class PlayerActivity : BasePlayerActivity() {
                         else CoreR.drawable.ic_autoplay_off,
                     title = getString(PlayerR.string.player_autoplay),
                     value = if (state.autoplay) getString(PlayerR.string.player_on) else off,
+                ) {
+                    view.performClick()
+                }
+            PlayerButton.LOOP ->
+                PlayerMenuItem(
+                    icon =
+                        if (state.loopVideo) CoreR.drawable.ic_loop_on
+                        else CoreR.drawable.ic_loop_off,
+                    title = getString(PlayerR.string.player_loop),
+                    value = if (state.loopVideo) getString(PlayerR.string.player_on) else off,
                 ) {
                     view.performClick()
                 }
