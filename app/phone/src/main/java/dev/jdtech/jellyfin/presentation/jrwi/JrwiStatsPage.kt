@@ -43,6 +43,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiArchiveStats
@@ -987,12 +988,13 @@ private fun JrwiBarChart(bars: List<Pair<String, Int>>) {
 
 /** A bar filled to [fraction], in the server side's purple. */
 @Composable
-private fun JrwiStatsBar(fraction: Float, modifier: Modifier = Modifier) {
+internal fun JrwiStatsBar(fraction: Float, modifier: Modifier = Modifier, height: Dp = 8.dp) {
     TaBar(
         fraction = fraction,
         color = MaterialTheme.colorScheme.inversePrimary,
         trackColor = JrwiPurple.Input,
         modifier = modifier,
+        height = height,
     )
 }
 

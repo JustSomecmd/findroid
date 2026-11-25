@@ -16,6 +16,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -155,7 +156,6 @@ import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiShowsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.JrwiStatsViewModel
 import dev.jdtech.jellyfin.film.presentation.jrwi.pages
 import dev.jdtech.jellyfin.jrwi.JrwiAuthor
-import dev.jdtech.jellyfin.jrwi.JrwiBackground
 import dev.jdtech.jellyfin.jrwi.JrwiBadge
 import dev.jdtech.jellyfin.jrwi.JrwiCheckRun
 import dev.jdtech.jellyfin.jrwi.JrwiComment
@@ -3224,153 +3224,233 @@ internal fun FollowArchiver(
 }
 
 /**
- * What the archiver is doing: checking, on which post and how far, or waiting for the next check,
- * and how the last one went. [lastRun] is the last finished check from the archive's stats, for
- * what it saved.
+ * What the archiver is doing, laid out as the cards around it: whether it's checking or waiting,
+ * the check under way and the work in the background each in a tile of its own, with bars for how
+ * far they've got and for the post being worked on, and the checks' times as the stats cards'
+ * lines. [lastRun] is the last finished check from the archive's stats, for what it saved.
  */
 @Composable
 internal fun JrwiStatusCard(status: JrwiStatus, lastRun: JrwiCheckRun? = null) {
     JrwiStatsCard(title = stringResource(CoreR.string.jrwi_stats_status)) {
-        // Archivers since 0.9.3 word the detail to stand on its own line
-        val phase =
-            if (status.step != null) status.phase.orEmpty()
-            else listOfNotNull(status.phase, status.detail).joinToString(": ")
+        Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
+            JrwiStatePill(running = status.running)
+            if (status.running) {
+                val progress = status.progress
+                val total = progress?.total ?: 0
+                val done = progress?.done ?: 0
+                JrwiWorkTile(
+                    title = status.phase?.takeIf { it.isNotBlank() },
+                    count = workCount(progress?.unit, done, total),
+                    // With the file that's downloading now as part of the one being worked on
+                    overall =
+                        if (total > 0) (done + (progress?.current ?: 0.0)).toFloat() / total
+                        else null,
+                    detail = status.detail,
+                    current = progress?.current,
+                )
+            }
+            // Work in the background, such as timing transcripts (v0.23): not a check, and since
+            // the archiver's 0.13.0 alongside one, under it, as the admin page has it
+            status.background?.let { background ->
+                val progress = background.progress
+                val total = progress?.total ?: 0
+                val done = progress?.done ?: 0
+                JrwiWorkTile(
+                    title = background.phase?.takeIf { it.isNotBlank() },
+                    count = workCount(progress?.unit, done, total),
+                    overall = if (total > 0) done.toFloat() / total else null,
+                    detail = background.detail,
+                    current = progress?.current,
+                )
+            }
+            if (status.loginOk == false) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+                ) {
+                    Icon(
+                        painter = painterResource(CoreR.drawable.ic_alert_circle),
+                        contentDescription = null,
+                        tint = JrwiColors.Bad,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = stringResource(CoreR.string.jrwi_login_failed),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = JrwiColors.Bad,
+                    )
+                }
+            }
+            HorizontalDivider(color = JrwiPurple.Line, modifier = Modifier.padding(top = 4.dp))
+            JrwiCheckTimes(status, lastRun)
+        }
+    }
+}
+
+/** Checking, with the site's green dot, or waiting for the next check, as a pill. */
+@Composable
+private fun JrwiStatePill(running: Boolean) {
+    Surface(shape = JrwiPillShape, color = JrwiPurple.Input, contentColor = JrwiColors.Text) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         ) {
-            // The site's dot: green while it checks
-            if (status.running) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(JrwiColors.Ok))
-            }
+            Box(
+                Modifier.size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (running) JrwiColors.Ok else JrwiPurple.Muted)
+            )
             Text(
                 text =
-                    if (status.running) {
-                        stringResource(CoreR.string.jrwi_status_running, phase)
-                    } else {
-                        stringResource(CoreR.string.jrwi_status_idle)
-                    },
-                style = MaterialTheme.typography.titleSmall,
-                color = JrwiColors.Text,
+                    stringResource(
+                        if (running) CoreR.string.jrwi_status_checking
+                        else CoreR.string.jrwi_status_idle
+                    ),
+                style = MaterialTheme.typography.labelLarge,
             )
         }
-        if (status.running && status.step != null) {
-            status.detail
-                ?.takeIf { it.isNotBlank() }
-                ?.let { detail ->
+    }
+}
+
+/** "Post 3 of 12", as the web app counts, for the one being worked on. */
+@Composable
+private fun workCount(unit: String?, done: Int, total: Int): String? {
+    if (total <= 0) return null
+    val number = (done + 1).coerceAtMost(total)
+    return when (unit) {
+        "post" -> stringResource(CoreR.string.jrwi_count_post, number, total)
+        "episode" -> stringResource(CoreR.string.jrwi_count_episode, number, total)
+        "page" -> stringResource(CoreR.string.jrwi_count_page, number, total)
+        else -> stringResource(CoreR.string.jrwi_count, number, total)
+    }
+}
+
+/**
+ * Work under way, in a tile of its own: what it is and which of how many, a bar for how far it has
+ * got ([overall], or moving when it can't say), then the post it's on, what it's doing to it, and a
+ * thin bar for how far that has got, from [current] or the percentage in the archiver's [detail].
+ */
+@Composable
+private fun JrwiWorkTile(
+    title: String?,
+    count: String?,
+    overall: Float?,
+    detail: String?,
+    current: Double?,
+) {
+    Surface(
+        shape = JrwiShape,
+        color = JrwiPurple.Sheet,
+        contentColor = JrwiColors.Text,
+        border = BorderStroke(1.dp, JrwiPurple.Line),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(MaterialTheme.spacings.medium),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title.orEmpty(),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                count?.let {
+                    Spacer(Modifier.width(MaterialTheme.spacings.small))
                     Text(
-                        text = detail,
+                        text = it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = JrwiPurple.Muted,
+                    )
+                }
+            }
+            if (overall != null) {
+                JrwiStatsBar(fraction = overall)
+            } else {
+                LinearProgressIndicator(
+                    color = JrwiPurple.Accent,
+                    trackColor = JrwiPurple.Input,
+                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(JrwiPillShape),
+                )
+            }
+            val parts = remember(detail) { detail?.let { workDetail(it) } }
+            if (parts != null) {
+                parts.subject?.let {
+                    Text(
+                        text = it,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = JrwiColors.BodyText,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = parts.action,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JrwiPurple.Muted,
+                        modifier = Modifier.weight(1f),
+                    )
+                    parts.size?.let {
+                        Spacer(Modifier.width(MaterialTheme.spacings.small))
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JrwiPurple.Muted,
+                        )
+                    }
+                }
+                (current?.toFloat() ?: parts.fraction)?.let {
+                    JrwiStatsBar(fraction = it, height = 4.dp)
+                }
+            }
         }
-        val progress = status.progress
-        val total = progress?.total ?: 0
-        if (status.running && progress != null && total > 0) {
-            val done = progress.done ?: 0
-            // With the file that's downloading now as part of the one being worked on
-            val fraction = (done + (progress.current ?: 0.0)).toFloat() / total
-            LinearProgressIndicator(
-                // In the sheet's own purple
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                progress = { fraction.coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            )
-            // "Post 3 of 12", as the web app shows it
-            val number = (done + 1).coerceAtMost(total)
-            Text(
-                text =
-                    when (progress.unit) {
-                        "post" -> stringResource(CoreR.string.jrwi_count_post, number, total)
-                        "episode" -> stringResource(CoreR.string.jrwi_count_episode, number, total)
-                        "page" -> stringResource(CoreR.string.jrwi_count_page, number, total)
-                        else -> stringResource(CoreR.string.jrwi_count, number, total)
-                    },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        // Work in the background, such as timing transcripts (v0.23): not a check, and since the
-        // archiver's 0.13.0 alongside one, under it, as the admin page has it
-        status.background?.let { JrwiBackgroundWork(it) }
-        if (status.loginOk == false) {
-            Text(
-                text = stringResource(CoreR.string.jrwi_login_failed),
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = MaterialTheme.spacings.small),
-            )
-        }
-        JrwiCheckTimes(status, lastRun)
     }
 }
 
 /**
- * What the archiver does in the background, as the top of its admin page shows it: what it is,
- * which of how many it's on, what it's doing to that one, and a bar for how far that one has got,
- * or for how many are done when it doesn't say.
+ * The archiver's detail taken apart: the post it's on ([subject]), what it's doing to it
+ * ([action]), and how far that has got as a [fraction] with the [size] it's out of, from "Through
+ * the Fire | Riptide #136 · downloading the video, 42% of ~4.1 GB". Its wording can change between
+ * versions, so what doesn't fit stays as it is in [action].
  */
-@Composable
-private fun JrwiBackgroundWork(background: JrwiBackground) {
-    Column(modifier = Modifier.padding(top = MaterialTheme.spacings.small)) {
-        val progress = background.progress
-        val total = progress?.total ?: 0
-        val done = progress?.done ?: 0
-        val number = (done + 1).coerceAtMost(total)
-        val count =
-            if (total > 0) {
-                when (progress?.unit) {
-                    "episode" -> stringResource(CoreR.string.jrwi_count_episode, number, total)
-                    "post" -> stringResource(CoreR.string.jrwi_count_post, number, total)
-                    "page" -> stringResource(CoreR.string.jrwi_count_page, number, total)
-                    else -> stringResource(CoreR.string.jrwi_count, number, total)
-                }
-            } else null
-        Text(
-            text =
-                listOfNotNull(background.phase?.takeIf { it.isNotBlank() }, count)
-                    .joinToString(" · "),
-            style = MaterialTheme.typography.titleSmall,
-            color = JrwiColors.Text,
-        )
-        background.detail
-            ?.takeIf { it.isNotBlank() }
-            ?.let { detail ->
-                Text(
-                    text = detail,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = JrwiColors.BodyText,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-        val current = progress?.current
-        val fraction =
-            when {
-                current != null -> current.toFloat()
-                total > 0 -> done.toFloat() / total
-                else -> null
-            }
-        if (fraction != null) {
-            LinearProgressIndicator(
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                progress = { fraction.coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            )
-        } else {
-            // Under way, with no length to show yet
-            LinearProgressIndicator(
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            )
-        }
-    }
+private data class WorkDetail(
+    val subject: String?,
+    val action: String,
+    val fraction: Float?,
+    val size: String?,
+)
+
+private fun workDetail(detail: String): WorkDetail? {
+    val text = detail.trim().takeIf { it.isNotEmpty() } ?: return null
+    val split = text.indexOf(" · ")
+    val subject = if (split > 0) text.substring(0, split).trim() else null
+    val rest = if (split > 0) text.substring(split + 3).trim() else text
+    val match = PERCENT_AT_END.find(rest)
+    val percent = match?.groupValues?.get(2)?.replace(',', '.')?.toFloatOrNull()
+    val action =
+        (if (match != null && percent != null) match.groupValues[1] else rest)
+            .trim()
+            .trimEnd(',', ':')
+            .replaceFirstChar { it.uppercase() }
+    return WorkDetail(
+        subject = subject,
+        action = action,
+        fraction = percent?.let { it / 100f },
+        size = match?.groupValues?.get(3)?.takeIf { it.isNotBlank() && percent != null },
+    )
 }
+
+// "downloading the video, 42% of ~4.1 GB" or "hearing, 42%"
+private val PERCENT_AT_END = Regex("""^(.*?)[,:]?\s*(\d{1,3}(?:[.,]\d+)?)\s?%(?:\s+of\s+(.+))?$""")
 
 /**
  * When the running check started, when the last one ran, how long it took, how it went and what it
- * saved, and when the next one is: as times of day, the phone's way, with how long ago or how soon,
- * kept up to date while shown.
+ * saved, and when the next one is, as the stats cards' lines: what it is on the left with how long
+ * ago or how soon under it, and the time of day on the right, the phone's way, kept up to date
+ * while shown.
  */
 @Composable
 private fun JrwiCheckTimes(status: JrwiStatus, lastRun: JrwiCheckRun?) {
@@ -3386,21 +3466,13 @@ private fun JrwiCheckTimes(status: JrwiStatus, lastRun: JrwiCheckRun?) {
             }
         }
     }
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.padding(vertical = MaterialTheme.spacings.small),
-    ) {
+    Column {
         val started = epochMillis(status.lastCheckStarted)
         if (status.running && started != null) {
-            Text(
-                text =
-                    stringResource(
-                        CoreR.string.jrwi_running_since,
-                        clockTime(context, started, now),
-                        relativeTime(context, started, now),
-                    ),
-                style = MaterialTheme.typography.bodyMedium,
+            JrwiTimeLine(
+                label = stringResource(CoreR.string.jrwi_check_started),
+                time = clockTime(context, started, now),
+                detail = relativeTime(context, started, now),
             )
         }
         // The last check that finished: while one runs, the status's start is the running one's
@@ -3412,24 +3484,6 @@ private fun JrwiCheckTimes(status: JrwiStatus, lastRun: JrwiCheckRun?) {
         if (lastEnd != null) {
             val took =
                 lastStart?.takeIf { it <= lastEnd }?.let { durationText(context, lastEnd - it) }
-            Text(
-                text =
-                    if (took != null) {
-                        stringResource(
-                            CoreR.string.jrwi_last_check_took,
-                            clockTime(context, lastEnd, now),
-                            relativeTime(context, lastEnd, now),
-                            took,
-                        )
-                    } else {
-                        stringResource(
-                            CoreR.string.jrwi_last_check_at,
-                            clockTime(context, lastEnd, now),
-                            relativeTime(context, lastEnd, now),
-                        )
-                    },
-                style = MaterialTheme.typography.bodyMedium,
-            )
             // The stats' run, when it's this one
             val sameRun = run?.takeIf {
                 epochMillis(it.finished)?.let { end -> abs(end - lastEnd) < SAME_RUN_MILLIS } ==
@@ -3438,7 +3492,7 @@ private fun JrwiCheckTimes(status: JrwiStatus, lastRun: JrwiCheckRun?) {
             val result = if (status.running) run?.result else status.lastResult ?: run?.result
             val message =
                 (if (status.running) run?.message else status.message)?.takeIf { it.isNotBlank() }
-            val parts =
+            val outcome =
                 listOfNotNull(
                     result?.let { checkResultText(context, it) },
                     sameRun?.let {
@@ -3457,30 +3511,76 @@ private fun JrwiCheckTimes(status: JrwiStatus, lastRun: JrwiCheckRun?) {
                     },
                     message,
                 )
-            if (parts.isNotEmpty()) {
-                Text(
-                    text = parts.joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = muted,
-                )
-            }
+            JrwiTimeLine(
+                label = stringResource(CoreR.string.jrwi_check_last),
+                time = clockTime(context, lastEnd, now),
+                detail =
+                    listOfNotNull(
+                            relativeTime(context, lastEnd, now),
+                            took?.let { stringResource(CoreR.string.jrwi_check_took, it) },
+                        )
+                        .joinToString(" · "),
+                outcome = outcome.takeIf { it.isNotEmpty() }?.joinToString(" · "),
+                failed = result in FAILED_RESULTS,
+            )
         }
         val next = epochMillis(status.nextCheck)
-        Text(
-            text =
-                if (next != null) {
-                    stringResource(
-                        CoreR.string.jrwi_next_check_at,
-                        clockTime(context, next, now),
-                        relativeTime(context, next, now),
-                    )
-                } else {
-                    stringResource(CoreR.string.jrwi_next_check_manual)
-                },
-            style = MaterialTheme.typography.bodyMedium,
+        JrwiTimeLine(
+            label = stringResource(CoreR.string.jrwi_check_next),
+            time = next?.let { clockTime(context, it, now) },
+            detail =
+                if (next != null) relativeTime(context, next, now)
+                else stringResource(CoreR.string.jrwi_next_check_manual),
         )
     }
 }
+
+/**
+ * One of the checks' times, as the stats cards' lines: what it is with how long ago or how soon
+ * under it, the time of day on the right, and how it went on a line of its own, in red when it
+ * [failed].
+ */
+@Composable
+private fun JrwiTimeLine(
+    label: String,
+    time: String?,
+    detail: String,
+    outcome: String? = null,
+    failed: Boolean = false,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = label, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            outcome?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color =
+                        if (failed) JrwiColors.Bad else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        time?.let {
+            Spacer(Modifier.width(MaterialTheme.spacings.small))
+            Text(
+                text = it,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+// The checks that didn't go as they should
+private val FAILED_RESULTS = setOf("login_failed", "blocked", "error")
 
 private fun epochMillis(iso: String?): Long? =
     try {
