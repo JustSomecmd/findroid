@@ -27,6 +27,9 @@ abstract class BasePlayerActivity : AppCompatActivity() {
     private var mediaSession: MediaSession? = null
     private var wasPip: Boolean = false
 
+    // Out of sight since the last time it was shown, as when the app was left
+    private var wasStopped = false
+
     /** Set when the picture-in-picture window is closed to keep listening in the background. */
     protected var continueInBackgroundAfterPip = false
 
@@ -64,10 +67,17 @@ abstract class BasePlayerActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
 
+        // Back in the app: another device may have saved a newer place meanwhile, which the player
+        // goes to before playing on
+        val back = wasStopped
+        wasStopped = false
         if (wasPip) {
             wasPip = false
         } else if (!backgroundPlayback) {
-            viewModel.player.playWhenReady = viewModel.playWhenReady
+            if (back) viewModel.catchUpWithServer(resume = viewModel.playWhenReady)
+            else viewModel.player.playWhenReady = viewModel.playWhenReady
+        } else if (back) {
+            viewModel.catchUpWithServer(resume = null)
         }
         hideSystemUI()
     }
@@ -89,6 +99,7 @@ abstract class BasePlayerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        if (!isFinishing) wasStopped = true
 
         // The screen went off with the small window showing, which stops it too. With background
         // playback on, it plays on with the sound only, and the window comes back with the screen.

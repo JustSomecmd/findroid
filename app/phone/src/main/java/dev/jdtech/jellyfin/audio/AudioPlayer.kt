@@ -5,7 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
+import android.text.format.DateUtils
+import android.widget.Toast
 import androidx.core.net.toUri
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -30,6 +35,7 @@ import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.isDownloaded
 import dev.jdtech.jellyfin.player.core.domain.models.PlayerItem
 import dev.jdtech.jellyfin.player.core.domain.models.StreamQuality
+import dev.jdtech.jellyfin.player.local.R as PlayerR
 import dev.jdtech.jellyfin.player.local.domain.PlaylistManager
 import dev.jdtech.jellyfin.player.local.domain.TaQueueEntry
 import dev.jdtech.jellyfin.repository.JellyfinRepository
@@ -225,6 +231,130 @@ constructor(
 
     private var loadJob: Job? = null
     private var tickJob: Job? = null
+
+    /**
+     * Where this player last told the archive, TubeArchivist and Jellyfin the episode [key] was,
+     * for each that took it, so a place another device saved since can be told from its own.
+     */
+    private class SavedPlaces(val key: Any) {
+        var jrwiMs: Long? = null
+        var taMs: Long? = null
+        var jellyfinMs: Long? = null
+    }
+
+    private var savedPlaces: SavedPlaces? = null
+    private var catchUpJob: Job? = null
+    private var wentToBackground = false
+
+    init {
+        // Back in the app: another device may have saved a newer place meanwhile. Watched from the
+        // main thread, which the app's lifecycle needs, wherever this is first made
+        scope.launch {
+            ProcessLifecycleOwner.get()
+                .lifecycle
+                .addObserver(
+                    object : DefaultLifecycleObserver {
+                        override fun onStart(owner: LifecycleOwner) {
+                            if (!wentToBackground) return
+                            wentToBackground = false
+                            catchUpWithServer()
+                        }
+
+                        override fun onStop(owner: LifecycleOwner) {
+                            wentToBackground = true
+                        }
+                    }
+                )
+        }
+    }
+
+    // An episode's own key, the same for its saves however often its state changes
+    private fun placeKey(episode: AudioEpisode): Any =
+        when (episode) {
+            is AudioEpisode.Jrwi -> "jrwi:${episode.item.id}"
+            is AudioEpisode.Video -> "video:${episode.itemId}"
+        }
+
+    private fun savedPlacesFor(episode: AudioEpisode): SavedPlaces {
+        val key = placeKey(episode)
+        return savedPlaces?.takeIf { it.key == key } ?: SavedPlaces(key).also { savedPlaces = it }
+    }
+
+    /**
+     * Back in the app: when another device saved a newer place for the episode since this player
+     * last saved its own, goes there, and says so, as the video player does. Nothing changes while
+     * it plays, as this player is then the one saving.
+     */
+    fun catchUpWithServer() {
+        val player = exo ?: return
+        val episode = _state.value.episode ?: return
+        if (player.isPlaying || _state.value.loading) return
+        catchUpJob?.cancel()
+        catchUpJob = scope.launch {
+            val newer =
+                try {
+                    withTimeoutOrNull(CATCH_UP_TIMEOUT_MS) { newerElsewhere(episode) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not check for a newer place")
+                    null
+                } ?: return@launch
+            val current = exo ?: return@launch
+            val now = _state.value.episode ?: return@launch
+            if (placeKey(now) != placeKey(episode) || current.isPlaying) return@launch
+            current.seekTo(newer)
+            Toast.makeText(
+                    context,
+                    context.getString(
+                        PlayerR.string.player_caught_up,
+                        DateUtils.formatElapsedTime(newer / 1000),
+                    ),
+                    Toast.LENGTH_LONG,
+                )
+                .show()
+        }
+    }
+
+    /**
+     * Where another device left the episode, when it's more than a few seconds from where this
+     * player last saved it there: the archive's place for JRWI audio and a JRWI episode's video,
+     * TubeArchivist's for one of its videos, Jellyfin's for the rest. Null when this player saved
+     * nothing there yet, the episode was finished elsewhere, or the server's place is the start.
+     */
+    private suspend fun newerElsewhere(episode: AudioEpisode): Long? {
+        val saved = savedPlaces?.takeIf { it.key == placeKey(episode) } ?: return null
+        when (episode) {
+            is AudioEpisode.Jrwi -> {
+                val mine = saved.jrwiMs ?: return null
+                val progress = jrwiProgress.progress(episode.item, audio = true) ?: return null
+                if (progress.finished) return null
+                return movedFrom(mine, (progress.position * 1000).toLong())
+            }
+            is AudioEpisode.Video -> {
+                val linked = linkedJrwi
+                if (linked != null) {
+                    val mine = saved.jrwiMs ?: return null
+                    val progress = jrwiProgress.progress(linked, audio = false) ?: return null
+                    if (progress.finished) return null
+                    return movedFrom(mine, (progress.position * 1000).toLong())
+                }
+                val videoId = episode.videoId
+                if (videoId != null && taApi.isConfigured) {
+                    val mine = saved.taMs ?: return null
+                    val position = taApi.getVideo(videoId).player?.position ?: return null
+                    return movedFrom(mine, (position * 1000).toLong())
+                }
+                val mine = saved.jellyfinMs ?: return null
+                val item = repositories.get().getItem(episode.itemId) ?: return null
+                return movedFrom(mine, item.playbackPositionTicks / TICKS_PER_MS)
+            }
+        }
+    }
+
+    private fun movedFrom(savedMs: Long, serverMs: Long): Long? = serverMs.takeIf {
+        it > 0 && abs(it - savedMs) > CATCH_UP_TOLERANCE_MS
+    }
 
     // Whether the player may hand the sound to the phone's audio chip, until that once fails
     private var offloading = false
@@ -1320,23 +1450,29 @@ constructor(
         return scope.launch {
             // Saved even when the player is closed meanwhile
             withContext(NonCancellable) {
+                val places = savedPlacesFor(episode)
                 when (episode) {
                     is AudioEpisode.Jrwi ->
-                        saveJrwi(episode.item, position, duration, finished, kind != Save.TICK)
+                        if (
+                            saveJrwi(episode.item, position, duration, finished, kind != Save.TICK)
+                        ) {
+                            places.jrwiMs = if (finished) null else position
+                        }
                     is AudioEpisode.Video ->
-                        saveVideo(episode, linked, position, duration, finished, kind)
+                        saveVideo(episode, linked, position, duration, finished, kind, places)
                 }
             }
         }
     }
 
+    /** True when the archiver took it, or kept it to send later. */
     private suspend fun saveJrwi(
         item: JrwiItem,
         positionMs: Long,
         durationMs: Long?,
         finished: Boolean,
         handOff: Boolean,
-    ) {
+    ): Boolean =
         try {
             jrwiProgress.audioPlayed(
                 item,
@@ -1345,12 +1481,13 @@ constructor(
                 handOff,
                 durationMs?.div(1000.0),
             )
+            true
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Timber.w(e, "Could not save the JRWI progress of ${item.id}")
+            false
         }
-    }
 
     private suspend fun saveVideo(
         episode: AudioEpisode.Video,
@@ -1359,6 +1496,7 @@ constructor(
         durationMs: Long?,
         finished: Boolean,
         kind: Save,
+        places: SavedPlaces,
     ) {
         val seconds = positionMs / 1000.0
         try {
@@ -1374,6 +1512,7 @@ constructor(
                     repository.postPlaybackStop(episode.itemId, ticks, percent)
                 }
             }
+            places.jellyfinMs = positionMs
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1384,6 +1523,7 @@ constructor(
             try {
                 taApi.postProgress(videoId, seconds)
                 taOfflineStore.clearPendingProgress(videoId)
+                places.taMs = positionMs
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1398,6 +1538,7 @@ constructor(
         if (linked != null) {
             try {
                 jrwiProgress.videoPlayed(linked, seconds, finished, durationMs?.div(1000.0))
+                places.jrwiMs = if (finished) null else positionMs
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1460,3 +1601,8 @@ constructor(
         private const val SPONSORBLOCK_AUTO = "auto"
     }
 }
+
+// How long the check for a place saved elsewhere may take when coming back, and how far that place
+// has to be from this player's own to count as another device's
+private const val CATCH_UP_TIMEOUT_MS = 4_000L
+private const val CATCH_UP_TOLERANCE_MS = 10_000L

@@ -56,6 +56,7 @@ import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -75,6 +76,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jellyfin.sdk.model.api.BaseItemKind
 import timber.log.Timber
 
@@ -217,6 +219,13 @@ constructor(
 
     // Asked for in this player only, and not kept for the next one
     private var loopVideo = false
+
+    // Where this player last told the archive, TubeArchivist and Jellyfin the video was, for each
+    // that took it, so a place another device saved since can be told from its own
+    private var savedJrwiMs: Long? = null
+    private var savedTaMs: Long? = null
+    private var savedJellyfinMs: Long? = null
+    private var catchUpJob: Job? = null
     private var upNextCancelledFor: String? = null
 
     // The downloaded video whose download goes once it has played, as asked on the Up next card
@@ -657,6 +666,9 @@ constructor(
         try {
             if (audio) jrwiProgress.audioPlayed(item, seconds, finished, handOff, lengthSeconds)
             else jrwiProgress.videoPlayed(item, seconds, finished, lengthSeconds)
+            if (jrwiItem?.id == item.id) {
+                savedJrwiMs = if (finished) null else (seconds * 1000).toLong()
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -759,12 +771,16 @@ constructor(
             ) {
                 val itemId = UUID.fromString(player.currentMediaItem!!.mediaId)
                 reportJrwiProgress(force = !player.isPlaying)
+                val position = player.currentPosition
                 try {
                     repository.postPlaybackProgress(
                         itemId,
-                        player.currentPosition.times(10000),
+                        position.times(10000),
                         !player.isPlaying,
                     )
+                    if (player.currentMediaItem?.mediaId == itemId.toString()) {
+                        savedJellyfinMs = position
+                    }
                 } catch (e: Exception) {
                     Timber.e(e)
                 }
@@ -786,6 +802,7 @@ constructor(
             try {
                 taApi.postProgress(videoId, seconds)
                 taOfflineStore.clearPendingProgress(videoId)
+                if (taVideoId == videoId) savedTaMs = (seconds * 1000).toLong()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -915,6 +932,9 @@ constructor(
         Timber.d("Playing MediaItem: ${mediaItem?.mediaId}")
         // A looping video starting over: the same video, with nothing to look up again
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) return
+        savedJrwiMs = null
+        savedTaMs = null
+        savedJellyfinMs = null
         // The same video loaded again, as in another quality, has the same thumbnails
         if (mediaItem?.mediaId != trickplayMediaId) clearTrickplay()
         // A video that plays straight on from the last one doesn't pause in between
@@ -1169,6 +1189,73 @@ constructor(
     }
 
     /**
+     * Back from the background: when another device saved a newer place for the video since this
+     * player last saved its own, goes there, and says so. The archive is asked for a JRWI episode,
+     * TubeArchivist for one of its videos, and Jellyfin for the rest, as each holds the place the
+     * app's pages start from. Nothing changes while the video plays, as this player is then the one
+     * saving. With [resume], playback starts again once that's settled, as it was before the app
+     * was left; null leaves it as it is.
+     */
+    fun catchUpWithServer(resume: Boolean?) {
+        catchUpJob?.cancel()
+        val mediaId = player.currentMediaItem?.mediaId
+        if (player.isPlaying || mediaId == null) {
+            resume?.let { player.playWhenReady = it }
+            return
+        }
+        catchUpJob = viewModelScope.launch {
+            try {
+                val newer =
+                    try {
+                        withTimeoutOrNull(CATCH_UP_TIMEOUT_MS) { newerElsewhere(mediaId) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Timber.w(e, "Could not check for a newer place")
+                        null
+                    }
+                if (newer != null && player.currentMediaItem?.mediaId == mediaId) {
+                    player.seekTo(newer)
+                    eventsChannel.trySend(PlayerEvents.CaughtUp(newer))
+                }
+            } finally {
+                resume?.let { player.playWhenReady = it }
+            }
+        }
+    }
+
+    /**
+     * Where another device left the video [mediaId], when it's more than a few seconds from where
+     * this player last saved it there. Null when this player saved nothing there yet, the episode
+     * was finished elsewhere, or the server's place is the start, which is where Jellyfin puts a
+     * video played to its end or barely begun.
+     */
+    private suspend fun newerElsewhere(mediaId: String): Long? {
+        val episode = jrwiItem
+        if (episode != null) {
+            val saved = savedJrwiMs ?: return null
+            val progress =
+                jrwiProgress.progress(episode, audio = isJrwiAudio(mediaId)) ?: return null
+            if (progress.finished) return null
+            return movedFrom(saved, (progress.position * 1000).toLong())
+        }
+        if (isJrwiAudio(mediaId)) return null
+        val videoId = taVideoId
+        if (videoId != null && taApi.isConfigured) {
+            val saved = savedTaMs ?: return null
+            val position = taApi.getVideo(videoId).player?.position ?: return null
+            return movedFrom(saved, (position * 1000).toLong())
+        }
+        val saved = savedJellyfinMs ?: return null
+        val item = repository.getItem(UUID.fromString(mediaId)) ?: return null
+        return movedFrom(saved, item.playbackPositionTicks / 10_000)
+    }
+
+    private fun movedFrom(savedMs: Long, serverMs: Long): Long? = serverMs.takeIf {
+        it > 0 && abs(it - savedMs) > CATCH_UP_TOLERANCE_MS
+    }
+
+    /**
      * Turns starting the video over when it ends on or off, for whatever this player plays next
      * too, until it's closed. While it's on, nothing plays after it and there's no Up next card. It
      * starts over from its beginning without a gap, as ExoPlayer repeats it; a sleep timer set to
@@ -1364,6 +1451,7 @@ constructor(
                         position.times(10000),
                         position.div(duration.toFloat()).times(100).toInt(),
                     )
+                    if (player.currentMediaItem?.mediaId == mediaId) savedJellyfinMs = position
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -2057,7 +2145,15 @@ sealed interface PlayerEvents {
 
     /** The sleep timer ran out and paused playback. */
     data object SleepTimerPaused : PlayerEvents
+
+    /** Back in the app, the video went to [positionMs], where another device left it. */
+    data class CaughtUp(val positionMs: Long) : PlayerEvents
 }
+
+// How long the check for a place saved elsewhere may take when coming back, and how far that place
+// has to be from this player's own to count as another device's
+private const val CATCH_UP_TIMEOUT_MS = 4_000L
+private const val CATCH_UP_TOLERANCE_MS = 10_000L
 
 // How long the player waits in the background before dropping the picture
 private const val BACKGROUND_AUDIO_ONLY_DELAY_MS = 10_000L

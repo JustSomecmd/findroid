@@ -495,6 +495,16 @@ class PlayerActivity : BasePlayerActivity() {
                                         Toast.LENGTH_LONG,
                                     )
                                     .show()
+                            is PlayerEvents.CaughtUp ->
+                                Toast.makeText(
+                                        this@PlayerActivity,
+                                        getString(
+                                            PlayerR.string.player_caught_up,
+                                            DateUtils.formatElapsedTime(event.positionMs / 1000),
+                                        ),
+                                        Toast.LENGTH_LONG,
+                                    )
+                                    .show()
                             is PlayerEvents.IsPlayingChanged -> {
                                 if (event.isPlaying) {
                                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
