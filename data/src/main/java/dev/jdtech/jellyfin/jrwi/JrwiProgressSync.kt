@@ -1,6 +1,7 @@
 package dev.jdtech.jellyfin.jrwi
 
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import dev.jdtech.jellyfin.repository.MediaChanges
 import dev.jdtech.jellyfin.tubearchivist.TaApi
 import java.io.IOException
 import java.util.UUID
@@ -146,15 +147,21 @@ class JrwiProgressSync(
      * its progress stays with the archived video, but its lines can follow the YouTube upload. Null
      * when the episode has no transcript, or the video isn't one of the archive's.
      */
-    suspend fun transcriptPostForYoutube(youtubeId: String): Long? {
+    suspend fun transcriptPostForYoutube(youtubeId: String): Long? =
+        youtubePost(youtubeId)?.takeIf { it.transcript }?.id
+
+    /**
+     * The archive's post of the YouTube video [youtubeId] itself: an episode's YouTube version,
+     * whether the episode is only on YouTube, handed over, or has its members-only video archived
+     * too. Null when the video isn't one of the archive's, or the archive can't be reached.
+     */
+    suspend fun youtubePost(youtubeId: String): JrwiItem? {
         if (!jrwiApi.isConfigured) return null
         return try {
-            // The YouTube post itself; older archivers ignore the filter, which this skips
-            jrwiApi
-                .getPosts(youtubeId = youtubeId, pageSize = 5)
-                .items
-                .firstOrNull { it.video?.youtubeId == youtubeId && it.transcript }
-                ?.id
+            // Older archivers ignore the filter, which this skips
+            jrwiApi.getPosts(youtubeId = youtubeId, pageSize = 5).items.firstOrNull {
+                it.video?.youtubeId == youtubeId
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -168,22 +175,8 @@ class JrwiProgressSync(
      * over, or uploaded there while its members-only video is archived too. Null when the video
      * isn't one of the archive's, or the archive can't be reached.
      */
-    suspend fun itemIdForYoutube(youtubeId: String): Long? {
-        if (!jrwiApi.isConfigured) return null
-        return try {
-            // The YouTube post itself; older archivers ignore the filter, which this skips
-            jrwiApi
-                .getPosts(youtubeId = youtubeId, pageSize = 5)
-                .items
-                .firstOrNull { it.video?.youtubeId == youtubeId }
-                ?.let { it.itemId ?: it.id }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Timber.w(e, "Could not get the JRWI item of YouTube video $youtubeId")
-            null
-        }
-    }
+    suspend fun itemIdForYoutube(youtubeId: String): Long? =
+        youtubePost(youtubeId)?.let { it.itemId ?: it.id }
 
     /** Jellyfin's copy of the item's archived video, or null when Jellyfin doesn't have it. */
     suspend fun episodeId(item: JrwiItem): UUID? {
@@ -231,6 +224,8 @@ class JrwiProgressSync(
             video.duration ?: durationSeconds,
             finished,
         )
+        // Watched through the archived video, its YouTube upload in TubeArchivist is too
+        if (finished && !video.isYoutube) markUpload(item, true)
     }
 
     /**
@@ -263,6 +258,7 @@ class JrwiProgressSync(
             else taApi.postProgress(youtubeId, videoSeconds)
             return
         }
+        if (finished) markUpload(item, true)
         val episodeId = episodeId(item) ?: return
         if (finished) {
             repository().markAsPlayed(episodeId)
@@ -305,12 +301,74 @@ class JrwiProgressSync(
         if (video == null) return
         if (video.isYoutube) {
             val youtubeId = video.youtubeId ?: return
-            if (taApi.isConfigured) taApi.setWatched(youtubeId, watched)
+            if (taApi.isConfigured) {
+                taApi.setWatched(youtubeId, watched)
+                MediaChanges.watched(videoId = youtubeId)
+            }
             return
         }
+        // The archived video, and its YouTube upload in TubeArchivist when there's one
+        markUpload(item, watched)
         val episodeId = episodeId(item) ?: return
         if (watched) repository().markAsPlayed(episodeId)
         else repository().markAsUnplayed(episodeId)
+    }
+
+    /**
+     * Marks the episode [itemId] watched, or not, as its page's button does: both versions on the
+     * archive, and its videos in Jellyfin and TubeArchivist. For a TubeArchivist video that's one
+     * of its YouTube versions, marked on its own page or watched through. False when the archive
+     * couldn't be told.
+     */
+    suspend fun setWatchedById(itemId: Long, watched: Boolean): Boolean =
+        try {
+            setWatched(jrwiApi.getItem(itemId), watched)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Could not mark the JRWI episode $itemId")
+            false
+        }
+
+    // The YouTube upload of each archived episode once looked up, "" for none, and the episodes
+    // whose upload was marked watched since the app started, so it's marked once
+    private val uploads = ConcurrentHashMap<Long, String>()
+    private val uploadsMarked = ConcurrentHashMap.newKeySet<Long>()
+
+    /**
+     * Marks the YouTube upload of an episode whose members-only video is archived too (Riptide's,
+     * until they're handed over) watched in TubeArchivist, or not, as the episode is. It's found
+     * through the episode's YouTube version, whose post names the video.
+     */
+    private suspend fun markUpload(item: JrwiItem, watched: Boolean) {
+        if (!taApi.isConfigured) return
+        if (watched && !uploadsMarked.add(item.id)) return
+        if (!watched) uploadsMarked.remove(item.id)
+        try {
+            val youtubeId = youtubeUploadOf(item) ?: return
+            taApi.setWatched(youtubeId, watched)
+            MediaChanges.watched(videoId = youtubeId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Could not mark the YouTube upload of ${item.id}")
+            if (watched) uploadsMarked.remove(item.id)
+        }
+    }
+
+    private suspend fun youtubeUploadOf(item: JrwiItem): String? {
+        uploads[item.id]?.let {
+            return it.ifEmpty { null }
+        }
+        // Items in lists come without their versions
+        val versions = item.versions.ifEmpty { jrwiApi.getItem(item.id).versions }
+        val youtubeId =
+            versions
+                .firstOrNull { it.version == "youtube" }
+                ?.let { jrwiApi.getPost(it.postId).video?.youtubeId }
+        uploads[item.id] = youtubeId.orEmpty()
+        return youtubeId
     }
 
     /**

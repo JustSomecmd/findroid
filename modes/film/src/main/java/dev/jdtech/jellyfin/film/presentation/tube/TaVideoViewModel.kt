@@ -117,6 +117,13 @@ constructor(
                 return@launch
             }
             MediaChanges.watched(videoId = video.youtubeId)
+            // A JRWI episode's YouTube version: the episode is watched, or not, in JRWI mode too,
+            // both its versions on the archive and its archived video
+            launch {
+                val jrwiId =
+                    _state.value.jrwiItemId ?: jrwiProgress.itemIdForYoutube(video.youtubeId)
+                if (jrwiId != null) jrwiProgress.setWatchedById(jrwiId, watched)
+            }
             // Keep Jellyfin in step
             _state.value.episode?.let { episode ->
                 try {

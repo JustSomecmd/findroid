@@ -226,6 +226,12 @@ constructor(
     private var savedTaMs: Long? = null
     private var savedJellyfinMs: Long? = null
     private var catchUpJob: Job? = null
+
+    // A TubeArchivist video that's the YouTube upload of a JRWI episode whose members-only video
+    // is archived too: not linked, as the episode's progress stays with the archived video, but
+    // watched through it the episode counts as watched, as playing either version does
+    private var uploadOfItemId: Long? = null
+    private var uploadMarkedFor: Long? = null
     private var upNextCancelledFor: String? = null
 
     // The downloaded video whose download goes once it has played, as asked on the Up next card
@@ -628,10 +634,23 @@ constructor(
             if (isCurrent() && (kept == null || kept.id == item.id)) jrwiItem = item
             return
         }
-        val transcriptPost = jrwiProgress.transcriptPostForYoutube(videoId) ?: return
+        val post = jrwiProgress.youtubePost(videoId) ?: return
         if (isCurrent() && jrwiItem == null) {
-            _uiState.update { it.copy(transcriptPostId = transcriptPost) }
+            uploadOfItemId = post.itemId ?: post.id
+            if (post.transcript) _uiState.update { it.copy(transcriptPostId = post.id) }
         }
+    }
+
+    /**
+     * Played most of the way through a JRWI episode's YouTube upload, the episode is marked
+     * watched: both versions on the archive, and its archived video. Once, and finished even when
+     * the player closes meanwhile.
+     */
+    @OptIn(DelicateCoroutinesApi::class)
+    private fun markUploadWatched(itemId: Long) {
+        if (uploadMarkedFor == itemId) return
+        uploadMarkedFor = itemId
+        GlobalScope.launch { jrwiProgress.setWatchedById(itemId, true) }
     }
 
     /**
@@ -639,6 +658,7 @@ constructor(
      * audio. Playing the audio also hands the position to the video, when [force]d.
      */
     private fun reportJrwiProgress(force: Boolean, finished: Boolean = false) {
+        if (finished) uploadOfItemId?.let { markUploadWatched(it) }
         val item = jrwiItem ?: return
         val now = System.currentTimeMillis()
         if (!finished) {
@@ -712,6 +732,9 @@ constructor(
         val finalJrwiItem = jrwiItem
         val jrwiAudio = isJrwiAudio(mediaId)
         jrwiItem = null
+        uploadOfItemId
+            ?.takeIf { duration > 0 && position >= duration * WATCHED_PART }
+            ?.let { markUploadWatched(it) }
         GlobalScope.launch {
             delay(200L)
             if (finalJrwiItem != null) {
@@ -935,6 +958,7 @@ constructor(
         savedJrwiMs = null
         savedTaMs = null
         savedJellyfinMs = null
+        uploadOfItemId = null
         // The same video loaded again, as in another quality, has the same thumbnails
         if (mediaItem?.mediaId != trickplayMediaId) clearTrickplay()
         // A video that plays straight on from the last one doesn't pause in between
