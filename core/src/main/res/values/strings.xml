@@ -639,7 +639,7 @@
     <string name="jrwi_count_page">Page %1$d of %2$d</string>
     <string name="jrwi_count">%1$d of %2$d</string>
     <string name="jrwi_status_checking">Checking</string>
-    <string name="jrwi_check_started">Started</string>
+    <string name="jrwi_check_started_at">Started</string>
     <string name="jrwi_check_last">Last check</string>
     <string name="jrwi_check_next">Next check</string>
     <string name="jrwi_check_took">took %1$s</string>

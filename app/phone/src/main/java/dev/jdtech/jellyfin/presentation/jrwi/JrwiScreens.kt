@@ -3470,7 +3470,7 @@ private fun JrwiCheckTimes(status: JrwiStatus, lastRun: JrwiCheckRun?) {
         val started = epochMillis(status.lastCheckStarted)
         if (status.running && started != null) {
             JrwiTimeLine(
-                label = stringResource(CoreR.string.jrwi_check_started),
+                label = stringResource(CoreR.string.jrwi_check_started_at),
                 time = clockTime(context, started, now),
                 detail = relativeTime(context, started, now),
             )
