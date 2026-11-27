@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin.presentation.tube
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
@@ -82,6 +83,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jdtech.jellyfin.core.R as CoreR
@@ -845,6 +847,21 @@ private fun TaChannelServerSide(
             OutlinedButton(onClick = { onRefresh(true) }) {
                 Text(stringResource(CoreR.string.ta_refresh_with_videos))
             }
+        }
+        // As a video's page has under its actions
+        val context = LocalContext.current
+        OutlinedButton(
+            modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+            onClick = {
+                val url = "https://www.youtube.com/channel/${channel.id}"
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                } catch (_: android.content.ActivityNotFoundException) {
+                    Toast.makeText(context, url, Toast.LENGTH_LONG).show()
+                }
+            },
+        ) {
+            Text(stringResource(CoreR.string.ta_open_on_youtube))
         }
         TaSectionHeading(stringResource(CoreR.string.ta_channel_settings))
         TaChannelSettings(
