@@ -150,6 +150,7 @@ import dev.jdtech.jellyfin.presentation.tube.TaDownloadsScreen
 import dev.jdtech.jellyfin.presentation.tube.TaHomeScreen
 import dev.jdtech.jellyfin.presentation.tube.TaPlaylistScreen
 import dev.jdtech.jellyfin.presentation.tube.TaQueueScreen
+import dev.jdtech.jellyfin.presentation.tube.TaRemovedScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSearchScreen
 import dev.jdtech.jellyfin.presentation.tube.TaSettingsScreen
 import dev.jdtech.jellyfin.presentation.tube.TaVideoScreen
@@ -953,6 +954,8 @@ private fun TaMainPager(
                         onManageServers = dropUnlessResumed { navigator.navigate(ServersRoute) },
                         onTubeArchivistSettings =
                             dropUnlessResumed { navigator.navigate(TaSettingsRoute) },
+                        onRemovedVideosClick =
+                            dropUnlessResumed { navigator.navigate(TaRemovedRoute) },
                         sides = homeSides,
                     )
                 TaChannelsRoute ->
@@ -1470,6 +1473,7 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
                 },
             onManageServers = dropUnlessResumed { navigator.navigate(ServersRoute) },
             onTubeArchivistSettings = dropUnlessResumed { navigator.navigate(TaSettingsRoute) },
+            onRemovedVideosClick = dropUnlessResumed { navigator.navigate(TaRemovedRoute) },
         )
     }
     entry<TaChannelsRoute>(metadata = MAIN_PAGE_ENTRY) {
@@ -1492,6 +1496,12 @@ private fun EntryProviderScope<NavKey>.tubeArchivistEntries(navigator: Navigator
     }
     entry<TaSettingsRoute> {
         TaSettingsScreen(navigateBack = dropUnlessResumed { navigator.goBack() })
+    }
+    entry<TaRemovedRoute> {
+        TaRemovedScreen(
+            onVideoClick = resumedAction<String> { openVideo(it) },
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+        )
     }
     // JRWI mode's tabs are in the main pager, which shows through their empty entries
     entry<JrwiRoute>(metadata = MAIN_PAGE_ENTRY) {

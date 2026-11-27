@@ -77,6 +77,9 @@ data class CollectionRoute(val collectionId: String, val collectionName: String)
 
 @Serializable data class TaPlaylistRoute(val playlistId: String) : NavKey
 
+/** Every video gone from YouTube, from Video types on Home's server side. */
+@Serializable data object TaRemovedRoute : NavKey
+
 // The JRWI archiver: its mode's Home, Shows and Downloads tabs, and its pages
 @Serializable data object JrwiRoute : NavKey
 

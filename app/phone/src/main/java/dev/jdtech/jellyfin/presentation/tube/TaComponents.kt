@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -840,6 +841,47 @@ fun rememberSeparateRowScroll(state: LazyListState): Modifier {
             state.scroll { with(fling) { performFling(velocity * sign) } }
         },
     )
+}
+
+/**
+ * A tap target that reads as a button: a raised tile with a chevron at its end, or [trailing] in
+ * its place, such as a switch. Its [content] takes the room left with `Modifier.weight(1f)`.
+ */
+@Composable
+fun TaButtonTile(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    verticalPadding: Dp = 12.dp,
+    trailing: @Composable () -> Unit = {
+        Icon(
+            painter = painterResource(CoreR.drawable.ic_chevron_right),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+    },
+    content: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .background(color)
+                .clickable(onClick = onClick)
+                .padding(
+                    start = MaterialTheme.spacings.medium,
+                    end = 12.dp,
+                    top = verticalPadding,
+                    bottom = verticalPadding,
+                ),
+    ) {
+        content()
+        Spacer(Modifier.width(MaterialTheme.spacings.small))
+        trailing()
+    }
 }
 
 /** A label and its value on a server page, such as "Size" and "1.2 GB". */

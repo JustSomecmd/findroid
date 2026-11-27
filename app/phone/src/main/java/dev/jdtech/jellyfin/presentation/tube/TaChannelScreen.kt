@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -77,6 +78,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -505,7 +507,11 @@ private val channelSettings =
         ),
     )
 
-/** The channel's own settings, as on the channel's About page on the web. */
+/**
+ * The channel's own settings, as on the channel's About page on the web, each a tile that opens its
+ * editor. A value the channel sets itself is in the accent; one it takes from the global settings
+ * is muted.
+ */
 @Composable
 private fun TaChannelSettings(
     overwrites: JsonObject,
@@ -513,7 +519,7 @@ private fun TaChannelSettings(
     onEdit: (TaChannelSetting) -> Unit,
     onChange: (key: String, value: JsonElement) -> Unit,
 ) {
-    Column {
+    Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacings.small)) {
         Text(
             text = stringResource(CoreR.string.ta_channel_settings_summary),
             style = MaterialTheme.typography.bodyMedium,
@@ -522,8 +528,9 @@ private fun TaChannelSettings(
         channelSettings.forEach { channelSetting ->
             val own = overwrites[channelSetting.key]?.takeIf { it !is JsonNull }
             val global = globalConfig?.let { channelSetting.setting.read(it) }
-            TaSettingRow(
+            TaChannelSettingTile(
                 label = stringResource(channelSetting.setting.label),
+                own = own != null,
                 value =
                     if (own != null) {
                         taSettingValueText(channelSetting.setting, own, null)
@@ -542,8 +549,9 @@ private fun TaChannelSettings(
         }
         val indexPlaylists =
             (overwrites["index_playlists"] as? JsonPrimitive)?.booleanOrNull == true
-        TaSettingRow(
+        TaChannelSettingTile(
             label = stringResource(CoreR.string.ta_index_playlists),
+            own = false,
             value = stringResource(CoreR.string.ta_index_playlists_summary),
             onClick = {
                 onChange("index_playlists", if (indexPlaylists) JsonNull else JsonPrimitive(true))
@@ -560,7 +568,38 @@ private fun TaChannelSettings(
     }
 }
 
-/** The channel's side on the server: its details, refreshing it, and its own settings. */
+/** One of the channel's settings, as a tile: its name, its value under it, and a chevron. */
+@Composable
+private fun TaChannelSettingTile(
+    label: String,
+    value: String,
+    own: Boolean,
+    onClick: () -> Unit,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    val content: @Composable RowScope.() -> Unit = {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                color =
+                    if (own) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    if (trailing != null) {
+        TaButtonTile(onClick = onClick, trailing = trailing, content = content)
+    } else {
+        TaButtonTile(onClick = onClick, content = content)
+    }
+}
+
 /**
  * The channel's side on the server: its details and settings, then all its videos, which can be
  * picked to reindex, download again or delete.

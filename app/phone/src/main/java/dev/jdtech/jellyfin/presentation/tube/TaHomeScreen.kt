@@ -89,6 +89,8 @@ fun TaHomeScreen(
     onSettingsClick: () -> Unit,
     onManageServers: () -> Unit,
     onTubeArchivistSettings: () -> Unit,
+    /** Opens every video gone from YouTube, from the stats' Video types. */
+    onRemovedVideosClick: () -> Unit,
     /**
      * The server's stats and Home, in that order, when the main pager needs to turn them. The stats
      * are to the left, out of the way of a swipe to Channels.
@@ -314,6 +316,7 @@ fun TaHomeScreen(
                         version = servers.taVersion,
                         onRefresh = { statsViewModel.refresh() },
                         onChannelClick = onChannelClick,
+                        onRemovedClick = onRemovedVideosClick,
                         modifier = Modifier.fillMaxSize(),
                     )
                 },

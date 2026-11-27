@@ -29,7 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -82,6 +81,7 @@ fun TaHomeStatsPage(
     version: String?,
     onRefresh: () -> Unit,
     onChannelClick: (channelId: String) -> Unit,
+    onRemovedClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     PullToRefreshBox(isRefreshing = false, onRefresh = onRefresh, modifier = modifier) {
@@ -115,7 +115,9 @@ fun TaHomeStatsPage(
                         ?.takeIf { it.watched != null || it.unwatched != null }
                         ?.let { watch -> item(key = "watch") { TaWatchCard(watch) } }
                     stats.videos?.let { videos ->
-                        item(key = "types") { TaVideoTypesCard(videos, stats.metricSizes) }
+                        item(key = "types") {
+                            TaVideoTypesCard(videos, stats.metricSizes, onRemovedClick)
+                        }
                     }
                     if (stats.channels != null || stats.playlists != null) {
                         item(key = "library") { TaLibraryCard(stats.channels, stats.playlists) }
@@ -303,9 +305,16 @@ private fun TaWatchCard(watch: TaWatchStats) {
     }
 }
 
-/** Regular videos, shorts and streams, and what can't be found on YouTube any more. */
+/**
+ * Regular videos, shorts and streams, and what can't be found on YouTube any more, which opens them
+ * all when tapped.
+ */
 @Composable
-private fun TaVideoTypesCard(videos: TaVideoStats, metricSizes: Boolean) {
+private fun TaVideoTypesCard(
+    videos: TaVideoStats,
+    metricSizes: Boolean,
+    onRemovedClick: () -> Unit,
+) {
     TaStatsCard(title = stringResource(CoreR.string.ta_stats_video_types)) {
         val types =
             listOf(
@@ -319,8 +328,20 @@ private fun TaVideoTypesCard(videos: TaVideoStats, metricSizes: Boolean) {
         videos.inactive
             ?.takeIf { it.count > 0 }
             ?.let { removed ->
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                TaTotalsLine(stringResource(CoreR.string.ta_stats_removed), removed, metricSizes)
+                TaButtonTile(
+                    onClick = onRemovedClick,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    verticalPadding = 4.dp,
+                    modifier = Modifier.padding(top = MaterialTheme.spacings.small),
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        TaTotalsLine(
+                            stringResource(CoreR.string.ta_stats_removed),
+                            removed,
+                            metricSizes,
+                        )
+                    }
+                }
             }
     }
 }

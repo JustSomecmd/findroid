@@ -348,6 +348,8 @@
     <string name="ta_stats_video_types">Video types</string>
     <string name="ta_stats_regular">Regular videos</string>
     <string name="ta_stats_removed">Removed from YouTube</string>
+    <string name="ta_removed_none">Nothing on the server has been removed from YouTube.</string>
+    <string name="ta_removed_scanning">Looking through every video for the rest: %1$s of %2$s</string>
     <string name="ta_stats_library">Channels and playlists</string>
     <string name="ta_stats_channels">Channels</string>
     <string name="ta_stats_subscribed">%1$s subscribed</string>
