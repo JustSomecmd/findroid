@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -165,8 +166,9 @@ fun TaVideoCard(
 }
 
 /**
- * A smaller video card for rows that scroll sideways. Its title always takes two lines, so every
- * card is as tall as the others and what's under the row stays put.
+ * A smaller video card for rows that scroll sideways. Every card is as tall as one whose title
+ * takes two lines, so the row keeps its height as it scrolls and what's under it stays put. The
+ * channel sits right under the title, and the room a one-line title leaves is under the channel.
  */
 @Composable
 fun TaVideoSmallCard(video: TaVideo, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -175,21 +177,27 @@ fun TaVideoSmallCard(video: TaVideo, onClick: () -> Unit, modifier: Modifier = M
             modifier.width(240.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = onClick)
     ) {
         TaVideoThumbnail(video = video, modifier = Modifier.fillMaxWidth())
-        Column(modifier = Modifier.padding(TaCardTextPadding)) {
-            Text(
-                text = video.title,
-                style = MaterialTheme.typography.bodyMedium,
-                minLines = 2,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = video.channel?.name.orEmpty(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Box(modifier = Modifier.padding(TaCardTextPadding)) {
+            // Takes the height of a two-line title and the channel, with nothing to show or read
+            Column(modifier = Modifier.clearAndSetSemantics {}) {
+                Text(text = "", style = MaterialTheme.typography.bodyMedium, minLines = 2)
+                Text(text = "", style = MaterialTheme.typography.bodySmall)
+            }
+            Column {
+                Text(
+                    text = video.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = video.channel?.name.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
