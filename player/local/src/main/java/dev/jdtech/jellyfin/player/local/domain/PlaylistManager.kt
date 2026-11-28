@@ -494,6 +494,7 @@ internal constructor(
             isTranscoded = transcodeStream != null,
             isAudioOnly = transcodeStream != null && quality == StreamQuality.AUDIO_ONLY,
             subtitle = (this as? FindroidEpisode)?.seriesName?.takeIf { it.isNotBlank() },
+            played = played,
         )
     }
 

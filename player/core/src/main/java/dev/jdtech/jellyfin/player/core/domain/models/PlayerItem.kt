@@ -25,4 +25,6 @@ data class PlayerItem(
     val isAudioOnly: Boolean = false,
     /** Where it's from, shown under its name: the channel of a video, the show of an episode. */
     val subtitle: String? = null,
+    /** Watched in Jellyfin when it was loaded, so playing it is watching it again. */
+    val played: Boolean = false,
 ) : Parcelable

@@ -40,6 +40,7 @@ import dev.jdtech.jellyfin.player.local.domain.TaQueueEntry
 import dev.jdtech.jellyfin.player.local.domain.TrickplaySheets
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.repository.MediaChanges
+import dev.jdtech.jellyfin.repository.WatchedAgain
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.Constants
 import dev.jdtech.jellyfin.tubearchivist.TaApi
@@ -301,6 +302,9 @@ constructor(
     private var isPlayingNow = false
     private var taSegments: List<FindroidSegment> = emptyList()
     private var taLastReport = 0L
+
+    /** Takes the watched mark off what's watched again. */
+    private val watchedAgain = WatchedAgain(taApi)
 
     // JRWI: the archiver's item of what's playing, whose video and audio share one position, and
     // the media ID of its audio while the audio is what's playing
@@ -751,6 +755,12 @@ constructor(
             }
             // The archiver's audio isn't in Jellyfin
             if (jrwiAudio) return@launch
+            // Before the saves, which then give it its place to carry on from
+            mediaId
+                ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                ?.let { id ->
+                    watchedAgain.beforeSave(repository, id, position, duration.takeIf { it > 0 })
+                }
             if (finalTaVideoId != null) {
                 try {
                     taApi.postProgress(finalTaVideoId, position / 1000.0)
@@ -795,6 +805,12 @@ constructor(
                 val itemId = UUID.fromString(player.currentMediaItem!!.mediaId)
                 reportJrwiProgress(force = !player.isPlaying)
                 val position = player.currentPosition
+                watchedAgain.beforeSave(
+                    repository,
+                    itemId,
+                    position,
+                    player.duration.takeIf { it > 0 },
+                )
                 try {
                     repository.postPlaybackProgress(
                         itemId,
@@ -852,6 +868,7 @@ constructor(
             val saved = taOfflineStore.load(savedVideoId)
             if (!isCurrent()) return
             taVideoId = savedVideoId
+            watchedAgain.taVideo(itemId, savedVideoId)
             if (sponsorBlockMode != SPONSORBLOCK_OFF && saved != null) {
                 taSegments = saved.video.sponsorBlockSegments()
             }
@@ -861,6 +878,7 @@ constructor(
             val videoId = savedVideoId ?: taJellyfinLookup.videoIdForItem(itemId) ?: return
             if (!isCurrent()) return
             taVideoId = videoId
+            watchedAgain.taVideo(itemId, videoId)
             // Apart from the segments, so a slow archiver doesn't hold them up
             viewModelScope.launch { loadJrwiYoutubeInfo(itemId, videoId) }
             if (sponsorBlockMode == SPONSORBLOCK_OFF) return
@@ -959,6 +977,10 @@ constructor(
         savedTaMs = null
         savedJellyfinMs = null
         uploadOfItemId = null
+        // Watched before, it's being watched again: the mark comes off at its first save
+        items
+            .firstOrNull { it.itemId.toString() == mediaItem?.mediaId }
+            ?.let { watchedAgain.start(it.itemId, it.played) }
         // The same video loaded again, as in another quality, has the same thumbnails
         if (mediaItem?.mediaId != trickplayMediaId) clearTrickplay()
         // A video that plays straight on from the last one doesn't pause in between

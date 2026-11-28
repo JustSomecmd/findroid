@@ -41,6 +41,7 @@ import dev.jdtech.jellyfin.player.local.domain.PlaylistManager
 import dev.jdtech.jellyfin.player.local.domain.TaQueueEntry
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.repository.MediaChanges
+import dev.jdtech.jellyfin.repository.WatchedAgain
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.Constants
 import dev.jdtech.jellyfin.tubearchivist.TaApi
@@ -375,6 +376,10 @@ constructor(
     private var taPlaylistName: String? = null
     private var jellyfinStarted = false
     private var linkedJrwi: JrwiItem? = null
+
+    /** Takes the watched mark off a video's sound played again. */
+    private val watchedAgain = WatchedAgain(taApi)
+
     private var segments: List<AudioSegment> = emptyList()
     private var segmentRules = SegmentRules()
     private var skippedSegment: AudioSegment? = null
@@ -885,6 +890,9 @@ constructor(
                 null
             }
         val videoId = knownVideoId ?: findVideoId(item.itemId)
+        // Watched before, it's being watched again: the mark comes off at its first save
+        watchedAgain.start(item.itemId, details?.played == true)
+        videoId?.let { watchedAgain.taVideo(item.itemId, it) }
         val picture = details?.images?.let { it.primary ?: it.backdrop }?.toString()
         val subtitle = item.subtitle ?: (details as? FindroidEpisode)?.seriesName
         jellyfinStarted = false
@@ -1464,8 +1472,15 @@ constructor(
                         ) {
                             places.jrwiMs = if (finished) null else position
                         }
-                    is AudioEpisode.Video ->
+                    is AudioEpisode.Video -> {
+                        watchedAgain.beforeSave(
+                            repositories.get(),
+                            episode.itemId,
+                            position,
+                            duration,
+                        )
                         saveVideo(episode, linked, position, duration, finished, kind, places)
+                    }
                 }
             }
         }
